@@ -26,7 +26,7 @@ mod tests {
     use ark_ec::AffineRepr;
     use ark_std::UniformRand;
     use bulletproofs::{BulletproofGens, PedersenGens};
-    use merlin::Transcript;
+    use dock_crypto_utils::transcript::{MerlinTranscript};
     use std::iter;
 
     type PallasA = ark_pallas::Affine;
@@ -47,7 +47,7 @@ mod tests {
             let index = 42;
             let x = xs[index];
 
-            let mut transcript = Transcript::new(b"select");
+            let mut transcript = MerlinTranscript::new(b"select");
             let mut prover: Prover<_, VestaA> = Prover::new(&pg, &mut transcript);
             let blinding_xs = PallasBase::rand(&mut rng);
             let (xs_comm, xs_vars) = prover.commit_vec(xs.as_slice(), blinding_xs, &bpg);
@@ -64,7 +64,7 @@ mod tests {
             (proof, xs_comm, x_comm)
         };
 
-        let mut transcript = Transcript::new(b"select");
+        let mut transcript = MerlinTranscript::new(b"select");
         let mut verifier = Verifier::new(&mut transcript);
 
         let xs_vars = verifier.commit_vec(256, xs_comm);

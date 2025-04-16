@@ -1,7 +1,7 @@
 use ark_serialize::Compress;
 use ark_serialize::Valid;
 use bulletproofs::r1cs::*;
-use merlin::Transcript;
+use dock_crypto_utils::transcript::{Transcript, MerlinTranscript};
 use rand::Rng;
 
 use crate::curve_tree::*;
@@ -21,9 +21,10 @@ use std::marker::PhantomData;
 
 pub struct Coin<P0: SWCurveConfig + Clone, C: CurveGroup> {
     pub value: u64,
-    pub tag: P0::ScalarField, // spending tag derived from the rerandomized public key
+    pub tag: P0::ScalarField, // spending tag derived from the rerandomized public key. this will be the nullifier
     pub blinding: P0::ScalarField, // randomness used to commit to `tag` and `value`
-    pub pk_randomness: C::ScalarField, // randomness used to randomize the public key, needed for the receivers signature
+    /// randomness used to randomize the public key (which will be used to create tag/nullifier), needed for the receivers signature
+    pub pk_randomness: C::ScalarField,
 }
 
 impl<
@@ -39,20 +40,24 @@ impl<
         parameters: &Parameters<C, Blake2s>,
         sr_parameters: &SingleLayerParameters<P0>,
         rng: &mut R,
-        prover: &mut Prover<Transcript, Affine<P0>>,
+        prover: &mut Prover<MerlinTranscript, Affine<P0>>,
     ) -> (Coin<P0, C>, Affine<P0>, Variable<P0::ScalarField>) {
-        let (coin, _) = Self::new(value, pk, parameters, sr_parameters, rng);
+        let (coin, cm) = Self::new(value, pk, parameters, sr_parameters, rng);
 
         let (coin_commitment, variables) = prover.commit_vec(
             &[P0::ScalarField::from(value), coin.tag],
             coin.blinding,
             &sr_parameters.bp_gens,
         );
+
+        debug_assert_eq!(coin_commitment, cm);
+
         range_proof(prover, variables[0].into(), Some(value), 64).unwrap(); // todo what range do we want to enforce? Table of benchmarks for different powers?
 
         (coin, coin_commitment, variables[0])
     }
 
+    /// Returns the coin and its commitment
     pub fn new<R: Rng>(
         value: u64,
         pk: &PublicKey<C>,
@@ -79,12 +84,14 @@ impl<
         )
     }
 
+    /// Uses hash to field to convert public key bytes to scalar
     fn pk_to_scalar(pk: &PublicKey<C>) -> P0::ScalarField {
         let mut pk_bytes = Vec::new();
         pk.serialize_compressed(&mut pk_bytes).unwrap();
         element_from_bytes_stat::<P0::ScalarField>(&pk_bytes)
     }
 
+    /// Returns `pk + rerandomization * G`
     pub fn rerandomized_pk(
         pk: &PublicKey<C>,
         rerandomization: &C::ScalarField,
@@ -94,17 +101,19 @@ impl<
         rerandomization
             .serialize_compressed(&mut randomness)
             .unwrap();
+        // this turns pk into pk + g*rerandomization
         Schnorr::randomize_public_key(parameters, pk, &randomness).unwrap()
     }
 
+    /// Returns the re-randomized path of the coin and the circuit variable corresponding to the valud of the coin
     pub fn prove_spend<
         const L: usize,
         P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = P0::BaseField> + Copy,
     >(
         &self,
         index: usize,
-        even_prover: &mut Prover<Transcript, Affine<P0>>,
-        odd_prover: &mut Prover<Transcript, Affine<P1>>,
+        even_prover: &mut Prover<MerlinTranscript, Affine<P0>>,
+        odd_prover: &mut Prover<MerlinTranscript, Affine<P1>>,
         parameters: &SelRerandParameters<P0, P1>,
         curve_tree: &CurveTree<L, 1, P0, P1>,
     ) -> (
@@ -121,7 +130,9 @@ impl<
             &mut rand::thread_rng(),
         );
 
-        // Todo: Avoid using vector commitment for efficiency. Can just subtract tag*G_tag from the coin outside the circuit. But we will need to change the generator of the value as well. To do that we need to prove knowledge of opening when minting using e.g. sigma protocols.
+        // Todo: Avoid using vector commitment for efficiency. Can just subtract tag*G_tag from the coin outside the circuit.
+        // But we will need to change the generator of the value as well. To do that we need to prove knowledge of opening when
+        // minting using e.g. sigma protocols.
         let (rerandomized_point, variables) = even_prover.commit_vec(
             &[P0::ScalarField::from(self.value), self.tag],
             self.blinding + rerandomization,
@@ -136,7 +147,7 @@ impl<
 }
 
 pub fn verify_mint<P: SWCurveConfig>(
-    verifier: &mut Verifier<Transcript, Affine<P>>,
+    verifier: &mut Verifier<MerlinTranscript, Affine<P>>,
     commitment: Affine<P>,
 ) -> Variable<P::ScalarField> {
     let variables = verifier.commit_vec(2, commitment);
@@ -144,6 +155,7 @@ pub fn verify_mint<P: SWCurveConfig>(
     variables[0]
 }
 
+/// Hash to field
 pub fn element_from_bytes_stat<F: PrimeField>(bytes: &[u8]) -> F {
     // for the purpose of hashing to a 256 bit prime field F_p, reducing 512 bits mod p is statistically close to uniform.
     use sha3::{Digest, Sha3_512};
@@ -170,8 +182,8 @@ pub fn prove_pour<
     C: CurveGroup,
     R: Rng,
 >(
-    mut even_prover: Prover<Transcript, Affine<P0>>,
-    mut odd_prover: Prover<Transcript, Affine<P1>>,
+    mut even_prover: Prover<MerlinTranscript, Affine<P0>>,
+    mut odd_prover: Prover<MerlinTranscript, Affine<P1>>,
     sr_parameters: &SelRerandParameters<P0, P1>,
     curve_tree: &CurveTree<L, 1, P0, P1>,
     input_0: &SpendingInfo<P0, C>,
@@ -303,7 +315,9 @@ pub struct Pour<
     pub odd_proof: R1CSProof<Affine<P1>>,
     pub randomized_path_0: SelectAndRerandomizePath<L, P0, P1>,
     pub randomized_path_1: SelectAndRerandomizePath<L, P0, P1>,
+    /// Re-randomized pk of first coin
     pub pk0: PublicKey<C>,
+    /// Re-randomized pk of second coin
     pub pk1: PublicKey<C>,
     pub minted_coin_commitment_0: Affine<P0>,
     pub minted_coin_commitment_1: Affine<P0>,
@@ -426,7 +440,7 @@ impl<
         spend_commitments_1: &SelectAndRerandomizePath<L, P0, P1>,
         curve_tree: &CurveTree<L, 1, P0, P1>,
     ) -> VerificationTuple<Affine<P0>> {
-        let mut even_verifier = Verifier::new(Transcript::new(ro_domain));
+        let mut even_verifier = Verifier::new(MerlinTranscript::new(ro_domain));
         // mint
         let minted_amount_var_0 = verify_mint(&mut even_verifier, self.minted_coin_commitment_0);
         let minted_amount_var_1 = verify_mint(&mut even_verifier, self.minted_coin_commitment_1);
@@ -466,7 +480,7 @@ impl<
         spend_commitments_1: &SelectAndRerandomizePath<L, P0, P1>,
         curve_tree: &CurveTree<L, 1, P0, P1>,
     ) -> VerificationTuple<Affine<P1>> {
-        let mut odd_verifier = Verifier::new(Transcript::new(ro_domain));
+        let mut odd_verifier = Verifier::new(MerlinTranscript::new(ro_domain));
         // spend
         verify_spend_odd(
             &mut odd_verifier,
@@ -582,13 +596,14 @@ fn verify_spend_even<
     P1: SWCurveConfig<BaseField = F0, ScalarField = F1> + Copy,
     C: CurveGroup,
 >(
-    even_verifier: &mut Verifier<Transcript, Affine<P0>>,
+    even_verifier: &mut Verifier<MerlinTranscript, Affine<P0>>,
     commitments: &SelectAndRerandomizePath<L, P0, P1>,
     sr_parameters: &SelRerandParameters<P0, P1>,
     pk: &PublicKey<C>,
     curve_tree: &CurveTree<L, 1, P0, P1>,
 ) -> Variable<P0::ScalarField> {
     commitments.even_verifier_gadget(even_verifier, sr_parameters, curve_tree);
+    // Question: Why L? This should be 2. Tried 2 and it works.
     let vars = even_verifier.commit_vec(L, commitments.get_rerandomized_leaf());
 
     // enforce equality of tag with hash of public key
@@ -604,7 +619,7 @@ fn verify_spend_odd<
     P0: SWCurveConfig<BaseField = F> + Copy,
     P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = F> + Copy,
 >(
-    odd_verifier: &mut Verifier<Transcript, Affine<P1>>,
+    odd_verifier: &mut Verifier<MerlinTranscript, Affine<P1>>,
     commitments: &SelectAndRerandomizePath<L, P0, P1>,
     sr_parameters: &SelRerandParameters<P0, P1>,
     curve_tree: &CurveTree<L, 1, P0, P1>,
@@ -770,7 +785,7 @@ impl<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use merlin::Transcript;
+    use dock_crypto_utils::transcript::{new_merlin_transcript};
 
     type PallasParameters = ark_pallas::PallasConfig;
     type VestaParameters = ark_vesta::VestaConfig;
@@ -801,11 +816,11 @@ mod tests {
             generators_length,
         );
 
-        let pallas_transcript = Transcript::new(b"select_and_rerandomize");
+        let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
         let mut pallas_prover: Prover<_, Affine<PallasParameters>> =
             Prover::new(&sr_params.even_parameters.pc_gens, pallas_transcript);
 
-        let vesta_transcript = Transcript::new(b"select_and_rerandomize");
+        let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
         let mut vesta_prover: Prover<_, Affine<VestaParameters>> =
             Prover::new(&sr_params.odd_parameters.pc_gens, vesta_transcript);
 
@@ -826,7 +841,7 @@ mod tests {
         );
         // Curve tree with two coins
         let set = vec![coin];
-        let curve_tree = CurveTree::<256, 1, PallasParameters, VestaParameters>::from_set(
+        let curve_tree = CurveTree::<256, 1, PallasParameters, VestaParameters>::from_leaves(
             &set,
             &sr_params,
             Some(4),
@@ -848,15 +863,111 @@ mod tests {
             .unwrap();
 
         {
-            let pallas_transcript = Transcript::new(b"select_and_rerandomize");
+            let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
             let mut pallas_verifier = Verifier::new(pallas_transcript);
-            let vesta_transcript = Transcript::new(b"select_and_rerandomize");
+            let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
             let mut vesta_verifier = Verifier::new(vesta_transcript);
 
             curve_tree.select_and_rerandomize_verification_commitments(&mut path);
             let commitments = path;
+            // Enforce constraints for odd level
             verify_spend_odd(&mut vesta_verifier, &commitments, &sr_params, &curve_tree);
+            // Enforce constraints for even level
             verify_spend_even::<256, _, _, _, _, PallasP>(
+                &mut pallas_verifier,
+                &commitments,
+                &sr_params,
+                &rerandomized_pk,
+                &curve_tree,
+            );
+
+            vesta_verifier
+                .verify(
+                    &vesta_proof,
+                    &sr_params.odd_parameters.pc_gens,
+                    &sr_params.odd_parameters.bp_gens,
+                )
+                .unwrap();
+            pallas_verifier
+                .verify(
+                    &pallas_proof,
+                    &sr_params.even_parameters.pc_gens,
+                    &sr_params.even_parameters.bp_gens,
+                )
+                .unwrap();
+        }
+    }
+
+    #[test]
+    pub fn test_spend_narrow_tree() {
+        let mut rng = rand::thread_rng();
+        // TODO: Find the optimum gen length for any circuit
+        let generators_length = 1 << 11; // minimum sufficient power of 2 (for height 4 curve tree)
+        const L: usize = 8;
+
+        let sr_params = SelRerandParameters::<PallasParameters, VestaParameters>::new(
+            generators_length,
+            generators_length,
+        );
+
+        let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
+        let mut pallas_prover: Prover<_, Affine<PallasParameters>> =
+            Prover::new(&sr_params.even_parameters.pc_gens, pallas_transcript);
+
+        let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
+        let mut vesta_prover: Prover<_, Affine<VestaParameters>> =
+            Prover::new(&sr_params.odd_parameters.pc_gens, vesta_transcript);
+
+        let schnorr_parameters = Schnorr::<PallasP, Blake2s>::setup(&mut rng).unwrap();
+        let (pk, _sk) = Schnorr::keygen(&schnorr_parameters, &mut rng).unwrap();
+
+        let (coin_aux, coin) = Coin::<PallasParameters, PallasP>::new(
+            19,
+            &pk,
+            &schnorr_parameters,
+            &sr_params.even_parameters,
+            &mut rng,
+        );
+        let rerandomized_pk = Coin::<PallasParameters, PallasP>::rerandomized_pk(
+            &pk,
+            &coin_aux.pk_randomness,
+            &schnorr_parameters,
+        );
+        // Curve tree with two coins
+        let set = vec![coin];
+        let curve_tree = CurveTree::<L, 1, PallasParameters, VestaParameters>::from_leaves(
+            &set,
+            &sr_params,
+            Some(4),
+        );
+
+        let (mut path, _) = coin_aux.prove_spend(
+            0,
+            &mut pallas_prover,
+            &mut vesta_prover,
+            &sr_params,
+            &curve_tree,
+        );
+
+        let pallas_proof = pallas_prover
+            .prove(&sr_params.even_parameters.bp_gens)
+            .unwrap();
+        let vesta_proof = vesta_prover
+            .prove(&sr_params.odd_parameters.bp_gens)
+            .unwrap();
+
+        {
+            let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
+            let mut pallas_verifier = Verifier::new(pallas_transcript);
+            let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
+            let mut vesta_verifier = Verifier::new(vesta_transcript);
+
+            curve_tree.select_and_rerandomize_verification_commitments(&mut path);
+            let commitments = path;
+            // Enforce constraints for odd level
+            verify_spend_odd(&mut vesta_verifier, &commitments, &sr_params, &curve_tree);
+            // Enforce constraints for even level
+            verify_spend_even::<L, _, _, _, _, PallasP>(
                 &mut pallas_verifier,
                 &commitments,
                 &sr_params,
@@ -891,11 +1002,11 @@ mod tests {
             generators_length,
         );
 
-        let pallas_transcript = Transcript::new(b"select_and_rerandomize");
+        let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
         let pallas_prover: Prover<_, Affine<PallasParameters>> =
             Prover::new(&sr_params.even_parameters.pc_gens, pallas_transcript);
 
-        let vesta_transcript = Transcript::new(b"select_and_rerandomize");
+        let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
         let vesta_prover: Prover<_, Affine<VestaParameters>> =
             Prover::new(&sr_params.odd_parameters.pc_gens, vesta_transcript);
 
@@ -918,7 +1029,7 @@ mod tests {
         );
         // Curve tree with two coins
         let set = vec![coin_0, coin_1];
-        let curve_tree = CurveTree::<256, 1, PallasParameters, VestaParameters>::from_set(
+        let curve_tree = CurveTree::<256, 1, PallasParameters, VestaParameters>::from_leaves(
             &set,
             &sr_params,
             Some(4),

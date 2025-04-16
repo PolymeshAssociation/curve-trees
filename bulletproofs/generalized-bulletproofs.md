@@ -65,17 +65,17 @@ W_V \cdot \vec{v} -
 = \vec{0}
 $$
 
-If and only if (with overhelming probability over $z$):
+If and only if (with overwhelming probability over $z$):
 
 $$
 \langle
 \vec{y},
 \vec{a_L} \circ \vec{a_R} - \vec{a_O}
-\rangle
-+
+\rangle +
 z \cdot
-\langle \vec{z},
-W_L \cdot \vec{a_L} + 
+\langle 
+\vec{z},
+W_L \cdot \vec{a_L} +
 W_R \cdot \vec{a_R} +
 W_O \cdot \vec{a_O} +
 W_C \cdot \vec{a_C} -
@@ -87,7 +87,7 @@ $$
 
 (we went from an equation over vectors to single field elements using a challenge $z$)
     
-Moving stuff around and seperating the inner products, rewrite the second part of the expression:
+Moving stuff around and separating the inner products, rewrite the second part of the expression:
 
 $$
 \langle z \vec{z} \cdot W_L, \vec{a_L} \rangle + 
@@ -102,11 +102,11 @@ $$
 Let us define:
 
 $$
-\vec{w_L} = z \cdot \vec{z} \cdot W_L \in \mathbb{F}^n \\
-\vec{w_R} = z \cdot \vec{z} \cdot W_R \in \mathbb{F}^n \\
-\vec{w_V} = z \cdot \vec{z} \cdot W_V \in \mathbb{F}^n \\
-\vec{w_C} = z \cdot \vec{z} \cdot W_C \in \mathbb{F}^n \\
-\vec{w_O} = z \cdot \vec{z} \cdot W_O \in \mathbb{F}^n  \\
+\vec{w_L} = z \cdot \vec{z} \cdot W_L \in \mathbb{F}^n, \
+\vec{w_R} = z \cdot \vec{z} \cdot W_R \in \mathbb{F}^n, \
+\vec{w_V} = z \cdot \vec{z} \cdot W_V \in \mathbb{F}^n, \
+\vec{w_C} = z \cdot \vec{z} \cdot W_C \in \mathbb{F}^n, \
+\vec{w_O} = z \cdot \vec{z} \cdot W_O \in \mathbb{F}^n,  \
 w_c = \langle z \cdot \vec{z}, \vec{c} \rangle \in \mathbb{F} 
 $$
 
@@ -116,8 +116,7 @@ $$
 \langle
 \vec{y},
 \vec{a_L} \circ \vec{a_R} - \vec{a_O}
-\rangle
-+
+\rangle +
 \langle \vec{w_L}, \vec{a_L} \rangle + 
 \langle \vec{w_R}, \vec{a_R} \rangle +
 \langle \vec{w_O}, \vec{a_O} \rangle +

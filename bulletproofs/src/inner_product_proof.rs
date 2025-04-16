@@ -8,16 +8,16 @@ use alloc::vec::Vec;
 use ark_ec::{AffineRepr, VariableBaseMSM};
 use ark_ff::{fields::batch_inversion, Field};
 use ark_serialize::{
-    CanonicalDeserialize, CanonicalSerialize, Compress, Read, SerializationError, Valid, Write,
+    CanonicalDeserialize, CanonicalSerialize, Compress, Read
 };
 use ark_std::One;
 use core::iter;
-use merlin::Transcript;
+use dock_crypto_utils::transcript::{MerlinTranscript};
 
 use crate::errors::ProofError;
 use crate::transcript::TranscriptProtocol;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, CanonicalSerialize, CanonicalDeserialize)]
 pub struct InnerProductProof<C: AffineRepr> {
     pub(crate) L_vec: Vec<C>,
     pub(crate) R_vec: Vec<C>,
@@ -38,7 +38,7 @@ impl<C: AffineRepr> InnerProductProof<C> {
     /// The lengths of the vectors must all be the same, and must all be
     /// either 0 or a power of 2.
     pub fn create(
-        transcript: &mut Transcript,
+        transcript: &mut MerlinTranscript,
         Q: &C,
         G_factors: &[C::ScalarField],
         H_factors: &[C::ScalarField],
@@ -130,7 +130,7 @@ impl<C: AffineRepr> InnerProductProof<C> {
             transcript.append_point(b"L", &L);
             transcript.append_point(b"R", &R);
 
-            let u = transcript.challenge_scalar::<C>(b"u");
+            let u = TranscriptProtocol::challenge_scalar::<C>(transcript, b"u");
             let u_inv = if let Some(res) = u.inverse() {
                 res
             } else {
@@ -206,7 +206,7 @@ impl<C: AffineRepr> InnerProductProof<C> {
             transcript.append_point(b"L", &L);
             transcript.append_point(b"R", &R);
 
-            let u = transcript.challenge_scalar::<C>(b"u");
+            let u = TranscriptProtocol::challenge_scalar::<C>(transcript, b"u");
             let u_inv = if let Some(res) = u.inverse() {
                 res
             } else {
@@ -241,7 +241,7 @@ impl<C: AffineRepr> InnerProductProof<C> {
     pub(crate) fn verification_scalars(
         &self,
         n: usize,
-        transcript: &mut Transcript,
+        transcript: &mut MerlinTranscript,
     ) -> Result<
         (
             Vec<C::ScalarField>,
@@ -269,7 +269,7 @@ impl<C: AffineRepr> InnerProductProof<C> {
         for (L, R) in self.L_vec.iter().zip(self.R_vec.iter()) {
             transcript.validate_and_append_point(b"L", L)?;
             transcript.validate_and_append_point(b"R", R)?;
-            challenges.push(transcript.challenge_scalar::<C>(b"u"));
+            challenges.push(TranscriptProtocol::challenge_scalar::<C>(transcript, b"u"));
         }
 
         // 2. Compute 1/(u_k...u_1) and 1/u_k, ..., 1/u_1
@@ -314,7 +314,7 @@ impl<C: AffineRepr> InnerProductProof<C> {
     pub fn verify<IG, IH>(
         &self,
         n: usize,
-        transcript: &mut Transcript,
+        transcript: &mut MerlinTranscript,
         G_factors: IG,
         H_factors: IH,
         P: &C,
@@ -382,58 +382,6 @@ impl<C: AffineRepr> InnerProductProof<C> {
         scalars_size + l_and_r_size
     }
 }
-
-impl<C: AffineRepr> Valid for InnerProductProof<C> {
-    fn check(&self) -> Result<(), SerializationError> {
-        Ok(())
-    }
-}
-impl<C: AffineRepr> CanonicalDeserialize for InnerProductProof<C> {
-    fn deserialize_with_mode<R: Read>(
-        mut reader: R,
-        compress: Compress,
-        validate: ark_serialize::Validate,
-    ) -> Result<Self, SerializationError> {
-        Ok(Self {
-            L_vec: Vec::<C>::deserialize_with_mode(&mut reader, compress, validate)?,
-            R_vec: Vec::<C>::deserialize_with_mode(&mut reader, compress, validate)?,
-            a: C::ScalarField::deserialize_with_mode(&mut reader, compress, validate)?,
-            b: C::ScalarField::deserialize_with_mode(&mut reader, compress, validate)?,
-        })
-    }
-}
-
-impl<C: AffineRepr> CanonicalSerialize for InnerProductProof<C> {
-    /// Returns the size in bytes required to serialize the inner
-    /// product proof.
-    ///
-    /// For vectors of length `n` the proof size is
-    /// \\(32 \cdot (2\lg n+2)\\) bytes.
-    fn serialized_size(&self, mode: Compress) -> usize {
-        // size of the two scalars
-        let scalars_size = self.a.serialized_size(mode) * 2;
-        // size of the 2 point vectors (should be equal)
-        let l_and_r_size = self.L_vec.serialized_size(mode) * 2;
-        scalars_size + l_and_r_size
-    }
-
-    /// Serializes the proof into a byte array of \\(2n+2\\) 32-byte elements.
-    /// The layout of the inner product proof is:
-    /// * \\(n\\) pairs of compressed Ristretto points \\(L_0, R_0 \dots, L_{n-1}, R_{n-1}\\),
-    /// * two scalars \\(a, b\\).
-    fn serialize_with_mode<W: Write>(
-        &self,
-        mut writer: W,
-        compress: Compress,
-    ) -> Result<(), SerializationError> {
-        self.L_vec.serialize_with_mode(&mut writer, compress)?;
-        self.R_vec.serialize_with_mode(&mut writer, compress)?;
-        self.a.serialize_with_mode(&mut writer, compress)?;
-        self.b.serialize_with_mode(&mut writer, compress)?;
-        Ok(())
-    }
-}
-
 /// Computes an inner product of two vectors
 /// \\[
 ///    {\langle {\mathbf{a}}, {\mathbf{b}} \rangle} = \sum\_{i=0}^{n-1} a\_i \cdot b\_i.
@@ -456,6 +404,7 @@ mod tests {
 
     use ark_pallas::Affine;
     use ark_std::UniformRand;
+    use dock_crypto_utils::transcript::new_merlin_transcript;
 
     type F = <Affine as AffineRepr>::ScalarField;
 
@@ -515,7 +464,7 @@ mod tests {
         )
         .into();
 
-        let mut verifier = Transcript::new(b"innerproducttest");
+        let mut verifier = MerlinTranscript::new(b"innerproducttest");
         let proof = InnerProductProof::create(
             &mut verifier,
             &Q,
@@ -527,7 +476,7 @@ mod tests {
             b.clone(),
         );
 
-        let mut verifier = Transcript::new(b"innerproducttest");
+        let mut verifier = MerlinTranscript::new(b"innerproducttest");
         assert!(proof
             .verify(
                 n,
@@ -544,7 +493,7 @@ mod tests {
         let mut buf = Vec::with_capacity(proof.serialized_size(Compress::Yes));
         proof.serialize_compressed(&mut buf).unwrap();
         let proof = InnerProductProof::deserialize_compressed(&buf[..]).unwrap();
-        let mut verifier = Transcript::new(b"innerproducttest");
+        let mut verifier = MerlinTranscript::new(b"innerproducttest");
         assert!(proof
             .verify(
                 n,

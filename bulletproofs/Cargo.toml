@@ -18,13 +18,13 @@ digest = { version = "0.9.0", default-features = false }
 rand = { version = "0.8", default-features = false, optional = true }
 byteorder = { version = "1", default-features = false }
 thiserror = { version = "1", optional = true }
-merlin = { version = "2", default-features = false }
 ark-ec = { version = "0.4"}
 ark-ff = { version = "0.4"}
 ark-serialize = { version = "0.4" } 
 ark-std = { version = "0.4" } 
 rayon = {version = "1.5.3", optional = true}
 zeroize = { version = "1", features = ["zeroize_derive"] }
+dock_crypto_utils = {git = "https://github.com/docknetwork/crypto", default-features = false}
 
 [dev-dependencies]
 criterion = "0.3"

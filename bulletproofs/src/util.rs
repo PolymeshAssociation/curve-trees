@@ -261,23 +261,6 @@ impl<F: Field> Poly6<F> {
     }
 }
 
-/// Raises `x` to the power `n` using binary exponentiation,
-/// with (1 to 2)*lg(n) scalar multiplications.
-/// TODO: a consttime version of this would be awfully similar to a Montgomery ladder.
-pub fn scalar_exp_vartime<F: Field>(x: &F, mut n: u64) -> F {
-    let mut result = F::one();
-    let mut aux = *x; // x, x^2, x^4, x^8, ...
-    while n > 0 {
-        let bit = n & 1;
-        if bit == 1 {
-            result *= aux;
-        }
-        n >>= 1;
-        aux = aux * aux; // FIXME: one unnecessary mult at the last step here!
-    }
-    result
-}
-
 // /// Takes the sum of all the powers of `x`, up to `n`
 // /// If `n` is a power of 2, it uses the efficient algorithm with `2*lg n` multiplications and additions.
 // /// If `n` is not a power of 2, it uses the slow algorithm with `n` multiplications and additions.

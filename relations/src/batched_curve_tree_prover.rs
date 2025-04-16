@@ -1,6 +1,6 @@
 use bulletproofs::r1cs::*;
 
-use crate::curve_tree_prover::{CurveTreeWitness, CurveTreeWitnessPath};
+use crate::curve_tree_prover::{WitnessNode, CurveTreeWitnessPath};
 use crate::single_level_select_and_rerandomize::*;
 
 use crate::curve_tree::{CurveTree, SelRerandParameters, SelectAndRerandomizeMultiPath};
@@ -12,7 +12,7 @@ use ark_ec::{
 };
 use ark_ff::PrimeField;
 use ark_std::Zero;
-use merlin::Transcript;
+use dock_crypto_utils::transcript::{MerlinTranscript};
 use rand::Rng;
 use std::ops::Mul;
 
@@ -32,15 +32,15 @@ impl<
     pub fn batched_select_and_rerandomize_prover_gadget<R: Rng>(
         &self,
         indices: [usize; M],
-        even_prover: &mut Prover<Transcript, Affine<P0>>,
-        odd_prover: &mut Prover<Transcript, Affine<P1>>,
+        even_prover: &mut Prover<MerlinTranscript, Affine<P0>>,
+        odd_prover: &mut Prover<MerlinTranscript, Affine<P1>>,
         parameters: &SelRerandParameters<P0, P1>,
         rng: &mut R,
     ) -> (
         SelectAndRerandomizeMultiPath<L, M, P0, P1>,
         [P0::ScalarField; M],
     ) {
-        let witness = self.select_and_rerandomize_prover_multi_witness(indices, parameters);
+        let witness = self.select_and_rerandomize_prover_multi_witness(indices);
 
         witness.batched_select_and_rerandomize_prover_gadget(
             even_prover,
@@ -54,17 +54,15 @@ impl<
     pub fn select_and_rerandomize_prover_multi_witness(
         &self,
         indices: [usize; M],
-        params: &SelRerandParameters<P0, P1>,
     ) -> CurveTreeWitnessMultiPath<L, M, P0, P1> {
         let mut single_witnesses: Vec<CurveTreeWitnessPath<L, P0, P1>> = Vec::with_capacity(M);
         for (tree_index, leaf_index) in indices.iter().enumerate() {
-            single_witnesses.push(self.select_and_rerandomize_prover_witness(
+            single_witnesses.push(self.get_path_to_leaf_for_proof(
                 *leaf_index,
                 tree_index,
-                params,
             ));
         }
-        let mut even_internal_nodes: Vec<[CurveTreeWitness<L, P0, P1>; M]> = Vec::new();
+        let mut even_internal_nodes: Vec<[WitnessNode<L, P0, P1>; M]> = Vec::new();
         for i in 0..single_witnesses[0].even_internal_nodes.len() {
             let witnesses: Vec<_> = single_witnesses
                 .iter()
@@ -73,7 +71,7 @@ impl<
             even_internal_nodes.push(witnesses.try_into().unwrap());
         }
 
-        let mut odd_internal_nodes: Vec<[CurveTreeWitness<L, P1, P0>; M]> = Vec::new();
+        let mut odd_internal_nodes: Vec<[WitnessNode<L, P1, P0>; M]> = Vec::new();
         for i in 0..single_witnesses[0].odd_internal_nodes.len() {
             let witnesses: Vec<_> = single_witnesses
                 .iter()
@@ -102,9 +100,9 @@ pub struct CurveTreeWitnessMultiPath<
     P1: SWCurveConfig + Copy,
 > {
     // list of internal even nodes including the selected leaves
-    pub even_internal_nodes: Vec<[CurveTreeWitness<L, P0, P1>; M]>,
+    pub even_internal_nodes: Vec<[WitnessNode<L, P0, P1>; M]>,
     // list of internal odd nodes
-    pub odd_internal_nodes: Vec<[CurveTreeWitness<L, P1, P0>; M]>,
+    pub odd_internal_nodes: Vec<[WitnessNode<L, P1, P0>; M]>,
 }
 
 // Prove multiple inclusions using a CurveTreeWitnessPath
@@ -133,8 +131,8 @@ impl<
     /// and the rerandomization scalar of the selected leaf.
     pub fn batched_select_and_rerandomize_prover_gadget<R: Rng>(
         &self,
-        even_prover: &mut Prover<Transcript, Affine<P0>>,
-        odd_prover: &mut Prover<Transcript, Affine<P1>>,
+        even_prover: &mut Prover<MerlinTranscript, Affine<P0>>,
+        odd_prover: &mut Prover<MerlinTranscript, Affine<P1>>,
         parameters: &SelRerandParameters<P0, P1>,
         rng: &mut R,
     ) -> (
@@ -153,7 +151,7 @@ impl<
         for even_multi_node in &self.even_internal_nodes {
             let mut sum_of_selected = Projective::<P1>::zero();
             for even_node in even_multi_node {
-                sum_of_selected += even_node.child_witness;
+                sum_of_selected += even_node.child_node_to_randomize;
             }
 
             let rerandomization = F1::rand(rng);
@@ -173,7 +171,7 @@ impl<
             if index < self.odd_internal_nodes.len() - 1 {
                 let mut sum_of_selected = Projective::<P0>::zero();
                 for odd_node in odd_multi_node {
-                    sum_of_selected += odd_node.child_witness;
+                    sum_of_selected += odd_node.child_node_to_randomize;
                 }
 
                 let rerandomization: F0 = F0::rand(rng);
@@ -196,12 +194,12 @@ impl<
                         .mul(rerandomization)
                         .into_affine();
                     rerandomizations_of_selected[i] =
-                        (odd_multi_node[i].child_witness + blinding).into();
+                        (odd_multi_node[i].child_node_to_randomize + blinding).into();
                 }
             }
         }
 
-        let prove_even = |prover: &mut Prover<Transcript, Affine<P0>>| {
+        let prove_even = |prover: &mut Prover<MerlinTranscript, Affine<P0>>| {
             for i in 0..even_length {
                 let parent_rerandomization = if self.root_is_even() {
                     if i == 0 {
@@ -213,7 +211,7 @@ impl<
                 } else {
                     even_rerandomization_scalars[i]
                 };
-                CurveTreeWitness::single_level_batched_select_and_rerandomize_prover_gadget(
+                WitnessNode::single_level_batched_select_and_rerandomize_prover_gadget(
                     &self.even_internal_nodes[i],
                     prover,
                     &parameters.even_parameters,
@@ -225,7 +223,7 @@ impl<
         };
         #[cfg(not(feature = "parallel"))]
         prove_even(even_prover);
-        let prove_odd = |prover: &mut Prover<Transcript, Affine<P1>>| {
+        let prove_odd = |prover: &mut Prover<MerlinTranscript, Affine<P1>>| {
             for i in 0..odd_length {
                 let parent_rerandomization = if !self.root_is_even() {
                     if i == 0 {
@@ -238,7 +236,7 @@ impl<
                     odd_rerandomization_scalars[i]
                 };
                 if i < odd_length - 1 {
-                    CurveTreeWitness::single_level_batched_select_and_rerandomize_prover_gadget(
+                    WitnessNode::single_level_batched_select_and_rerandomize_prover_gadget(
                         &self.odd_internal_nodes[i],
                         prover,
                         &parameters.odd_parameters,
@@ -248,7 +246,7 @@ impl<
                     );
                 } else {
                     // Commit to the last internal node to obtain variables for its children.
-                    let children_vars = CurveTreeWitness::allocate_multi_node_variables(
+                    let children_vars = WitnessNode::allocate_multi_node_variables(
                         &self.odd_internal_nodes[i],
                         prover,
                         &parameters.odd_parameters,
@@ -265,7 +263,7 @@ impl<
                             &rerandomizations_of_selected[inclusion_index],
                             chunk.to_vec(),
                             Some(
-                                (self.odd_internal_nodes[i][inclusion_index].child_witness
+                                (self.odd_internal_nodes[i][inclusion_index].child_node_to_randomize
                                     + parameters.even_parameters.delta)
                                     .into_affine(),
                             ),
@@ -297,12 +295,12 @@ impl<
         F: PrimeField,
         P0: SWCurveConfig<BaseField = F> + Copy,
         P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = F> + Copy,
-    > CurveTreeWitness<L, P0, P1>
+    > WitnessNode<L, P0, P1>
 {
     /// Prove a single level of the batched select and rerandomize relation.
     pub fn single_level_batched_select_and_rerandomize_prover_gadget<const M: usize>(
         nodes: &[Self; M],
-        prover: &mut Prover<Transcript, Affine<P0>>,
+        prover: &mut Prover<MerlinTranscript, Affine<P0>>,
         even_parameters: &SingleLayerParameters<P0>,
         odd_parameters: &SingleLayerParameters<P1>,
         parent_rerandomization_scalar: P0::ScalarField,
@@ -320,8 +318,8 @@ impl<
             let mut sum_of_selected = Projective::<P1>::zero();
             let mut children: [Affine<P1>; M] = [Affine::<P1>::zero(); M];
             for i in 0..M {
-                sum_of_selected += nodes[i].child_witness;
-                children[i] = (nodes[i].child_witness + odd_parameters.delta).into_affine();
+                sum_of_selected += nodes[i].child_node_to_randomize;
+                children[i] = (nodes[i].child_node_to_randomize + odd_parameters.delta).into_affine();
             }
             (children, sum_of_selected)
         };
@@ -341,20 +339,20 @@ impl<
     /// Allocate variable for the children of a node in a multi path by committing to an internal node or using the children of the root as public input.
     pub fn allocate_multi_node_variables<const M: usize>(
         nodes: &[Self; M],
-        prover: &mut Prover<Transcript, Affine<P0>>,
+        prover: &mut Prover<MerlinTranscript, Affine<P0>>,
         even_parameters: &SingleLayerParameters<P0>,
         parent_rerandomization_scalar: P0::ScalarField,
     ) -> Vec<LinearCombination<<P0>::ScalarField>> {
         let children_vars = if parent_rerandomization_scalar.is_zero() {
             let mut children_vars: Vec<LinearCombination<P0::ScalarField>> = Vec::new();
             for node in nodes {
-                children_vars.append(&mut node.siblings.map(constant).to_vec());
+                children_vars.append(&mut node.x_coord_children.map(constant).to_vec());
             }
             children_vars
         } else {
             let mut children: Vec<P0::ScalarField> = Vec::new();
             for node in nodes {
-                children.append(&mut node.siblings.to_vec());
+                children.append(&mut node.x_coord_children.to_vec());
             }
             let (_, children_vars) = prover.commit_vec(
                 &children,

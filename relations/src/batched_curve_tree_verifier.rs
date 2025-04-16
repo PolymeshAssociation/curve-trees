@@ -5,11 +5,11 @@ use bulletproofs::r1cs::*;
 use crate::single_level_select_and_rerandomize::*;
 
 use crate::curve_tree::{
-    x_coordinates, CurveTree, CurveTreeNode, SelRerandParameters, SelectAndRerandomizeMultiPath,
+    CurveTree, CurveTreeNode, SelRerandParameters, SelectAndRerandomizeMultiPath,
 };
 use ark_ec::{models::short_weierstrass::SWCurveConfig, short_weierstrass::Affine};
 use ark_ff::{PrimeField, Zero};
-use merlin::Transcript;
+use dock_crypto_utils::transcript::{Transcript, MerlinTranscript};
 use std::borrow::BorrowMut;
 
 impl<
@@ -66,7 +66,7 @@ impl<
         P1: SWCurveConfig<BaseField = F0, ScalarField = F1> + Copy + Send,
     > CurveTree<L, M, P0, P1>
 {
-    pub fn batched_select_and_rerandomize_verifier_gadget<T: BorrowMut<Transcript>>(
+    pub fn batched_select_and_rerandomize_verifier_gadget<T: BorrowMut<MerlinTranscript>>(
         &self,
         even_verifier: &mut Verifier<T, Affine<P0>>,
         odd_verifier: &mut Verifier<T, Affine<P1>>,
@@ -100,7 +100,7 @@ impl<
         self.selected_commitments
     }
 
-    pub fn even_verifier_gadget<T: BorrowMut<Transcript>>(
+    pub fn even_verifier_gadget<T: BorrowMut<MerlinTranscript>>(
         &self,
         even_verifier: &mut Verifier<T, Affine<P0>>,
         parameters: &SelRerandParameters<P0, P1>,
@@ -123,22 +123,12 @@ impl<
                     let children = match &ct {
                         CurveTree::Even(root) => {
                             // todo why not branch on this to determine if the root is even and if so extract the children, otherwise commit to get first set of vars
-                            if let CurveTreeNode::Branch {
-                                parent_commitment: _,
-                                children,
-                                height: _,
-                                elements: _,
-                            } = root
+                            if let CurveTreeNode::InnerNode(inner_node) = root
                             {
                                 let mut children_xs = Vec::new();
                                 for i in 0..M {
                                     children_xs.append(
-                                        &mut x_coordinates(
-                                            children,
-                                            &parameters.odd_parameters.delta,
-                                            i,
-                                        )
-                                        .to_vec(),
+                                        &mut inner_node.x_coord_children[i].to_vec(),
                                     )
                                 }
                                 children_xs
@@ -169,7 +159,7 @@ impl<
         }
     }
 
-    pub fn odd_verifier_gadget<T: BorrowMut<Transcript>>(
+    pub fn odd_verifier_gadget<T: BorrowMut<MerlinTranscript>>(
         &self,
         odd_verifier: &mut Verifier<T, Affine<P1>>,
         parameters: &SelRerandParameters<P0, P1>,
@@ -192,22 +182,12 @@ impl<
             {
                 let children = match &ct {
                     CurveTree::Odd(root) => {
-                        if let CurveTreeNode::Branch {
-                            parent_commitment: _,
-                            children,
-                            height: _,
-                            elements: _,
-                        } = root
+                        if let CurveTreeNode::InnerNode(inner_node) = root
                         {
                             let mut children_xs = Vec::new();
                             for i in 0..M {
                                 children_xs.append(
-                                    &mut x_coordinates(
-                                        children,
-                                        &parameters.even_parameters.delta,
-                                        i,
-                                    )
-                                    .to_vec(),
+                                    &mut inner_node.x_coord_children[i].to_vec(),
                                 )
                             }
                             children_xs

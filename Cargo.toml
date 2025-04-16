@@ -3,3 +3,8 @@ members = [
     "bulletproofs",
     "relations",
 ]
+
+resolver = "2"
+
+[profile.release]
+lto = true

@@ -3,11 +3,11 @@ use bulletproofs::r1cs::*;
 use crate::single_level_select_and_rerandomize::*;
 
 use crate::curve_tree::{
-    x_coordinates, CurveTree, CurveTreeNode, SelRerandParameters, SelectAndRerandomizePath,
+    CurveTree, CurveTreeNode, SelRerandParameters, SelectAndRerandomizePath,
 };
 use ark_ec::{models::short_weierstrass::SWCurveConfig, short_weierstrass::Affine};
 use ark_ff::PrimeField;
-use merlin::Transcript;
+use dock_crypto_utils::transcript::{MerlinTranscript};
 use std::borrow::BorrowMut;
 
 impl<
@@ -19,7 +19,7 @@ impl<
         P1: SWCurveConfig<BaseField = F0, ScalarField = F1> + Copy + Send,
     > CurveTree<L, M, P0, P1>
 {
-    // Adds the root to a randomized path provided by the prover.
+    /// Adds the root to a randomized path provided by the prover.
     pub fn select_and_rerandomize_verification_commitments(
         &self,
         randomized_path: &mut SelectAndRerandomizePath<L, P0, P1>,
@@ -30,18 +30,14 @@ impl<
                     randomized_path.even_commitments.len(),
                     randomized_path.odd_commitments.len()
                 );
-                let mut odd_commitments_with_root = vec![ct.commitment(0)];
-                odd_commitments_with_root.append(&mut randomized_path.odd_commitments);
-                randomized_path.odd_commitments = odd_commitments_with_root;
+                randomized_path.odd_commitments.insert(0, ct.commitment(0));
             }
             Self::Even(ct) => {
                 assert_eq!(
                     randomized_path.even_commitments.len() + 1,
                     randomized_path.odd_commitments.len()
                 );
-                let mut even_commitments_with_root = vec![ct.commitment(0)];
-                even_commitments_with_root.append(&mut randomized_path.even_commitments);
-                randomized_path.even_commitments = even_commitments_with_root;
+                randomized_path.even_commitments.insert(0, ct.commitment(0));
             }
         };
     }
@@ -56,7 +52,7 @@ impl<
         P1: SWCurveConfig<BaseField = F0, ScalarField = F1> + Copy + Send,
     > CurveTree<L, M, P0, P1>
 {
-    pub fn select_and_rerandomize_verifier_gadget<T: BorrowMut<Transcript>>(
+    pub fn select_and_rerandomize_verifier_gadget<T: BorrowMut<MerlinTranscript>>(
         &self,
         even_verifier: &mut Verifier<T, Affine<P0>>,
         odd_verifier: &mut Verifier<T, Affine<P1>>,
@@ -84,12 +80,12 @@ impl<
         P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = F> + Copy + Send,
     > SelectAndRerandomizePath<L, P0, P1>
 {
-    /// Get the public rerandomization of the selected commitment
+    /// Get the public rerandomization of the selected (leaf) commitment
     pub fn get_rerandomized_leaf(&self) -> Affine<P0> {
         self.selected_commitment
     }
 
-    pub fn even_verifier_gadget<const M: usize, T: BorrowMut<Transcript>>(
+    pub fn even_verifier_gadget<const M: usize, T: BorrowMut<MerlinTranscript>>(
         &self,
         even_verifier: &mut Verifier<T, Affine<P0>>,
         parameters: &SelRerandParameters<P0, P1>,
@@ -110,14 +106,9 @@ impl<
             let variables = if parent_index == 0 && !root_is_odd {
                 let children = match &ct {
                     CurveTree::Even(root) => {
-                        if let CurveTreeNode::Branch {
-                            parent_commitment: _,
-                            children,
-                            height: _,
-                            elements: _,
-                        } = root
+                        if let CurveTreeNode::InnerNode(inner_node) = root
                         {
-                            x_coordinates(children, &parameters.odd_parameters.delta, 0)
+                            inner_node.x_coord_children[0]
                         } else {
                             panic!()
                         }
@@ -143,7 +134,7 @@ impl<
         }
     }
 
-    pub fn odd_verifier_gadget<const M: usize, T: BorrowMut<Transcript>>(
+    pub fn odd_verifier_gadget<const M: usize, T: BorrowMut<MerlinTranscript>>(
         &self,
         odd_verifier: &mut Verifier<T, Affine<P1>>,
         parameters: &SelRerandParameters<P0, P1>,
@@ -168,14 +159,9 @@ impl<
             let variables = if parent_index == 0 && root_is_odd {
                 let children = match &ct {
                     CurveTree::Odd(root) => {
-                        if let CurveTreeNode::Branch {
-                            parent_commitment: _,
-                            children,
-                            height: _,
-                            elements: _,
-                        } = root
+                        if let CurveTreeNode::InnerNode(inner_node) = root
                         {
-                            x_coordinates(children, &parameters.even_parameters.delta, 0)
+                            inner_node.x_coord_children[0]
                         } else {
                             panic!()
                         }

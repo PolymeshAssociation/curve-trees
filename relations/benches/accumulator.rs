@@ -19,7 +19,7 @@ use ark_ec::short_weierstrass::{Affine, SWCurveConfig};
 use ark_serialize::{CanonicalSerialize, Compress};
 use ark_std::{UniformRand, Zero};
 
-use merlin::Transcript;
+use dock_crypto_utils::transcript::{Transcript, MerlinTranscript};
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -84,14 +84,14 @@ fn bench_accumulator_with_parameters<
             .commit(&leaf_elements, P0::ScalarField::zero(), 0);
 
     let set = vec![leaf_commitment];
-    let curve_tree = CurveTree::<L, 1, P0, P1>::from_set(&set, &sr_params, Some(depth));
+    let curve_tree = CurveTree::<L, 1, P0, P1>::from_leaves(&set, &sr_params, Some(depth));
 
     let prove = |print| {
-        let pallas_transcript = Transcript::new(b"acc");
+        let pallas_transcript = MerlinTranscript::new(b"acc");
         let mut pallas_prover: Prover<_, Affine<P0>> =
             Prover::new(&sr_params.even_parameters.pc_gens, pallas_transcript);
 
-        let vesta_transcript = Transcript::new(b"acc");
+        let vesta_transcript = MerlinTranscript::new(b"acc");
         let mut vesta_prover: Prover<_, Affine<P1>> =
             Prover::new(&sr_params.odd_parameters.pc_gens, vesta_transcript);
 
@@ -185,7 +185,7 @@ fn bench_accumulator_with_parameters<
                             || {
                                 let pallas_verification_scalars_and_points: Vec<_> = srvs
                                     .map(|srv| {
-                                        let pallas_transcript = Transcript::new(b"acc");
+                                        let pallas_transcript = MerlinTranscript::new(b"acc");
                                         let mut pallas_verifier = Verifier::new(pallas_transcript);
                                         srv.even_verifier_gadget(
                                             &mut pallas_verifier,
@@ -217,7 +217,7 @@ fn bench_accumulator_with_parameters<
                             || {
                                 let vesta_verification_scalars_and_points: Vec<_> = srvs_clone
                                     .map(|srv| {
-                                        let vesta_transcript = Transcript::new(b"acc");
+                                        let vesta_transcript = MerlinTranscript::new(b"acc");
                                         let mut vesta_verifier = Verifier::new(vesta_transcript);
                                         srv.odd_verifier_gadget(
                                             &mut vesta_verifier,
@@ -251,7 +251,7 @@ fn bench_accumulator_with_parameters<
                         {
                             let pallas_verification_scalars_and_points: Vec<_> = srvs
                                 .map(|srv| {
-                                    let pallas_transcript = Transcript::new(b"acc");
+                                    let pallas_transcript = MerlinTranscript::new(b"acc");
                                     let mut pallas_verifier = Verifier::new(pallas_transcript);
                                     srv.even_verifier_gadget(
                                         &mut pallas_verifier,
@@ -281,7 +281,7 @@ fn bench_accumulator_with_parameters<
                         {
                             let vesta_verification_scalars_and_points: Vec<_> = srvs_clone
                                 .map(|srv| {
-                                    let vesta_transcript = Transcript::new(b"acc");
+                                    let vesta_transcript = MerlinTranscript::new(b"acc");
                                     let mut vesta_verifier = Verifier::new(vesta_transcript);
                                     srv.odd_verifier_gadget(
                                         &mut vesta_verifier,

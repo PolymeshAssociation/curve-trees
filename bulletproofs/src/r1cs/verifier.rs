@@ -5,7 +5,7 @@ use ark_ff::Field;
 use ark_std::{One, UniformRand, Zero};
 use core::borrow::BorrowMut;
 use core::mem;
-use merlin::Transcript;
+use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
 
 use super::constraint_system::{
     ConstraintSystem, RandomizableConstraintSystem, RandomizedConstraintSystem,
@@ -29,7 +29,7 @@ use super::op_splits;
 /// When all constraints are added, the verifying code calls `verify`
 /// which consumes the `Verifier` instance, samples random challenges
 /// that instantiate the randomized constraints, and verifies the proof.
-pub struct Verifier<T: BorrowMut<Transcript>, C: AffineRepr> {
+pub struct Verifier<T: BorrowMut<MerlinTranscript>, C: AffineRepr> {
     transcript: T,
     constraints: Vec<LinearCombination<C::ScalarField>>,
 
@@ -63,12 +63,12 @@ pub struct Verifier<T: BorrowMut<Transcript>, C: AffineRepr> {
 /// monomorphize the closures for the proving and verifying code.
 /// However, this type cannot be instantiated by the user and therefore can only be used within
 /// the callback provided to `specify_randomized_constraints`.
-pub struct RandomizingVerifier<T: BorrowMut<Transcript>, C: AffineRepr> {
+pub struct RandomizingVerifier<T: BorrowMut<MerlinTranscript>, C: AffineRepr> {
     verifier: Verifier<T, C>,
 }
 
-impl<T: BorrowMut<Transcript>, C: AffineRepr> ConstraintSystem<C::ScalarField> for Verifier<T, C> {
-    fn transcript(&mut self) -> &mut Transcript {
+impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> ConstraintSystem<C::ScalarField> for Verifier<T, C> {
+    fn transcript(&mut self) -> &mut MerlinTranscript {
         self.transcript.borrow_mut()
     }
 
@@ -155,7 +155,7 @@ impl<T: BorrowMut<Transcript>, C: AffineRepr> ConstraintSystem<C::ScalarField> f
     }
 }
 
-impl<T: BorrowMut<Transcript>, C: AffineRepr> RandomizableConstraintSystem<C::ScalarField>
+impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> RandomizableConstraintSystem<C::ScalarField>
     for Verifier<T, C>
 {
     type RandomizedCS = RandomizingVerifier<T, C>;
@@ -169,10 +169,10 @@ impl<T: BorrowMut<Transcript>, C: AffineRepr> RandomizableConstraintSystem<C::Sc
     }
 }
 
-impl<T: BorrowMut<Transcript>, C: AffineRepr> ConstraintSystem<C::ScalarField>
+impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> ConstraintSystem<C::ScalarField>
     for RandomizingVerifier<T, C>
 {
-    fn transcript(&mut self) -> &mut Transcript {
+    fn transcript(&mut self) -> &mut MerlinTranscript {
         self.verifier.transcript.borrow_mut()
     }
 
@@ -218,25 +218,25 @@ impl<T: BorrowMut<Transcript>, C: AffineRepr> ConstraintSystem<C::ScalarField>
     }
 }
 
-impl<T: BorrowMut<Transcript>, C: AffineRepr> RandomizedConstraintSystem<C::ScalarField>
+impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> RandomizedConstraintSystem<C::ScalarField>
     for RandomizingVerifier<T, C>
 {
     fn challenge_scalar(&mut self, label: &'static [u8]) -> C::ScalarField {
-        self.verifier
+        let t = self.verifier
             .transcript
-            .borrow_mut()
-            .challenge_scalar::<C>(label)
+            .borrow_mut();
+            TranscriptProtocol::challenge_scalar::<C>(t, label)
     }
 }
 
-impl<T: BorrowMut<Transcript>, C: AffineRepr> Verifier<T, C> {
+impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
     /// Construct an empty constraint system with specified external
     /// input variables.
     ///
     /// # Inputs
     ///
     /// The `transcript` parameter is a Merlin proof transcript.  The
-    /// `VerifierCS` holds onto the `&mut Transcript` until it consumes
+    /// `VerifierCS` holds onto the `&mut MerlinTranscript` until it consumes
     /// itself during [`VerifierCS::verify`], releasing its borrow of the
     /// transcript.  This ensures that the transcript cannot be
     /// altered except by the `VerifierCS` before proving is complete.
@@ -301,6 +301,7 @@ impl<T: BorrowMut<Transcript>, C: AffineRepr> Verifier<T, C> {
         Variable::Committed(i)
     }
 
+    /// `dimension` is the length of the committed vector
     pub fn commit_vec(&mut self, dimension: usize, comm: C) -> Vec<Variable<C::ScalarField>> {
         // allocate next index for vector commitment
         let comm_idx = self.vec_comms.len();
@@ -434,7 +435,7 @@ impl<T: BorrowMut<Transcript>, C: AffineRepr> Verifier<T, C> {
         let gens = bp_gens.share(0);
 
         if bp_gens.gens_capacity < padded_n {
-            return Err(R1CSError::InvalidGeneratorsLength);
+            return Err(R1CSError::InvalidGeneratorsLength(bp_gens.gens_capacity, padded_n));
         }
 
         use std::iter;
@@ -481,7 +482,7 @@ impl<T: BorrowMut<Transcript>, C: AffineRepr> Verifier<T, C> {
         // but this suffix provides safe disambiguation because each variable
         // is prefixed with a separate label.
         let transcript = self.transcript.borrow_mut();
-        transcript.append_u64(b"m", self.V.len() as u64);
+        transcript.merlin.append_u64(b"m", self.V.len() as u64);
 
         // number of commitments
         let ncomm = self.vec_comms.len();
@@ -491,12 +492,12 @@ impl<T: BorrowMut<Transcript>, C: AffineRepr> Verifier<T, C> {
         let t_poly_deg = 2 * (op_degree + 1);
         let ops = op_splits(op_degree);
 
-        #[cfg(debug_assertions)]
-        {
-            println!("op_degree = {}", op_degree);
-            println!("t_poly_deg = {}", t_poly_deg);
-            println!("ops = {:?}", &ops);
-        }
+        // #[cfg(debug_assertions)]
+        // {
+        //     println!("op_degree = {}", op_degree);
+        //     println!("t_poly_deg = {}", t_poly_deg);
+        //     println!("ops = {:?}", &ops);
+        // }
 
         let op_aLaR = ops[0];
         let op_aO = ops[1];
@@ -528,12 +529,12 @@ impl<T: BorrowMut<Transcript>, C: AffineRepr> Verifier<T, C> {
         use std::iter;
 
         // These points are the identity in the 1-phase unrandomized case.
-        transcript.append_point(b"A_I2", &proof.A_I2);
-        transcript.append_point(b"A_O2", &proof.A_O2);
-        transcript.append_point(b"S2", &proof.S2);
+        TranscriptProtocol::append_point(transcript, b"A_I2", &proof.A_I2);
+        TranscriptProtocol::append_point(transcript, b"A_O2", &proof.A_O2);
+        TranscriptProtocol::append_point(transcript, b"S2", &proof.S2);
 
-        let y = transcript.challenge_scalar::<C>(b"y");
-        let z = transcript.challenge_scalar::<C>(b"z");
+        let y = TranscriptProtocol::challenge_scalar::<C>(transcript, b"y");
+        let z = TranscriptProtocol::challenge_scalar::<C>(transcript, b"z");
 
         let transcript = self.transcript.borrow_mut();
         for d in 0..t_poly_deg + 1 {
@@ -544,8 +545,8 @@ impl<T: BorrowMut<Transcript>, C: AffineRepr> Verifier<T, C> {
             transcript.validate_and_append_point(util::T_LABELS[d], &proof.T[d])?;
         }
 
-        let u = transcript.challenge_scalar::<C>(b"u");
-        let x = transcript.challenge_scalar::<C>(b"x");
+        let u = TranscriptProtocol::challenge_scalar::<C>(transcript, b"u");
+        let x = TranscriptProtocol::challenge_scalar::<C>(transcript, b"x");
 
         #[cfg(debug_assertions)]
         println!("verifier: x = {}", x);
@@ -571,12 +572,12 @@ impl<T: BorrowMut<Transcript>, C: AffineRepr> Verifier<T, C> {
         transcript.append_scalar::<C>(b"t_x_blinding", &proof.t_x_blinding);
         transcript.append_scalar::<C>(b"e_blinding", &proof.e_blinding);
 
-        let w = transcript.challenge_scalar::<C>(b"w");
+        let w = TranscriptProtocol::challenge_scalar::<C>(transcript, b"w");
 
         let (wL, wR, wO, wV, wVCs, wc) = self.flattened_constraints(&z);
 
-        #[cfg(debug_assertions)]
-        println!("verifier wVCs = {:?}", &wVCs);
+        // #[cfg(debug_assertions)]
+        // println!("verifier wVCs = {:?}", &wVCs);
 
         // Get IPP variables
         let (u_sq, u_inv_sq, s) = proof
@@ -772,7 +773,7 @@ pub fn batch_verify<C: AffineRepr>(
     let gens = bp_gens.share(0);
 
     if bp_gens.gens_capacity < padded_n {
-        return Err(R1CSError::InvalidGeneratorsLength);
+        return Err(R1CSError::InvalidGeneratorsLength(bp_gens.gens_capacity, padded_n));
     }
 
     use std::iter;

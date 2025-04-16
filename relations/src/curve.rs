@@ -3,6 +3,7 @@ use ark_ff::Field;
 use bulletproofs::r1cs::*;
 use std::marker::PhantomData;
 
+/// Enforce (x, y) form a valid curve point
 pub fn curve_check<F: Field, Cs: ConstraintSystem<F>>(
     cs: &mut Cs,
     x: LinearCombination<F>,
@@ -195,7 +196,7 @@ mod tests {
     use ark_pallas::Affine as PallasA;
     use ark_vesta::Affine as VestaA;
     type VestaScalar = <VestaA as AffineRepr>::ScalarField;
-    use merlin::Transcript;
+    use dock_crypto_utils::transcript::{MerlinTranscript};
 
     #[test]
     fn test_curve_addition() {
@@ -222,7 +223,7 @@ mod tests {
         let pc_gens = PedersenGens::<VestaA>::default();
         let bp_gens = BulletproofGens::<VestaA>::new(8, 1);
 
-        let mut transcript = Transcript::new(b"CurveAdditionGadget");
+        let mut transcript = MerlinTranscript::new(b"CurveAdditionGadget");
         let mut prover = Prover::new(&pc_gens, &mut transcript);
         let (x_l_comm, x_l_var) = prover.commit(x_l, VestaScalar::rand(&mut rng));
         let (y_l_comm, y_l_var) = prover.commit(y_l, VestaScalar::rand(&mut rng));
@@ -246,7 +247,7 @@ mod tests {
 
         let proof = prover.prove(&bp_gens).unwrap();
 
-        let mut transcript = Transcript::new(b"CurveAdditionGadget");
+        let mut transcript = MerlinTranscript::new(b"CurveAdditionGadget");
         let mut verifier = Verifier::new(&mut transcript);
 
         let x_l_var = verifier.commit(x_l_comm);
@@ -285,7 +286,7 @@ mod tests {
         let pc_gens = PedersenGens::<VestaA>::default();
         let bp_gens = BulletproofGens::<VestaA>::new(8, 1);
 
-        let mut transcript = Transcript::new(b"CurveAdditionGadget");
+        let mut transcript = MerlinTranscript::new(b"CurveAdditionGadget");
         let mut prover = Prover::new(&pc_gens, &mut transcript);
         let (x_l_comm, x_l_var) = prover.commit(x_l, VestaScalar::rand(&mut rng));
         let (y_l_comm, y_l_var) = prover.commit(y_l, VestaScalar::rand(&mut rng));
@@ -312,7 +313,7 @@ mod tests {
 
         let proof = prover.prove(&bp_gens).unwrap();
 
-        let mut transcript = Transcript::new(b"CurveAdditionGadget");
+        let mut transcript = MerlinTranscript::new(b"CurveAdditionGadget");
         let mut verifier = Verifier::new(&mut transcript);
 
         let x_l_var = verifier.commit(x_l_comm);
@@ -350,7 +351,7 @@ mod tests {
         let pc_gens = PedersenGens::<VestaA>::default();
         let bp_gens = BulletproofGens::<VestaA>::new(8, 1);
 
-        let mut transcript = Transcript::new(b"CurveAdditionGadget");
+        let mut transcript = MerlinTranscript::new(b"CurveAdditionGadget");
         let mut prover = Prover::new(&pc_gens, &mut transcript);
         let (x_l_comm, x_l_var) = prover.commit(x_l, VestaScalar::rand(&mut rng));
         let (y_l_comm, y_l_var) = prover.commit(y_l, VestaScalar::rand(&mut rng));
@@ -379,7 +380,7 @@ mod tests {
 
         let proof = prover.prove(&bp_gens).unwrap();
 
-        let mut transcript = Transcript::new(b"CurveAdditionGadget");
+        let mut transcript = MerlinTranscript::new(b"CurveAdditionGadget");
         let mut verifier = Verifier::new(&mut transcript);
 
         let x_l_var = verifier.commit(x_l_comm);

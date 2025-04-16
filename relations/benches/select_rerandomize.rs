@@ -19,7 +19,7 @@ use ark_ec::short_weierstrass::{Affine, SWCurveConfig};
 use ark_serialize::{CanonicalSerialize, Compress};
 use ark_std::UniformRand;
 
-use merlin::Transcript;
+use dock_crypto_utils::transcript::{Transcript, MerlinTranscript};
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -120,14 +120,14 @@ fn bench_select_and_rerandomize_with_parameters<
 
     let some_point = Affine::<P0>::rand(&mut rng);
     let set = vec![some_point];
-    let curve_tree = CurveTree::<L, 1, P0, P1>::from_set(&set, &sr_params, Some(depth));
+    let curve_tree = CurveTree::<L, 1, P0, P1>::from_leaves(&set, &sr_params, Some(depth));
 
     let prove = |print| {
-        let pallas_transcript = Transcript::new(b"select_and_rerandomize");
+        let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
         let mut pallas_prover: Prover<_, Affine<P0>> =
             Prover::new(&sr_params.even_parameters.pc_gens, pallas_transcript);
 
-        let vesta_transcript = Transcript::new(b"select_and_rerandomize");
+        let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
         let mut vesta_prover: Prover<_, Affine<P1>> =
             Prover::new(&sr_params.odd_parameters.pc_gens, vesta_transcript);
 
@@ -186,11 +186,11 @@ fn bench_select_and_rerandomize_with_parameters<
         #[cfg(feature = "detailed_benchmarks")]
         group.bench_function("prover_gadget", |b| {
             b.iter(|| {
-                let pallas_transcript = Transcript::new(b"select_and_rerandomize");
+                let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
                 let mut pallas_prover: Prover<_, Affine<P0>> =
                     Prover::new(&sr_params.even_parameters.pc_gens, pallas_transcript);
 
-                let vesta_transcript = Transcript::new(b"select_and_rerandomize");
+                let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
                 let mut vesta_prover: Prover<_, Affine<P1>> =
                     Prover::new(&sr_params.odd_parameters.pc_gens, vesta_transcript);
 
@@ -214,13 +214,13 @@ fn bench_select_and_rerandomize_with_parameters<
                 let srv = curve_tree.select_and_rerandomize_verification_commitments(path.clone());
 
                 let even_verification_gadget = || {
-                    let pallas_transcript = Transcript::new(b"select_and_rerandomize");
+                    let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
                     let mut pallas_verifier = Verifier::new(pallas_transcript);
                     srv.even_verifier_gadget(&mut pallas_verifier, &sr_params, &curve_tree);
                 };
 
                 let odd_verification_gadget = || {
-                    let vesta_transcript = Transcript::new(b"select_and_rerandomize");
+                    let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
                     let mut vesta_verifier = Verifier::new(vesta_transcript);
                     srv.odd_verifier_gadget(&mut vesta_verifier, &sr_params, &curve_tree);
                 };
@@ -244,7 +244,7 @@ fn bench_select_and_rerandomize_with_parameters<
                 let srv = curve_tree.select_and_rerandomize_verification_commitments(path.clone());
 
                 let even_verification_gadget = || {
-                    let pallas_transcript = Transcript::new(b"select_and_rerandomize");
+                    let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
                     let mut pallas_verifier = Verifier::new(pallas_transcript);
                     srv.even_verifier_gadget(&mut pallas_verifier, &sr_params, &curve_tree);
                     let _ = pallas_verifier
@@ -253,7 +253,7 @@ fn bench_select_and_rerandomize_with_parameters<
                 };
 
                 let odd_verification_gadget = || {
-                    let vesta_transcript = Transcript::new(b"select_and_rerandomize");
+                    let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
                     let mut vesta_verifier = Verifier::new(vesta_transcript);
                     srv.odd_verifier_gadget(&mut vesta_verifier, &sr_params, &curve_tree);
                     let _ = vesta_verifier
@@ -279,7 +279,7 @@ fn bench_select_and_rerandomize_with_parameters<
                 let srv = curve_tree.select_and_rerandomize_verification_commitments(path.clone());
 
                 let even_verification_gadget = || {
-                    let pallas_transcript = Transcript::new(b"select_and_rerandomize");
+                    let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
                     let mut pallas_verifier = Verifier::new(pallas_transcript);
                     srv.even_verifier_gadget(&mut pallas_verifier, &sr_params, &curve_tree);
                     let pallas_vt = pallas_verifier
@@ -295,7 +295,7 @@ fn bench_select_and_rerandomize_with_parameters<
                 };
 
                 let odd_verification_gadget = || {
-                    let vesta_transcript = Transcript::new(b"select_and_rerandomize");
+                    let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
                     let mut vesta_verifier = Verifier::new(vesta_transcript);
                     srv.odd_verifier_gadget(&mut vesta_verifier, &sr_params, &curve_tree);
 
@@ -348,7 +348,7 @@ fn bench_select_and_rerandomize_with_parameters<
                                 let pallas_verification_scalars_and_points: Vec<_> = srvs
                                     .map(|srv| {
                                         let pallas_transcript =
-                                            Transcript::new(b"select_and_rerandomize");
+                                            MerlinTranscript::new(b"select_and_rerandomize");
                                         let mut pallas_verifier = Verifier::new(pallas_transcript);
                                         srv.even_verifier_gadget(
                                             &mut pallas_verifier,
@@ -372,7 +372,7 @@ fn bench_select_and_rerandomize_with_parameters<
                                 let vesta_verification_scalars_and_points: Vec<_> = srvs_clone
                                     .map(|srv| {
                                         let vesta_transcript =
-                                            Transcript::new(b"select_and_rerandomize");
+                                            MerlinTranscript::new(b"select_and_rerandomize");
                                         let mut vesta_verifier = Verifier::new(vesta_transcript);
                                         srv.odd_verifier_gadget(
                                             &mut vesta_verifier,
@@ -405,7 +405,7 @@ fn bench_select_and_rerandomize_with_parameters<
                             let mut srv = path.clone();
                             curve_tree.select_and_rerandomize_verification_commitments(&mut srv);
                             {
-                                let pallas_transcript = Transcript::new(b"select_and_rerandomize");
+                                let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
                                 let mut pallas_verifier = Verifier::new(pallas_transcript);
                                 srv.even_verifier_gadget(
                                     &mut pallas_verifier,
@@ -419,7 +419,7 @@ fn bench_select_and_rerandomize_with_parameters<
                             }
 
                             {
-                                let vesta_transcript = Transcript::new(b"select_and_rerandomize");
+                                let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
                                 let mut vesta_verifier = Verifier::new(vesta_transcript);
                                 srv.odd_verifier_gadget(
                                     &mut vesta_verifier,

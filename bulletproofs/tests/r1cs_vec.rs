@@ -1,7 +1,6 @@
 #![allow(non_snake_case)]
 
 extern crate bulletproofs;
-extern crate merlin;
 extern crate rand;
 
 use ark_ec::AffineRepr;
@@ -12,9 +11,10 @@ use ark_pallas::Affine;
 
 use bulletproofs::r1cs::*;
 use bulletproofs::{BulletproofGens, PedersenGens};
-use merlin::Transcript;
+use dock_crypto_utils::transcript::{Transcript, new_merlin_transcript};
 
 mod veccom_twice {
+    use dock_crypto_utils::transcript::MerlinTranscript;
     use super::*;
 
     // Prover's scope
@@ -22,7 +22,7 @@ mod veccom_twice {
         pc_gens: &PedersenGens<C>,
         bp_gens: &BulletproofGens<C>,
     ) -> Result<(R1CSProof<C>, C, C), R1CSError> {
-        let mut transcript = Transcript::new(b"R1CSExampleGadget");
+        let mut transcript = MerlinTranscript::new(b"R1CSExampleGadget");
 
         // 1. Create a prover
         let mut prover = Prover::new(pc_gens, &mut transcript);
@@ -50,7 +50,7 @@ mod veccom_twice {
         comm1: C,
         comm2: C,
     ) -> Result<(), R1CSError> {
-        let mut transcript = Transcript::new(b"R1CSExampleGadget");
+        let mut transcript = MerlinTranscript::new(b"R1CSExampleGadget");
 
         // 1. Create a verifier
         let mut verifier = Verifier::new(&mut transcript);
@@ -80,9 +80,11 @@ mod veccom_twice {
     }
 }
 mod veccom_empty {
+    use dock_crypto_utils::transcript::MerlinTranscript;
     use super::*;
 
-    /// Constrains (a1 + a2) * (b1 + b2) = (c1 + c2)
+    // TODO: Constrain (a1 + a2) * (b1 + b2) = (c1 + c2)
+    /// Constrains d1 == d2
     fn gadget<F: Field, CS: ConstraintSystem<F>>(
         cs: &mut CS,
         _c2: LinearCombination<F>,
@@ -105,7 +107,7 @@ mod veccom_empty {
         d1: u64,
         d2: u64,
     ) -> Result<(R1CSProof<C>, C, C, C), R1CSError> {
-        let mut transcript = Transcript::new(b"R1CSExampleGadget");
+        let mut transcript = MerlinTranscript::new(b"R1CSExampleGadget");
 
         // 1. Create a prover
         let mut prover = Prover::new(pc_gens, &mut transcript);
@@ -148,7 +150,7 @@ mod veccom_empty {
         d2_comm: C,
         comm: C,
     ) -> Result<(), R1CSError> {
-        let mut transcript = Transcript::new(b"R1CSExampleGadget");
+        let mut transcript = MerlinTranscript::new(b"R1CSExampleGadget");
 
         // 1. Create a verifier
         let mut verifier = Verifier::new(&mut transcript);
@@ -192,6 +194,7 @@ mod veccom_empty {
 }
 
 mod veccom_non_empty_do_nothing {
+    use dock_crypto_utils::transcript::MerlinTranscript;
     use super::*;
 
     fn gadget<F: Field, CS: ConstraintSystem<F>>(
@@ -219,7 +222,7 @@ mod veccom_non_empty_do_nothing {
         d1: u64,
         d2: u64,
     ) -> Result<(R1CSProof<C>, C, C, C), R1CSError> {
-        let mut transcript = Transcript::new(b"R1CSExampleGadget");
+        let mut transcript = MerlinTranscript::new(b"R1CSExampleGadget");
 
         // 1. Create a prover
         let mut prover = Prover::new(pc_gens, &mut transcript);
@@ -273,7 +276,7 @@ mod veccom_non_empty_do_nothing {
         d2_comm: C,
         comm: C,
     ) -> Result<(), R1CSError> {
-        let mut transcript = Transcript::new(b"R1CSExampleGadget");
+        let mut transcript = MerlinTranscript::new(b"R1CSExampleGadget");
 
         // 1. Create a verifier
         let mut verifier = Verifier::new(&mut transcript);
@@ -332,9 +335,15 @@ mod veccom_non_empty_do_nothing {
 }
 
 mod veccom_non_trivial_linear {
+    use dock_crypto_utils::transcript::MerlinTranscript;
     use super::*;
 
-    /// Constrains (a1 + a2) * (b1 + b2) = (c1 + c2)
+    /// Constrains: 
+    /// a1 == a2 
+    /// a2 == a3
+    /// a4 == (a1 + a2 + a3) 
+    /// d1 == (a1 + a2 + a3 + a4 + a5) 
+    /// d1 == d2
     fn gadget<F: Field, CS: ConstraintSystem<F>>(
         cs: &mut CS,
         a1: LinearCombination<F>,
@@ -364,7 +373,7 @@ mod veccom_non_trivial_linear {
         d1: u64,
         d2: u64,
     ) -> Result<(R1CSProof<C>, C, C, C), R1CSError> {
-        let mut transcript = Transcript::new(b"R1CSExampleGadget");
+        let mut transcript = MerlinTranscript::new(b"R1CSExampleGadget");
 
         // 1. Create a prover
         let mut prover = Prover::new(pc_gens, &mut transcript);
@@ -418,7 +427,7 @@ mod veccom_non_trivial_linear {
         d2_comm: C,
         comm: C,
     ) -> Result<(), R1CSError> {
-        let mut transcript = Transcript::new(b"R1CSExampleGadget");
+        let mut transcript = MerlinTranscript::new(b"R1CSExampleGadget");
 
         // 1. Create a verifier
         let mut verifier = Verifier::new(&mut transcript);
@@ -477,11 +486,15 @@ mod veccom_non_trivial_linear {
 }
 
 mod veccom_large_linear {
+    use dock_crypto_utils::transcript::MerlinTranscript;
     use super::*;
 
     const DIM: usize = 0x100;
 
-    /// Constrains (a1 + a2) * (b1 + b2) = (c1 + c2)
+    /// ax is a Fibonacci sequence. Constraints:
+    /// ax[0] == 1
+    /// ax[1] == 1
+    /// ax[i] == ax[i-1] + ax[i-2] for i >= 2
     fn gadget<F: Field, CS: ConstraintSystem<F>>(cs: &mut CS, ax: Vec<LinearCombination<F>>) {
         cs.constrain(ax[0].clone() - F::one());
         cs.constrain(ax[1].clone() - F::one());
@@ -495,7 +508,7 @@ mod veccom_large_linear {
         pc_gens: &PedersenGens<C>,
         bp_gens: &BulletproofGens<C>,
     ) -> Result<(R1CSProof<C>, C), R1CSError> {
-        let mut transcript = Transcript::new(b"R1CSExampleGadget");
+        let mut transcript = MerlinTranscript::new(b"R1CSExampleGadget");
 
         // 1. Create a prover
         let mut prover = Prover::new(pc_gens, &mut transcript);
@@ -533,7 +546,7 @@ mod veccom_large_linear {
         proof: R1CSProof<C>,
         comm: C,
     ) -> Result<(), R1CSError> {
-        let mut transcript = Transcript::new(b"R1CSExampleGadget");
+        let mut transcript = MerlinTranscript::new(b"R1CSExampleGadget");
 
         // 1. Create a verifier
         let mut verifier = Verifier::new(&mut transcript);
@@ -570,6 +583,7 @@ mod veccom_large_linear {
 }
 
 mod veccom_mul_seperate {
+    use dock_crypto_utils::transcript::MerlinTranscript;
     use super::*;
 
     const DIM: usize = 0;
@@ -591,7 +605,7 @@ mod veccom_mul_seperate {
         b: C::ScalarField,
         _ab: C::ScalarField,
     ) -> Result<(R1CSProof<C>, C), R1CSError> {
-        let mut transcript = Transcript::new(b"R1CSExampleGadget");
+        let mut transcript = MerlinTranscript::new(b"R1CSExampleGadget");
 
         // 1. Create a prover
         let mut prover = Prover::new(pc_gens, &mut transcript);
@@ -626,7 +640,7 @@ mod veccom_mul_seperate {
         proof: R1CSProof<C>,
         comm: C,
     ) -> Result<(), R1CSError> {
-        let mut transcript = Transcript::new(b"R1CSExampleGadget");
+        let mut transcript = MerlinTranscript::new(b"R1CSExampleGadget");
 
         // 1. Create a verifier
         let mut verifier = Verifier::new(&mut transcript);
@@ -668,6 +682,7 @@ mod veccom_mul_seperate {
 }
 
 mod veccom_mul {
+    use dock_crypto_utils::transcript::MerlinTranscript;
     use super::*;
 
     /// Constrains (a1 + a2) * (b1 + b2) = (c1 + c2)
@@ -689,7 +704,7 @@ mod veccom_mul {
         b: C::ScalarField,
         ab: C::ScalarField,
     ) -> Result<(R1CSProof<C>, C), R1CSError> {
-        let mut transcript = Transcript::new(b"R1CSExampleGadget");
+        let mut transcript = MerlinTranscript::new(b"R1CSExampleGadget");
 
         // 1. Create a prover
         let mut prover = Prover::new(pc_gens, &mut transcript);
@@ -719,7 +734,7 @@ mod veccom_mul {
         proof: R1CSProof<C>,
         comm: C,
     ) -> Result<(), R1CSError> {
-        let mut transcript = Transcript::new(b"R1CSExampleGadget");
+        let mut transcript = MerlinTranscript::new(b"R1CSExampleGadget");
 
         // 1. Create a verifier
         let mut verifier = Verifier::new(&mut transcript);

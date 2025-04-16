@@ -1,7 +1,6 @@
 #![allow(non_snake_case)]
 
 extern crate bulletproofs;
-extern crate merlin;
 extern crate rand;
 
 use ark_ec::AffineRepr;
@@ -12,7 +11,7 @@ use ark_pallas::Affine;
 
 use bulletproofs::r1cs::*;
 use bulletproofs::{BulletproofGens, PedersenGens};
-use merlin::Transcript;
+use dock_crypto_utils::transcript::{Transcript, MerlinTranscript};
 use rand::seq::SliceRandom;
 
 // Shuffle gadget (documented in markdown file)
@@ -70,7 +69,7 @@ impl<C: AffineRepr> ShuffleProof<C> {
     pub fn prove<'a, 'b>(
         pc_gens: &'b PedersenGens<C>,
         bp_gens: &'b BulletproofGens<C>,
-        transcript: &'a mut Transcript,
+        transcript: &'a mut MerlinTranscript,
         input: &[C::ScalarField],
         output: &[C::ScalarField],
     ) -> Result<(ShuffleProof<C>, Vec<C>, Vec<C>), R1CSError> {
@@ -78,7 +77,7 @@ impl<C: AffineRepr> ShuffleProof<C> {
         // XXX should this be part of the gadget?
         let k = input.len();
         transcript.append_message(b"dom-sep", b"ShuffleProof");
-        transcript.append_u64(b"k", k as u64);
+        transcript.merlin.append_u64(b"k", k as u64);
 
         let mut prover: Prover<_, C> = Prover::new(&pc_gens, transcript);
 
@@ -110,7 +109,7 @@ impl<C: AffineRepr> ShuffleProof<C> {
         &self,
         pc_gens: &'b PedersenGens<C>,
         bp_gens: &'b BulletproofGens<C>,
-        transcript: &'a mut Transcript,
+        transcript: &'a mut MerlinTranscript,
         input_commitments: &Vec<C>,
         output_commitments: &Vec<C>,
     ) -> Result<(), R1CSError> {
@@ -118,7 +117,7 @@ impl<C: AffineRepr> ShuffleProof<C> {
         // XXX should this be part of the gadget?
         let k = input_commitments.len();
         transcript.append_message(b"dom-sep", b"ShuffleProof");
-        transcript.append_u64(b"k", k as u64);
+        transcript.merlin.append_u64(b"k", k as u64);
 
         let mut verifier = Verifier::new(transcript);
 
@@ -139,7 +138,7 @@ impl<C: AffineRepr> ShuffleProof<C> {
     }
     pub fn verification_scalars_and_points<'a, 'b>(
         &self,
-        transcript: &'a mut Transcript,
+        transcript: &'a mut MerlinTranscript,
         input_commitments: &Vec<C>,
         output_commitments: &Vec<C>,
     ) -> Result<VerificationTuple<C>, R1CSError> {
@@ -147,7 +146,7 @@ impl<C: AffineRepr> ShuffleProof<C> {
         // XXX should this be part of the gadget?
         let k = input_commitments.len();
         transcript.append_message(b"dom-sep", b"ShuffleProof");
-        transcript.append_u64(b"k", k as u64);
+        transcript.merlin.append_u64(b"k", k as u64);
 
         let mut verifier = Verifier::new(transcript);
 
@@ -185,12 +184,12 @@ fn kshuffle_helper(k: usize) {
         let mut output = input.clone();
         output.shuffle(&mut rand::thread_rng());
 
-        let mut prover_transcript = Transcript::new(b"ShuffleProofTest");
+        let mut prover_transcript = MerlinTranscript::new(b"ShuffleProofTest");
         ShuffleProof::prove(&pc_gens, &bp_gens, &mut prover_transcript, &input, &output).unwrap()
     };
 
     {
-        let mut verifier_transcript = Transcript::new(b"ShuffleProofTest");
+        let mut verifier_transcript = MerlinTranscript::new(b"ShuffleProofTest");
         assert!(proof
             .verify(
                 &pc_gens,
@@ -222,7 +221,7 @@ fn kshuffle_batch_helper(k: usize, n: usize) {
         let mut output = input.clone();
         output.shuffle(&mut rand::thread_rng());
 
-        let mut prover_transcript = Transcript::new(b"ShuffleProofTest");
+        let mut prover_transcript = MerlinTranscript::new(b"ShuffleProofTest");
         proofs_and_commitments.push(
             ShuffleProof::prove(&pc_gens, &bp_gens, &mut prover_transcript, &input, &output)
                 .unwrap(),
@@ -231,7 +230,7 @@ fn kshuffle_batch_helper(k: usize, n: usize) {
 
     let mut vsps = Vec::with_capacity(n);
     for i in 0..n {
-        let mut verifier_transcript = Transcript::new(b"ShuffleProofTest");
+        let mut verifier_transcript = MerlinTranscript::new(b"ShuffleProofTest");
         let (proof, input_commitments, output_commitments) = &proofs_and_commitments[i];
         vsps.push(
             proof
@@ -320,7 +319,7 @@ fn example_gadget_proof<C: AffineRepr>(
     c1: u64,
     c2: u64,
 ) -> Result<(R1CSProof<C>, Vec<C>), R1CSError> {
-    let mut transcript = Transcript::new(b"R1CSExampleGadget");
+    let mut transcript = MerlinTranscript::new(b"R1CSExampleGadget");
 
     // 1. Create a prover
     let mut prover = Prover::new(pc_gens, &mut transcript);
@@ -357,7 +356,7 @@ fn example_gadget_verify<C: AffineRepr>(
     proof: R1CSProof<C>,
     commitments: Vec<C>,
 ) -> Result<(), R1CSError> {
-    let mut transcript = Transcript::new(b"R1CSExampleGadget");
+    let mut transcript = MerlinTranscript::new(b"R1CSExampleGadget");
 
     // 1. Create a verifier
     let mut verifier = Verifier::new(&mut transcript);
@@ -472,7 +471,7 @@ fn range_proof_helper<C: AffineRepr>(v_val: u64, n: usize) -> Result<(), R1CSErr
     // Prover's scope
     let (proof, commitment) = {
         // Prover makes a `ConstraintSystem` instance representing a range proof gadget
-        let mut prover_transcript = Transcript::new(b"RangeProofTest");
+        let mut prover_transcript = MerlinTranscript::new(b"RangeProofTest");
         let mut rng = rand::thread_rng();
 
         let mut prover = Prover::new(&pc_gens, &mut prover_transcript);
@@ -486,7 +485,7 @@ fn range_proof_helper<C: AffineRepr>(v_val: u64, n: usize) -> Result<(), R1CSErr
     };
 
     // Verifier makes a `ConstraintSystem` instance representing a merge gadget
-    let mut verifier_transcript = Transcript::new(b"RangeProofTest");
+    let mut verifier_transcript = MerlinTranscript::new(b"RangeProofTest");
     let mut verifier = Verifier::new(&mut verifier_transcript);
 
     let var = verifier.commit(commitment);

@@ -36,7 +36,7 @@ pub enum ProofError {
         feature = "std",
         error("Invalid generators size, too few generators for proof")
     )]
-    InvalidGeneratorsLength,
+    InvalidGeneratorsLength(usize, usize),
     /// This error results from an internal error during proving.
     ///
     /// The single-party prover is implemented by performing
@@ -52,7 +52,7 @@ impl From<MPCError> for ProofError {
         match e {
             MPCError::InvalidBitsize => ProofError::InvalidBitsize,
             MPCError::InvalidAggregation => ProofError::InvalidAggregation,
-            MPCError::InvalidGeneratorsLength => ProofError::InvalidGeneratorsLength,
+            MPCError::InvalidGeneratorsLength(u1, u2) => ProofError::InvalidGeneratorsLength(u1, u2),
             _ => ProofError::ProvingError(e),
         }
     }
@@ -88,7 +88,7 @@ pub enum MPCError {
         feature = "std",
         error("Invalid generators size, too few generators for proof")
     )]
-    InvalidGeneratorsLength,
+    InvalidGeneratorsLength(usize, usize),
     /// This error occurs when the dealer is given the wrong number of
     /// value commitments.
     #[cfg_attr(feature = "std", error("Wrong number of value commitments"))]
@@ -124,7 +124,7 @@ pub enum R1CSError {
         feature = "std",
         error("Invalid generators size, too few generators for proof")
     )]
-    InvalidGeneratorsLength,
+    InvalidGeneratorsLength(usize, usize),
     /// This error occurs when the proof encoding is malformed.
     #[cfg_attr(feature = "std", error("Proof data could not be parsed."))]
     FormatError,
@@ -150,7 +150,7 @@ pub enum R1CSError {
 impl From<ProofError> for R1CSError {
     fn from(e: ProofError) -> R1CSError {
         match e {
-            ProofError::InvalidGeneratorsLength => R1CSError::InvalidGeneratorsLength,
+            ProofError::InvalidGeneratorsLength(u1, u2) => R1CSError::InvalidGeneratorsLength(u1, u2),
             ProofError::FormatError => R1CSError::FormatError,
             ProofError::VerificationError => R1CSError::VerificationError,
             _ => panic!("unexpected error type in conversion"),

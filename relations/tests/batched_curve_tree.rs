@@ -8,13 +8,13 @@ use relations::curve_tree::*;
 
 use ark_ec::short_weierstrass::{Affine, SWCurveConfig};
 use ark_std::UniformRand;
-use merlin::Transcript;
 
 use ark_pallas::{Fq as PallasBase, PallasConfig};
 use ark_vesta::VestaConfig;
 
 use ark_secp256k1::{Config as SecpConfig, Fq as SecpBase};
 use ark_secq256k1::Config as SecqConfig;
+use dock_crypto_utils::transcript::MerlinTranscript;
 
 #[test]
 pub fn test_batched_curve_tree_even_depth() {
@@ -43,11 +43,11 @@ pub fn test_batched_curve_tree_with_parameters<
 
     let sr_params = SelRerandParameters::<P0, P1>::new(generators_length, generators_length);
 
-    let pallas_transcript = Transcript::new(b"select_and_rerandomize");
+    let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
     let mut pallas_prover: Prover<_, Affine<P0>> =
         Prover::new(&sr_params.even_parameters.pc_gens, pallas_transcript);
 
-    let vesta_transcript = Transcript::new(b"select_and_rerandomize");
+    let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
     let mut vesta_prover: Prover<_, Affine<P1>> =
         Prover::new(&sr_params.odd_parameters.pc_gens, vesta_transcript);
 
@@ -57,7 +57,7 @@ pub fn test_batched_curve_tree_with_parameters<
         set.push(Affine::<P0>::rand(&mut rng));
         indices[i] = i;
     }
-    let curve_tree = CurveTree::<L, M, P0, P1>::from_set(&set, &sr_params, Some(depth));
+    let curve_tree = CurveTree::<L, M, P0, P1>::from_leaves(&set, &sr_params, Some(depth));
     assert_eq!(curve_tree.height(), depth);
 
     let (path_commitments, _) = curve_tree.batched_select_and_rerandomize_prover_gadget(
@@ -76,9 +76,9 @@ pub fn test_batched_curve_tree_with_parameters<
         .unwrap();
 
     {
-        let pallas_transcript = Transcript::new(b"select_and_rerandomize");
+        let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
         let mut pallas_verifier = Verifier::new(pallas_transcript);
-        let vesta_transcript = Transcript::new(b"select_and_rerandomize");
+        let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
         let mut vesta_verifier = Verifier::new(vesta_transcript);
 
         let _rerandomized_leaves = curve_tree.batched_select_and_rerandomize_verifier_gadget(

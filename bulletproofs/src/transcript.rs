@@ -2,7 +2,7 @@
 
 use ark_ec::AffineRepr;
 use ark_ff::Field;
-use merlin::Transcript;
+use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
 
 use crate::errors::ProofError;
 use crate::util;
@@ -41,16 +41,16 @@ pub trait TranscriptProtocol {
     fn challenge_scalar<C: AffineRepr>(&mut self, label: &'static [u8]) -> C::ScalarField;
 }
 
-impl TranscriptProtocol for Transcript {
+impl TranscriptProtocol for MerlinTranscript {
     fn rangeproof_domain_sep(&mut self, n: u64, m: u64) {
         self.append_message(b"dom-sep", b"rangeproof v1");
-        self.append_u64(b"n", n);
-        self.append_u64(b"m", m);
+        self.merlin.append_u64(b"n", n);
+        self.merlin.append_u64(b"m", m);
     }
 
     fn innerproduct_domain_sep(&mut self, n: u64) {
         self.append_message(b"dom-sep", b"ipp v1");
-        self.append_u64(b"n", n);
+        self.merlin.append_u64(b"n", n);
     }
 
     fn r1cs_domain_sep(&mut self) {

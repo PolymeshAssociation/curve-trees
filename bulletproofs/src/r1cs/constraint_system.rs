@@ -3,7 +3,7 @@
 use super::linear_combination::{LinearCombination, Variable};
 use super::R1CSError;
 use ark_ff::Field;
-use merlin::Transcript;
+use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
 
 /// The interface for a constraint system, abstracting over the prover
 /// and verifier's roles.
@@ -23,7 +23,7 @@ pub trait ConstraintSystem<F: Field> {
     /// Leases the proof transcript to the user, so they can
     /// add extra data to which the proof must be bound, but which
     /// is not available before creation of the constraint system.
-    fn transcript(&mut self) -> &mut Transcript;
+    fn transcript(&mut self) -> &mut MerlinTranscript;
 
     /// Allocate and constrain multiplication variables.
     ///

@@ -3,7 +3,7 @@
 
 use ark_ec::AffineRepr;
 use ark_serialize::{
-    CanonicalDeserialize, CanonicalSerialize, Compress, Read, SerializationError, Valid, Write,
+    CanonicalDeserialize, CanonicalSerialize, Compress, Valid,
 };
 
 use crate::errors::R1CSError;
@@ -28,7 +28,7 @@ const TWO_PHASE_COMMITMENTS: u8 = 1;
 /// the constraint system using
 /// [`VerifierCS::verify`](::r1cs::VerifierCS::verify) to verify the
 /// proof.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, CanonicalSerialize, CanonicalDeserialize)]
 #[allow(non_snake_case)]
 pub struct R1CSProof<C: AffineRepr> {
     /// Commitment to the values of input wires in the first phase.
@@ -73,7 +73,7 @@ impl<C: AffineRepr> R1CSProof<C> {
     }
 }
 
-impl<C: AffineRepr> CanonicalSerialize for R1CSProof<C> {
+/*impl<C: AffineRepr> CanonicalSerialize for R1CSProof<C> {
     /// Returns the size in bytes required to serialize the `R1CSProof`.
     fn serialized_size(&self, compress: Compress) -> usize {
         let number_of_points = if self.missing_phase2_commitments() {
@@ -168,4 +168,4 @@ impl<C: AffineRepr> CanonicalDeserialize for R1CSProof<C> {
             )?,
         })
     }
-}
+}*/

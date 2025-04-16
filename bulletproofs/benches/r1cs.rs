@@ -5,7 +5,7 @@ extern crate criterion;
 use criterion::Criterion;
 
 extern crate bulletproofs;
-extern crate merlin;
+extern crate dock_crypto_utils;
 extern crate rand;
 
 use ark_pallas::Affine;
@@ -14,7 +14,7 @@ use ark_ec::AffineRepr;
 use ark_std::UniformRand;
 use bulletproofs::r1cs::*;
 use bulletproofs::{BulletproofGens, PedersenGens};
-use merlin::Transcript;
+use dock_crypto_utils::transcript::{Transcript, new_merlin_transcript, MerlinTranscript};
 use rand::seq::SliceRandom;
 use rand::Rng;
 
@@ -168,7 +168,7 @@ fn bench_kshuffle_prove(c: &mut Criterion) {
 
             // Make kshuffle proof
             b.iter(|| {
-                let mut prover_transcript = Transcript::new(b"ShuffleBenchmark");
+                let mut prover_transcript = MerlinTranscript::new(b"ShuffleBenchmark");
                 ShuffleProof::prove(&pc_gens, &bp_gens, &mut prover_transcript, &input, &output)
                     .unwrap();
             })
@@ -208,7 +208,7 @@ fn bench_kshuffle_verify(c: &mut Criterion) {
                 let mut output = input.clone();
                 output.shuffle(&mut rand::thread_rng());
 
-                let mut prover_transcript = Transcript::new(b"ShuffleBenchmark");
+                let mut prover_transcript = MerlinTranscript::new(b"ShuffleBenchmark");
 
                 ShuffleProof::prove(&pc_gens, &bp_gens, &mut prover_transcript, &input, &output)
                     .unwrap()
@@ -216,7 +216,7 @@ fn bench_kshuffle_verify(c: &mut Criterion) {
 
             // Verify kshuffle proof
             b.iter(|| {
-                let mut verifier_transcript = Transcript::new(b"ShuffleBenchmark");
+                let mut verifier_transcript = MerlinTranscript::new(b"ShuffleBenchmark");
                 proof
                     .verify(
                         &pc_gens,

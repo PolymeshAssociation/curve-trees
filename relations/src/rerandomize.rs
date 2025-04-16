@@ -47,6 +47,8 @@ pub fn build_tables<C: AffineRepr>(h: C) -> Vec<Lookup3Bit<2, C::BaseField>> {
     tables
 }
 
+/// For proving that randomization the point inside `commitment` is same as point represented by x and y coordinates
+/// in re_randomized_commitment_x_coord and re_randomized_commitment_y_coord respectively
 pub fn re_randomize<
     F: Field,
     S: PrimeField,
@@ -56,8 +58,8 @@ pub fn re_randomize<
     cs: &mut Cs,
     tables: &[Lookup3Bit<2, F>],
     commitment: PointRepresentation<F, Affine<P>>,
-    commitment_x_tilde: LinearCombination<F>,
-    commitment_y_tilde: LinearCombination<F>,
+    re_randomized_commitment_x_coord: LinearCombination<F>,
+    re_randomized_commitment_y_coord: LinearCombination<F>,
     randomness: Option<S>, // Witness provided by the prover
 ) {
     let lambda = S::MODULUS_BIT_SIZE as usize;
@@ -174,8 +176,8 @@ pub fn re_randomize<
         y_l: commitment.y,
         x_r: acc_i_minus_1_x_lc,
         y_r: acc_i_minus_1_y_lc,
-        x_o: commitment_x_tilde,
-        y_o: commitment_y_tilde,
+        x_o: re_randomized_commitment_x_coord,
+        y_o: re_randomized_commitment_y_coord,
         delta,
     };
     checked_curve_addition(cs, &prms, x_l_minus_x_r_inv);
@@ -191,7 +193,8 @@ mod tests {
     use ark_pallas::Affine as PallasA;
     use ark_std::UniformRand;
     use ark_vesta::Affine as VestaA;
-    use merlin::Transcript;
+    use dock_crypto_utils::transcript::{MerlinTranscript};
+
     type PallasScalar = <PallasA as AffineRepr>::ScalarField;
 
     #[test]
@@ -209,7 +212,7 @@ mod tests {
         let bp_gens = BulletproofGens::<VestaA>::new(1024, 1);
 
         let proof = {
-            let mut transcript = Transcript::new(b"RerandGadget");
+            let mut transcript = MerlinTranscript::new(b"RerandGadget");
             let mut prover = Prover::new(&pc_gens, &mut transcript);
             let c_x_var = prover.allocate(Some(c.x)).unwrap();
             let c_y_var = prover.allocate(Some(c.y)).unwrap();
@@ -233,7 +236,7 @@ mod tests {
             proof
         };
 
-        let mut transcript = Transcript::new(b"RerandGadget");
+        let mut transcript = MerlinTranscript::new(b"RerandGadget");
         let mut verifier: Verifier<_, VestaA> = Verifier::new(&mut transcript);
         let c_x_var = verifier.allocate(None).unwrap();
         let c_y_var = verifier.allocate(None).unwrap();

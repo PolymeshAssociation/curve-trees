@@ -13,7 +13,7 @@ extern crate bulletproofs;
 use bulletproofs::r1cs::{batch_verify, Prover};
 
 extern crate relations;
-use merlin::Transcript;
+use dock_crypto_utils::transcript::{Transcript, MerlinTranscript};
 use relations::coin::*;
 use relations::curve_tree::*;
 
@@ -138,7 +138,7 @@ fn bench_pour_with_parameters<
     );
     // Curve tree with two coins
     let set = vec![coin_0, coin_1];
-    let curve_tree = CurveTree::<L, 1, P0, P1>::from_set(&set, &sr_params, Some(depth));
+    let curve_tree = CurveTree::<L, 1, P0, P1>::from_leaves(&set, &sr_params, Some(depth));
 
     let randomized_pk_0 = Coin::<P0, Projective<P0>>::rerandomized_pk(
         &pk,
@@ -163,11 +163,11 @@ fn bench_pour_with_parameters<
         sk: sk,
     };
     let prove = || {
-        let pallas_transcript = Transcript::new(b"select_and_rerandomize");
+        let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
         let pallas_prover: Prover<_, Affine<P0>> =
             Prover::new(&sr_params.even_parameters.pc_gens, pallas_transcript);
 
-        let vesta_transcript = Transcript::new(b"select_and_rerandomize");
+        let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
         let vesta_prover: Prover<_, Affine<P1>> =
             Prover::new(&sr_params.odd_parameters.pc_gens, vesta_transcript);
 

@@ -4,7 +4,7 @@ use ark_ec::{AffineRepr, VariableBaseMSM};
 use ark_ff::Field;
 use ark_std::{One, UniformRand, Zero};
 use core::borrow::BorrowMut;
-use merlin::Transcript;
+use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
 use zeroize::{ZeroizeOnDrop, Zeroizing};
 
 use super::constraint_system::{
@@ -30,7 +30,7 @@ use super::op_splits;
 /// When all constraints are added, the proving code calls `prove`
 /// which consumes the `Prover` instance, samples random challenges
 /// that instantiate the randomized constraints, and creates a complete proof.
-pub struct Prover<'g, T: BorrowMut<Transcript>, C: AffineRepr> {
+pub struct Prover<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> {
     transcript: T,
     pc_gens: &'g PedersenGens<C>,
     /// The constraints accumulated so far.
@@ -48,7 +48,7 @@ pub struct Prover<'g, T: BorrowMut<Transcript>, C: AffineRepr> {
 }
 
 // todo I assume this would be automatically implemented by the compiler if it did not have a a mutable borrow of a transcript
-unsafe impl<'g, T: BorrowMut<Transcript>, C: AffineRepr> Send for Prover<'g, T, C> {} // todo fix after refactor
+unsafe impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Send for Prover<'g, T, C> {} // todo fix after refactor
 
 /// Separate struct to implement Drop trait for (for zeroing),
 /// so that compiler does not prohibit us from moving the Transcript out of `prove()`.
@@ -64,7 +64,7 @@ struct Secrets<F: Field> {
     v: Vec<F>,
     /// High-level witness data (blinding openings to V commitments)
     v_blinding: Vec<F>,
-    ///
+    /// Each item of the vector is pair with first element as the blinding and the next is the vector of elements committed in a Pedersen commitment
     vec_open: Vec<(F, Vec<F>)>,
 }
 
@@ -75,14 +75,14 @@ struct Secrets<F: Field> {
 /// monomorphize the closures for the proving and verifying code.
 /// However, this type cannot be instantiated by the user and therefore can only be used within
 /// the callback provided to `specify_randomized_constraints`.
-pub struct RandomizingProver<'g, T: BorrowMut<Transcript>, C: AffineRepr> {
+pub struct RandomizingProver<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> {
     prover: Prover<'g, T, C>,
 }
 
-impl<'g, T: BorrowMut<Transcript>, C: AffineRepr> ConstraintSystem<C::ScalarField>
+impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> ConstraintSystem<C::ScalarField>
     for Prover<'g, T, C>
 {
-    fn transcript(&mut self) -> &mut Transcript {
+    fn transcript(&mut self) -> &mut MerlinTranscript {
         self.transcript.borrow_mut()
     }
 
@@ -184,7 +184,7 @@ impl<'g, T: BorrowMut<Transcript>, C: AffineRepr> ConstraintSystem<C::ScalarFiel
     }
 }
 
-impl<'g, T: BorrowMut<Transcript>, C: AffineRepr> RandomizableConstraintSystem<C::ScalarField>
+impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> RandomizableConstraintSystem<C::ScalarField>
     for Prover<'g, T, C>
 {
     type RandomizedCS = RandomizingProver<'g, T, C>;
@@ -198,10 +198,10 @@ impl<'g, T: BorrowMut<Transcript>, C: AffineRepr> RandomizableConstraintSystem<C
     }
 }
 
-impl<'g, T: BorrowMut<Transcript>, C: AffineRepr> ConstraintSystem<C::ScalarField>
+impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> ConstraintSystem<C::ScalarField>
     for RandomizingProver<'g, T, C>
 {
-    fn transcript(&mut self) -> &mut Transcript {
+    fn transcript(&mut self) -> &mut MerlinTranscript {
         self.prover.transcript.borrow_mut()
     }
 
@@ -247,18 +247,19 @@ impl<'g, T: BorrowMut<Transcript>, C: AffineRepr> ConstraintSystem<C::ScalarFiel
     }
 }
 
-impl<'g, T: BorrowMut<Transcript>, C: AffineRepr> RandomizedConstraintSystem<C::ScalarField>
+impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> RandomizedConstraintSystem<C::ScalarField>
     for RandomizingProver<'g, T, C>
 {
     fn challenge_scalar(&mut self, label: &'static [u8]) -> C::ScalarField {
-        self.prover
+        let t = self.prover
             .transcript
-            .borrow_mut()
-            .challenge_scalar::<C>(label)
+            .borrow_mut();
+            TranscriptProtocol::challenge_scalar::<C>(t, label)
+
     }
 }
 
-impl<'g, T: BorrowMut<Transcript>, C: AffineRepr> Prover<'g, T, C> {
+impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
     /// Construct an empty constraint system with specified external
     /// input variables.
     ///
@@ -271,7 +272,7 @@ impl<'g, T: BorrowMut<Transcript>, C: AffineRepr> Prover<'g, T, C> {
     /// be added into the constraint system.
     ///
     /// The `transcript` parameter is a Merlin proof transcript.  The
-    /// `ProverCS` holds onto the `&mut Transcript` until it consumes
+    /// `ProverCS` holds onto the `&mut MerlinTranscript` until it consumes
     /// itself during [`ProverCS::prove`], releasing its borrow of the
     /// transcript.  This ensures that the transcript cannot be
     /// altered except by the `ProverCS` before proving is complete.
@@ -332,6 +333,7 @@ impl<'g, T: BorrowMut<Transcript>, C: AffineRepr> Prover<'g, T, C> {
         (V, Variable::Committed(i))
     }
 
+    /// Commit all values of `v` in a single Pedersen commitment. Returns the commitment and a list of variables, one for each of the values in `v`
     pub fn commit_vec(
         &mut self,
         v: &[C::ScalarField],
@@ -341,7 +343,7 @@ impl<'g, T: BorrowMut<Transcript>, C: AffineRepr> Prover<'g, T, C> {
         use std::iter;
 
         // compute the commitment:
-        // comm = <v, G> + <v_blinding> B_blinding
+        // comm = <v, G> + v_blinding * B_blinding
         let gens = bp_gens.share(0);
 
         // [b] * H + [v_1] * G1 + ... + [v_n] * Gn
@@ -534,6 +536,7 @@ impl<'g, T: BorrowMut<Transcript>, C: AffineRepr> Prover<'g, T, C> {
         // is prefixed with a separate label.
         self.transcript
             .borrow_mut()
+            .merlin
             .append_u64(b"m", self.secrets.v.len() as u64);
 
         // // Create a `TranscriptRng` from the high-level witness data
@@ -565,7 +568,7 @@ impl<'g, T: BorrowMut<Transcript>, C: AffineRepr> Prover<'g, T, C> {
         let n1 = self.size();
 
         if bp_gens.gens_capacity < n1 {
-            return Err(R1CSError::InvalidGeneratorsLength);
+            return Err(R1CSError::InvalidGeneratorsLength(bp_gens.gens_capacity, n1));
         }
 
         // We are performing a single-party circuit proof, so party index is 0.
@@ -726,7 +729,7 @@ impl<'g, T: BorrowMut<Transcript>, C: AffineRepr> Prover<'g, T, C> {
         let pad = padded_n - n;
 
         if bp_gens.gens_capacity < padded_n {
-            return Err(R1CSError::InvalidGeneratorsLength);
+            return Err(R1CSError::InvalidGeneratorsLength(bp_gens.gens_capacity, padded_n));
         }
 
         // Commit to the second-phase low-level witness variables
@@ -819,8 +822,8 @@ impl<'g, T: BorrowMut<Transcript>, C: AffineRepr> Prover<'g, T, C> {
 
         // 4. Compute blinded vector polynomials l(x) and r(x)
 
-        let y = transcript.challenge_scalar::<C>(b"y");
-        let z = transcript.challenge_scalar::<C>(b"z");
+        let y = TranscriptProtocol::challenge_scalar::<C>(transcript, b"y");
+        let z = TranscriptProtocol::challenge_scalar::<C>(transcript, b"z");
 
         // println!("P A_I2 {}", &A_I2);
         // println!("P A_O2 {}", &A_O2);
@@ -829,14 +832,14 @@ impl<'g, T: BorrowMut<Transcript>, C: AffineRepr> Prover<'g, T, C> {
 
         let (wL, wR, wO, wV, wVCs) = self.flattened_constraints(&z);
 
-        #[cfg(debug_assertions)]
-        {
-            println!("Length of constraints vector: {}", self.constraints.len());
-            println!("prover wVCs = {:?}", &wVCs);
-            println!("prover wL = {:?}", &wL);
-            println!("prover wR = {:?}", &wR);
-            println!("prover wO = {:?}", &wO);
-        }
+        // #[cfg(debug_assertions)]
+        // {
+        //     println!("Length of constraints vector: {}", self.constraints.len());
+        //     println!("prover wVCs = {:?}", &wVCs);
+        //     println!("prover wL = {:?}", &wL);
+        //     println!("prover wR = {:?}", &wR);
+        //     println!("prover wO = {:?}", &wO);
+        // }
 
         let mut l_poly = util::VecPoly::<C::ScalarField>::zero(n, op_degree + 1);
         let mut r_poly = util::VecPoly::<C::ScalarField>::zero(n, op_degree + 1);
@@ -1025,8 +1028,8 @@ impl<'g, T: BorrowMut<Transcript>, C: AffineRepr> Prover<'g, T, C> {
             transcript.append_point(util::T_LABELS[d], td);
         }
 
-        let u = transcript.challenge_scalar::<C>(b"u");
-        let x = transcript.challenge_scalar::<C>(b"x");
+        let u = TranscriptProtocol::challenge_scalar::<C>(transcript, b"u");
+        let x = TranscriptProtocol::challenge_scalar::<C>(transcript, b"x");
 
         // calculate x^op_degree
         let mut op_x = C::ScalarField::one();
@@ -1126,12 +1129,12 @@ impl<'g, T: BorrowMut<Transcript>, C: AffineRepr> Prover<'g, T, C> {
         // blinding
         e_terms[op_degree + 1] = Some(s_blinding); // sL || sR
 
-        #[cfg(debug_assertions)]
-        {
-            for (i, e) in e_terms.iter().enumerate() {
-                println!("e_terms, x^{} = {:?}", i, e);
-            }
-        }
+        // #[cfg(debug_assertions)]
+        // {
+        //     for (i, e) in e_terms.iter().enumerate() {
+        //         println!("e_terms, x^{} = {:?}", i, e);
+        //     }
+        // }
 
         // evaluate blinding
         let mut e_blinding = C::ScalarField::zero();
@@ -1150,7 +1153,7 @@ impl<'g, T: BorrowMut<Transcript>, C: AffineRepr> Prover<'g, T, C> {
         transcript.append_scalar::<C>(b"e_blinding", &e_blinding);
 
         // Get a challenge value to combine statements for the IPP
-        let w = transcript.challenge_scalar::<C>(b"w");
+        let w = TranscriptProtocol::challenge_scalar::<C>(transcript, b"w");
         let Q = self.pc_gens.B.mul(w).into();
 
         let G_factors = iter::repeat(C::ScalarField::one())

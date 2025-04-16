@@ -23,6 +23,7 @@ pub fn is_bit<F: Field, Cs: ConstraintSystem<F>>(cs: &mut Cs, var: LinearCombina
     cs.constrain(zero.into());
 }
 
+/// Constrain `val` to be a bit (0 or 1) 
 fn bit<F: Field, Cs: ConstraintSystem<F>>(
     cs: &mut Cs,
     val: Option<bool>,
@@ -45,13 +46,15 @@ fn bit<F: Field, Cs: ConstraintSystem<F>>(
     Ok(bit)
 }
 
+/// Returns the member of `u` at index with bits s0, s1, s2 with s0 being the LSB. Looks like `u` is assumed to always contain 8 elements as per the logic
+// Question: Would this work for WINDOW_ELEMS > 3?
 fn single_membership<F: Field, Cs: ConstraintSystem<F>>(
     cs: &mut Cs,
-    u: &[F; WINDOW_ELEMS],
-    sa: LinearCombination<F>, // product
-    s0: LinearCombination<F>, // bit
-    s1: LinearCombination<F>, // bit
-    s2: LinearCombination<F>, // bit
+    u: &[F; WINDOW_ELEMS],    // the members
+    sa: LinearCombination<F>, // product of s1 and s2
+    s0: LinearCombination<F>, // bit 0
+    s1: LinearCombination<F>, // bit 1
+    s2: LinearCombination<F>, // bit 2
 ) -> LinearCombination<F> {
     // left side
     let (_, _, left): (Variable<F>, Variable<F>, Variable<F>) = cs.multiply(s0, {
@@ -90,13 +93,18 @@ pub fn lookup<const N: usize, F: Field, Cs: ConstraintSystem<F>>(
     index: Option<usize>,
 ) -> Result<[LinearCombination<F>; N], R1CSError> {
     // compute multiplication of higher bits
+    // b1 = index_bits[1]
+    // b2 = index_bits[2]
+    // ba = b1 * b2
     let (b1, b2, ba) =
         cs.allocate_multiplier(index.map(|i| (b2f((i >> 1) & 1 == 1), b2f((i >> 2) & 1 == 1))))?;
 
-    // enforce bits
+    // enforce bits. Enforces that b0, b1, b2 are indeed bits 
     let b0 = bit::<F, Cs>(cs, index.map(|i| (i & 1) == 1))?;
     is_bit(cs, b1.into());
     is_bit(cs, b2.into());
+
+    // Question: Shouldn't this constrain b0, b1, b2 to be bits of index, like done in range proof circuit?
 
     // enforce membership
     let mut res: Vec<LinearCombination<_>> = Vec::with_capacity(N);
@@ -121,7 +129,7 @@ mod tests {
     use ark_ec::AffineRepr;
     use ark_std::UniformRand;
     use bulletproofs::{BulletproofGens, PedersenGens};
-    use merlin::Transcript;
+    use dock_crypto_utils::transcript::{Transcript, new_merlin_transcript, MerlinTranscript};
 
     use rand::thread_rng;
 
@@ -163,7 +171,7 @@ mod tests {
         let bp_gens = BulletproofGens::<C>::new(1024, 1);
 
         let proof = {
-            let mut transcript = Transcript::new(b"Lookup");
+            let mut transcript = MerlinTranscript::new(b"Lookup");
             let mut prover = Prover::new(&pc_gens, &mut transcript);
 
             let index = 7;
@@ -177,7 +185,7 @@ mod tests {
             prover.prove(&bp_gens).unwrap()
         };
 
-        let mut transcript = Transcript::new(b"Lookup");
+        let mut transcript = MerlinTranscript::new(b"Lookup");
         let mut verifier = Verifier::new(&mut transcript);
 
         let x_var = verifier.allocate(None).unwrap();

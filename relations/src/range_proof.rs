@@ -35,3 +35,25 @@ pub fn range_proof<F: Field, CS: ConstraintSystem<F>>(
 
     Ok(())
 }
+
+/// Enforces that the difference of a and b is c 
+pub fn public_difference<F: Field, CS: ConstraintSystem<F>>(
+    cs: &mut CS,
+    a: LinearCombination<F>,
+    b: LinearCombination<F>,
+    c: u64,
+) -> Result<(), R1CSError> {
+    cs.constrain(a - b - LinearCombination::from(F::from(c)));
+    Ok(())
+}
+
+/// Enforces that the difference of a and b is c 
+pub fn difference<F: Field, CS: ConstraintSystem<F>>(
+    cs: &mut CS,
+    a: LinearCombination<F>,
+    b: LinearCombination<F>,
+    c: LinearCombination<F>,
+) -> Result<(), R1CSError> {
+    cs.constrain(a - b - c);
+    Ok(())
+}
