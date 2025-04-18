@@ -177,7 +177,7 @@ fn bench_accumulator_with_parameters<
                     {
                         let srvs = proofs.par_iter().map(|path| {
                             let mut path = path.clone();
-                            curve_tree.select_and_rerandomize_verification_commitments(&mut path);
+                            curve_tree.add_root_to_randomized_path(&mut path);
                             path
                         });
                         let srvs_clone = srvs.clone();

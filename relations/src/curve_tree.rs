@@ -289,7 +289,7 @@ impl<
 #[derive(Clone, PartialEq, Eq, Debug, CanonicalSerialize, CanonicalDeserialize)]
 pub struct SelectAndRerandomizePath<const L: usize, P0: SWCurveConfig, P1: SWCurveConfig> {
     /// Randomized leaf, i.e. if leaf is a group element `C` then this is `C + (B_blinding * r)`
-    pub selected_commitment: Affine<P0>,
+    pub re_randomized_leaf: Affine<P0>,
     pub odd_commitments: Vec<Affine<P1>>,
     pub even_commitments: Vec<Affine<P0>>,
 }

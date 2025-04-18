@@ -282,7 +282,7 @@ impl<
 
         (
             SelectAndRerandomizePath {
-                selected_commitment: rerandomization_of_leaf,
+                re_randomized_leaf: rerandomization_of_leaf,
                 odd_commitments: odd_rerandomized_commitments,
                 even_commitments: even_rerandomized_commitments,
             },

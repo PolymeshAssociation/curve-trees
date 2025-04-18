@@ -138,7 +138,7 @@ impl<
             self.blinding + rerandomization,
             &parameters.even_parameters.bp_gens,
         );
-        assert_eq!(path.selected_commitment, rerandomized_point);
+        assert_eq!(path.re_randomized_leaf, rerandomized_point);
 
         even_prover.constrain(variables[1] - self.tag);
 
@@ -513,12 +513,12 @@ impl<
             rayon::join(
                 || {
                     let mut path = self.randomized_path_0.clone();
-                    curve_tree.select_and_rerandomize_verification_commitments(&mut path);
+                    curve_tree.add_root_to_randomized_path(&mut path);
                     path
                 },
                 || {
                     let mut path = self.randomized_path_1.clone();
-                    curve_tree.select_and_rerandomize_verification_commitments(&mut path);
+                    curve_tree.add_root_to_randomized_path(&mut path);
                     path
                 },
             )
@@ -868,7 +868,7 @@ mod tests {
             let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
             let mut vesta_verifier = Verifier::new(vesta_transcript);
 
-            curve_tree.select_and_rerandomize_verification_commitments(&mut path);
+            curve_tree.add_root_to_randomized_path(&mut path);
             let commitments = path;
             // Enforce constraints for odd level
             verify_spend_odd(&mut vesta_verifier, &commitments, &sr_params, &curve_tree);
@@ -962,7 +962,7 @@ mod tests {
             let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
             let mut vesta_verifier = Verifier::new(vesta_transcript);
 
-            curve_tree.select_and_rerandomize_verification_commitments(&mut path);
+            curve_tree.add_root_to_randomized_path(&mut path);
             let commitments = path;
             // Enforce constraints for odd level
             verify_spend_odd(&mut vesta_verifier, &commitments, &sr_params, &curve_tree);

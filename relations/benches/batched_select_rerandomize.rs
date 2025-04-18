@@ -252,7 +252,7 @@ fn bench_naive_batch_select_and_rerandomize_with_parameters<
         group.bench_function("verification_gadget", |b| {
             b.iter(|| {
                 // Common part
-                let srv = curve_tree.select_and_rerandomize_verification_commitments(path.clone());
+                let srv = curve_tree.add_root_to_randomized_path(path.clone());
 
                 let even_verification_gadget = || {
                     let even_transcript = MerlinTranscript::new(b"select_and_rerandomize");
@@ -282,7 +282,7 @@ fn bench_naive_batch_select_and_rerandomize_with_parameters<
         group.bench_function("verification_tuples", |b| {
             b.iter(|| {
                 // Common part
-                let srv = curve_tree.select_and_rerandomize_verification_commitments(path.clone());
+                let srv = curve_tree.add_root_to_randomized_path(path.clone());
 
                 let even_verification_gadget = || {
                     let even_transcript = MerlinTranscript::new(b"select_and_rerandomize");
@@ -317,7 +317,7 @@ fn bench_naive_batch_select_and_rerandomize_with_parameters<
         group.bench_function("verify_single", |b| {
             b.iter(|| {
                 // Common part
-                let srv = curve_tree.select_and_rerandomize_verification_commitments(path.clone());
+                let srv = curve_tree.add_root_to_randomized_path(path.clone());
 
                 let even_verification_gadget = || {
                     let even_transcript = MerlinTranscript::new(b"select_and_rerandomize");
@@ -383,7 +383,7 @@ fn bench_naive_batch_select_and_rerandomize_with_parameters<
                             for i in 0..M {
                                 let mut path = paths[i].clone();
                                 curve_tree
-                                    .select_and_rerandomize_verification_commitments(&mut path);
+                                    .add_root_to_randomized_path(&mut path);
                                 paths_with_root.push(path);
                             }
                             paths_with_root
@@ -621,7 +621,7 @@ fn bench_grafted_batch_select_and_rerandomize_with_parameters<
         group.bench_function("verification_gadget", |b| {
             b.iter(|| {
                 // Common part
-                let srv = curve_tree.select_and_rerandomize_verification_commitments(path.clone());
+                let srv = curve_tree.add_root_to_randomized_path(path.clone());
 
                 let even_verification_gadget = || {
                     let even_transcript = MerlinTranscript::new(b"select_and_rerandomize");
@@ -651,7 +651,7 @@ fn bench_grafted_batch_select_and_rerandomize_with_parameters<
         group.bench_function("verification_tuples", |b| {
             b.iter(|| {
                 // Common part
-                let srv = curve_tree.select_and_rerandomize_verification_commitments(path.clone());
+                let srv = curve_tree.add_root_to_randomized_path(path.clone());
 
                 let even_verification_gadget = || {
                     let even_transcript = MerlinTranscript::new(b"select_and_rerandomize");
@@ -686,7 +686,7 @@ fn bench_grafted_batch_select_and_rerandomize_with_parameters<
         group.bench_function("verify_single", |b| {
             b.iter(|| {
                 // Common part
-                let srv = curve_tree.select_and_rerandomize_verification_commitments(path.clone());
+                let srv = curve_tree.add_root_to_randomized_path(path.clone());
 
                 let even_verification_gadget = || {
                     let even_transcript = MerlinTranscript::new(b"select_and_rerandomize");

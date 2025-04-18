@@ -294,8 +294,8 @@ fn bench_pour_with_parameters<
                         let proofs_and_commitment_paths = proofs.par_iter().map(|proof| {
                             let mut path_0 = proof.randomized_path_0.clone();
                             let mut path_1 = proof.randomized_path_1.clone();
-                            curve_tree.select_and_rerandomize_verification_commitments(&mut path_0);
-                            curve_tree.select_and_rerandomize_verification_commitments(&mut path_1);
+                            curve_tree.add_root_to_randomized_path(&mut path_0);
+                            curve_tree.add_root_to_randomized_path(&mut path_1);
                             (proof, path_0, path_1)
                         });
                         let proofs_and_commitment_paths_clone = proofs_and_commitment_paths.clone();

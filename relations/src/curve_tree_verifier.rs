@@ -20,7 +20,7 @@ impl<
     > CurveTree<L, M, P0, P1>
 {
     /// Adds the root to a randomized path provided by the prover.
-    pub fn select_and_rerandomize_verification_commitments(
+    pub fn add_root_to_randomized_path(
         &self,
         randomized_path: &mut SelectAndRerandomizePath<L, P0, P1>,
     ) {
@@ -59,7 +59,7 @@ impl<
         mut randomized_path: SelectAndRerandomizePath<L, P0, P1>,
         parameters: &SelRerandParameters<P0, P1>,
     ) -> Affine<P0> {
-        self.select_and_rerandomize_verification_commitments(&mut randomized_path);
+        self.add_root_to_randomized_path(&mut randomized_path);
         // The even and odd commitments do not include the selected leaf, their sum should equal the height of the tree.
         debug_assert_eq!(
             self.height(),
@@ -82,7 +82,7 @@ impl<
 {
     /// Get the public rerandomization of the selected (leaf) commitment
     pub fn get_rerandomized_leaf(&self) -> Affine<P0> {
-        self.selected_commitment
+        self.re_randomized_leaf
     }
 
     pub fn even_verifier_gadget<const M: usize, T: BorrowMut<MerlinTranscript>>(
@@ -154,7 +154,7 @@ impl<
             let child = if parent_index < self.odd_commitments.len() - 1 {
                 self.even_commitments[even_index]
             } else {
-                self.selected_commitment
+                self.re_randomized_leaf
             };
             let variables = if parent_index == 0 && root_is_odd {
                 let children = match &ct {
