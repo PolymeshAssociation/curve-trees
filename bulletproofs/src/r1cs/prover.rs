@@ -4,7 +4,7 @@ use ark_ec::{AffineRepr, VariableBaseMSM};
 use ark_ff::Field;
 use ark_std::{One, UniformRand, Zero};
 use core::borrow::BorrowMut;
-use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
+use dock_crypto_utils::transcript::{MerlinTranscript};
 use zeroize::{ZeroizeOnDrop, Zeroizing};
 
 use super::constraint_system::{

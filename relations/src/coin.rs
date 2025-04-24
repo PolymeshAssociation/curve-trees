@@ -602,7 +602,7 @@ fn verify_spend_even<
     pk: &PublicKey<C>,
     curve_tree: &CurveTree<L, 1, P0, P1>,
 ) -> Variable<P0::ScalarField> {
-    commitments.even_verifier_gadget(even_verifier, sr_parameters, curve_tree);
+    commitments.even_verifier_gadget_old(even_verifier, sr_parameters, curve_tree);
     // Question: Why L? This should be 2. Tried 2 and it works.
     let vars = even_verifier.commit_vec(L, commitments.get_rerandomized_leaf());
 
@@ -624,7 +624,7 @@ fn verify_spend_odd<
     sr_parameters: &SelRerandParameters<P0, P1>,
     curve_tree: &CurveTree<L, 1, P0, P1>,
 ) {
-    commitments.odd_verifier_gadget(odd_verifier, sr_parameters, curve_tree);
+    commitments.odd_verifier_gadget_old(odd_verifier, sr_parameters, curve_tree);
 }
 
 #[derive(Clone)]

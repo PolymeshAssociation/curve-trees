@@ -350,7 +350,7 @@ fn bench_select_and_rerandomize_with_parameters<
                                         let pallas_transcript =
                                             MerlinTranscript::new(b"select_and_rerandomize");
                                         let mut pallas_verifier = Verifier::new(pallas_transcript);
-                                        srv.even_verifier_gadget(
+                                        srv.even_verifier_gadget_old(
                                             &mut pallas_verifier,
                                             &sr_params,
                                             &curve_tree,
@@ -374,7 +374,7 @@ fn bench_select_and_rerandomize_with_parameters<
                                         let vesta_transcript =
                                             MerlinTranscript::new(b"select_and_rerandomize");
                                         let mut vesta_verifier = Verifier::new(vesta_transcript);
-                                        srv.odd_verifier_gadget(
+                                        srv.odd_verifier_gadget_old(
                                             &mut vesta_verifier,
                                             &sr_params,
                                             &curve_tree,

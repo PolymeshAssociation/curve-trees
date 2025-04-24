@@ -5,7 +5,7 @@ use ark_ff::Field;
 use ark_std::{One, UniformRand, Zero};
 use core::borrow::BorrowMut;
 use core::mem;
-use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
+use dock_crypto_utils::transcript::{MerlinTranscript};
 
 use super::constraint_system::{
     ConstraintSystem, RandomizableConstraintSystem, RandomizedConstraintSystem,

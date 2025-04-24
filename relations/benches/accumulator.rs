@@ -109,7 +109,7 @@ fn bench_accumulator_with_parameters<
             rerandomization,
             &sr_params.even_parameters.bp_gens,
         );
-        assert_eq!(leaf_commitment, path.get_rerandomized_leaf()); // sanity check
+        assert_eq!(leaf_commitment, path.get_rerandomized_leaf_old()); // sanity check
 
         select(
             &mut pallas_prover,
@@ -187,13 +187,13 @@ fn bench_accumulator_with_parameters<
                                     .map(|srv| {
                                         let pallas_transcript = MerlinTranscript::new(b"acc");
                                         let mut pallas_verifier = Verifier::new(pallas_transcript);
-                                        srv.even_verifier_gadget(
+                                        srv.even_verifier_gadget_old(
                                             &mut pallas_verifier,
                                             &sr_params,
                                             &curve_tree,
                                         );
                                         let leaf_vars = pallas_verifier
-                                            .commit_vec(leaf_width, path.get_rerandomized_leaf());
+                                            .commit_vec(leaf_width, path.get_rerandomized_leaf_old());
                                         select(
                                             &mut pallas_verifier,
                                             LinearCombination::from(element),
@@ -219,7 +219,7 @@ fn bench_accumulator_with_parameters<
                                     .map(|srv| {
                                         let vesta_transcript = MerlinTranscript::new(b"acc");
                                         let mut vesta_verifier = Verifier::new(vesta_transcript);
-                                        srv.odd_verifier_gadget(
+                                        srv.odd_verifier_gadget_old(
                                             &mut vesta_verifier,
                                             &sr_params,
                                             &curve_tree,

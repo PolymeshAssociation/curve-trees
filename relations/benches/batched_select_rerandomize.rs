@@ -397,7 +397,7 @@ fn bench_naive_batch_select_and_rerandomize_with_parameters<
                                             MerlinTranscript::new(b"select_and_rerandomize");
                                         let mut even_verifier = Verifier::new(even_transcript);
                                         for i in 0..M {
-                                            srv[i].even_verifier_gadget(
+                                            srv[i].even_verifier_gadget_old(
                                                 &mut even_verifier,
                                                 &sr_params,
                                                 &curve_tree,
@@ -423,7 +423,7 @@ fn bench_naive_batch_select_and_rerandomize_with_parameters<
                                             MerlinTranscript::new(b"select_and_rerandomize");
                                         let mut odd_verifier = Verifier::new(odd_transcript);
                                         for i in 0..M {
-                                            srv[i].odd_verifier_gadget(
+                                            srv[i].odd_verifier_gadget_old(
                                                 &mut odd_verifier,
                                                 &sr_params,
                                                 &curve_tree,

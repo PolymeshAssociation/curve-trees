@@ -1,10 +1,9 @@
+use std::io::Read;
 use crate::single_level_select_and_rerandomize::*;
 use ark_ec::AffineRepr;
 use ark_ec::{models::short_weierstrass::SWCurveConfig, short_weierstrass::Affine, CurveGroup};
 use ark_ff::PrimeField;
-use ark_serialize::{
-    CanonicalDeserialize, CanonicalSerialize, Write,
-};
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, SerializationError, Valid, Validate, Write};
 use ark_std::Zero;
 
 /// Parameters for multi level select and rerandomize over a 2-cycle of curves
@@ -138,6 +137,7 @@ impl<
 
     //todo add a function to add a single/several commitments
 
+    /// Get leaf at index `leaf_index`
     pub fn get_leaf(&self, leaf_index: usize) -> Affine<P0> {
         let mut leaf = None;
         match self {
@@ -148,6 +148,7 @@ impl<
         leaf.unwrap()
     }
 
+    /// Update value of leaf at index `leaf_index` to `new_leaf_value`
     pub fn update_leaf(&mut self, leaf_index: usize, tree_index: usize, new_leaf_value: Affine<P0>, parameters: &SelRerandParameters<P0, P1>,) {
         match self {
             Self::Even(node) => Self::update_even_node(node, leaf_index, tree_index, new_leaf_value, parameters),
@@ -160,6 +161,20 @@ impl<
         match self {
             Self::Even(ct) => ct.height(),
             Self::Odd(ct) => ct.height(),
+        }
+    }
+
+    /// Get the root node.
+    pub fn root_node(&self) -> Root<L, M, P0, P1> {
+        match self {
+            Self::Even(ct) => match ct {
+                CurveTreeNode::InnerNode(n) => Root::Even(RootNode {commitments: n.commitments_to_children.clone(), x_coord_children: n.x_coord_children.clone()}),
+                _ => unreachable!("Root of a curve tree can't be a leaf"),
+            },
+            Self::Odd(ct) => match ct {
+                CurveTreeNode::InnerNode(n) => Root::Odd(RootNode {commitments: n.commitments_to_children.clone(), x_coord_children: n.x_coord_children.clone()}),
+                _ => unreachable!("Root of a curve tree can't be a leaf"),
+            },
         }
     }
 
@@ -282,14 +297,14 @@ impl<
     }
 }
 
-/// A rerandomized path in the tree.
-/// The `selected_commitment` is the selected and rerandomized commitment.
+/// A rerandomized path in the tree going from root to leaf (excluding both root and leaf). Given to the verifier to verify the proof
 /// The last element in `odd_commitments` is the rerandomized parent of the selected leaf.
 /// The last element in `even_commitments` is the rerandomized parent of the last element in `odd_commitments`, etc.
 #[derive(Clone, PartialEq, Eq, Debug, CanonicalSerialize, CanonicalDeserialize)]
 pub struct SelectAndRerandomizePath<const L: usize, P0: SWCurveConfig, P1: SWCurveConfig> {
-    /// Randomized leaf, i.e. if leaf is a group element `C` then this is `C + (B_blinding * r)`
+    /// Randomized leaf, i.e. if leaf is a group element `C` then this is `C + (B_blinding * r)`. This could be part of `even_commitments`
     pub re_randomized_leaf: Affine<P0>,
+    // TODO: Why not add re_randomized_leaf to even_commitments as the last element?
     pub odd_commitments: Vec<Affine<P1>>,
     pub even_commitments: Vec<Affine<P0>>,
 }
@@ -311,6 +326,21 @@ pub struct SelectAndRerandomizeMultiPath<
 }
 /// A list of `L` potential nodes
 type Children<const L: usize, const M: usize, P0, P1> = [Option<CurveTreeNode<L, M, P1, P0>>; L];
+
+/// Root node of the tree. Used by verifier to check proofs and refer to tree.
+#[derive(Clone)]
+pub enum Root<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCurveConfig> {
+    Even(RootNode<L, M, P0, P1>),
+    Odd(RootNode<L, M, P1, P0>),
+}
+
+#[derive(Clone, CanonicalSerialize, CanonicalDeserialize)]
+pub struct RootNode<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCurveConfig> {
+    /// Commitment(s) to x-coordinates of the immediate children
+    pub commitments: [Affine<P0>; M],
+    /// x-coordinates of the immediate children
+    pub x_coord_children: Vec<[P1::BaseField; L]>,
+}
 
 /// map L children to their x-coordinate with 0 representing the empty node.
 pub fn x_coordinates<
@@ -483,5 +513,80 @@ impl<
             height,
             elements,
         })
+    }
+}
+
+impl<const L: usize, P0: SWCurveConfig, P1: SWCurveConfig> SelectAndRerandomizePath<L, P0, P1> {
+    /// Add the root node to this path and returns true if root is even, else false
+    pub fn add_root(&mut self, root: &Root<L, 1, P0, P1>) -> bool {
+        match root {
+            Root::Odd(ct) => {
+                assert_eq!(
+                    self.even_commitments.len(),
+                    self.odd_commitments.len()
+                );
+                self.odd_commitments.insert(0, ct.commitments[0].clone());
+                false
+            }
+            Root::Even(ct) => {
+                assert_eq!(
+                    self.even_commitments.len() + 1,
+                    self.odd_commitments.len()
+                );
+                self.even_commitments.insert(0, ct.commitments[0].clone());
+                true
+            }
+        }
+    }
+}
+
+impl<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCurveConfig> Valid for Root<L, M, P0, P1> {
+    fn check(&self) -> Result<(), SerializationError> {
+        match self {
+            Self::Even(n) => n.check(),
+            Self::Odd(n) => n.check(),
+        }
+    }
+}
+
+impl<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCurveConfig> CanonicalSerialize for Root<L, M, P0, P1> {
+    fn serialize_with_mode<W: Write>(&self, mut writer: W, compress: Compress) -> Result<(), SerializationError> {
+        match self {
+            Self::Even(n) => {
+                CanonicalSerialize::serialize_with_mode(&0u8, &mut writer, compress)?;
+                CanonicalSerialize::serialize_with_mode(n, &mut writer, compress)
+            }
+            Self::Odd(n) => {
+                CanonicalSerialize::serialize_with_mode(&1u8, &mut writer, compress)?;
+                CanonicalSerialize::serialize_with_mode(n, &mut writer, compress)
+            }
+        }
+    }
+
+    fn serialized_size(&self, compress: Compress) -> usize {
+        match self {
+            Self::Even(n) => 1 + n.serialized_size(compress),
+            Self::Odd(n) => 1 + n.serialized_size(compress),
+        }
+    }
+}
+
+impl<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCurveConfig> CanonicalDeserialize for Root<L, M, P0, P1> {
+    fn deserialize_with_mode<R: Read>(mut reader: R, compress: Compress, validate: Validate) -> Result<Self, SerializationError> {
+        let t: u8 =
+            CanonicalDeserialize::deserialize_with_mode(&mut reader, compress, validate)?;
+        match t {
+            0u8 => Ok(Self::Even(CanonicalDeserialize::deserialize_with_mode(
+                &mut reader,
+                compress,
+                validate,
+            )?)),
+            1u8 => Ok(Self::Odd(CanonicalDeserialize::deserialize_with_mode(
+                &mut reader,
+                compress,
+                validate,
+            )?)),
+            _ => Err(SerializationError::InvalidData),
+        }
     }
 }

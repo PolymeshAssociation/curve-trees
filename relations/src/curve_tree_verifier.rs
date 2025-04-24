@@ -2,9 +2,7 @@ use bulletproofs::r1cs::*;
 
 use crate::single_level_select_and_rerandomize::*;
 
-use crate::curve_tree::{
-    CurveTree, CurveTreeNode, SelRerandParameters, SelectAndRerandomizePath,
-};
+use crate::curve_tree::{CurveTree, CurveTreeNode, Root, SelRerandParameters, SelectAndRerandomizePath};
 use ark_ec::{models::short_weierstrass::SWCurveConfig, short_weierstrass::Affine};
 use ark_ff::PrimeField;
 use dock_crypto_utils::transcript::{MerlinTranscript};
@@ -19,7 +17,8 @@ impl<
         P1: SWCurveConfig<BaseField = F0, ScalarField = F1> + Copy + Send,
     > CurveTree<L, M, P0, P1>
 {
-    /// Adds the root to a randomized path provided by the prover.
+    /// Adds the root to a randomized path provided by the prover. The "root" here is the commitment to the x-coordinates
+    /// of the children of root node.
     pub fn add_root_to_randomized_path(
         &self,
         randomized_path: &mut SelectAndRerandomizePath<L, P0, P1>,
@@ -66,10 +65,10 @@ impl<
             randomized_path.even_commitments.len() + randomized_path.odd_commitments.len()
         );
 
-        randomized_path.even_verifier_gadget(even_verifier, parameters, self);
-        randomized_path.odd_verifier_gadget(odd_verifier, parameters, self);
+        randomized_path.even_verifier_gadget_old(even_verifier, parameters, self);
+        randomized_path.odd_verifier_gadget_old(odd_verifier, parameters, self);
 
-        randomized_path.get_rerandomized_leaf()
+        randomized_path.get_rerandomized_leaf_old()
     }
 }
 
@@ -81,11 +80,11 @@ impl<
     > SelectAndRerandomizePath<L, P0, P1>
 {
     /// Get the public rerandomization of the selected (leaf) commitment
-    pub fn get_rerandomized_leaf(&self) -> Affine<P0> {
+    pub fn get_rerandomized_leaf_old(&self) -> Affine<P0> {
         self.re_randomized_leaf
     }
 
-    pub fn even_verifier_gadget<const M: usize, T: BorrowMut<MerlinTranscript>>(
+    pub fn even_verifier_gadget_old<const M: usize, T: BorrowMut<MerlinTranscript>>(
         &self,
         even_verifier: &mut Verifier<T, Affine<P0>>,
         parameters: &SelRerandParameters<P0, P1>,
@@ -104,13 +103,14 @@ impl<
                 parent_index
             };
             let variables = if parent_index == 0 && !root_is_odd {
+                // Root's children are not re-randomized
                 let children = match &ct {
                     CurveTree::Even(root) => {
                         if let CurveTreeNode::InnerNode(inner_node) = root
                         {
                             inner_node.x_coord_children[0]
                         } else {
-                            panic!()
+                            unreachable!("Root of a curve tree can't be a leaf")
                         }
                     }
                     _ => panic!(),
@@ -134,7 +134,7 @@ impl<
         }
     }
 
-    pub fn odd_verifier_gadget<const M: usize, T: BorrowMut<MerlinTranscript>>(
+    pub fn odd_verifier_gadget_old<const M: usize, T: BorrowMut<MerlinTranscript>>(
         &self,
         odd_verifier: &mut Verifier<T, Affine<P1>>,
         parameters: &SelRerandParameters<P0, P1>,
@@ -157,13 +157,14 @@ impl<
                 self.re_randomized_leaf
             };
             let variables = if parent_index == 0 && root_is_odd {
+                // Root's children are not re-randomized
                 let children = match &ct {
                     CurveTree::Odd(root) => {
                         if let CurveTreeNode::InnerNode(inner_node) = root
                         {
                             inner_node.x_coord_children[0]
                         } else {
-                            panic!()
+                            unreachable!("Root of a curve tree can't be a leaf")
                         }
                     }
                     _ => panic!(),
@@ -185,5 +186,120 @@ impl<
                 None,
             );
         }
+    }
+}
+
+impl<
+    const L: usize,
+    F: PrimeField,
+    P0: SWCurveConfig<BaseField = F> + Copy + Send,
+    P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = F> + Copy + Send
+> SelectAndRerandomizePath<L, P0, P1> {
+    pub fn select_and_rerandomize_verifier_gadget<T: BorrowMut<MerlinTranscript>>(
+        &mut self,
+        root: &Root<L, 1, P0, P1>,
+        even_verifier: &mut Verifier<T, Affine<P0>>,
+        odd_verifier: &mut Verifier<T, Affine<P1>>,
+        parameters: &SelRerandParameters<P0, P1>,
+    ) -> Affine<P0> {
+        self.add_root(root);
+        // TODO: These can be run in parallel
+        self.even_verifier_gadget(root, even_verifier, parameters);
+        self.odd_verifier_gadget(root, odd_verifier, parameters);
+
+        self.get_rerandomized_leaf()
+    }
+
+    pub fn even_verifier_gadget<T: BorrowMut<MerlinTranscript>>(
+        &self,
+        root: &Root<L, 1, P0, P1>,
+        even_verifier: &mut Verifier<T, Affine<P0>>,
+        parameters: &SelRerandParameters<P0, P1>,
+    ) {
+        let (root_is_even, children_of_root) = match root {
+            Root::Even(root) => {
+                (true, Some(root.x_coord_children[0].clone()))
+            }
+            _ => (false, None),
+        };
+
+        for parent_index in 0..self.even_commitments.len() {
+            // If the root is at odd level, then the first element in self.odd_commitments will be the root so skip that
+            let child = if !root_is_even {
+                &self.odd_commitments[parent_index + 1]
+            } else {
+                &self.odd_commitments[parent_index]
+            };
+            let variables = if parent_index == 0 && root_is_even {
+                // Root's children are not re-randomized
+                children_of_root.unwrap().map(constant).to_vec()
+            } else {
+                let variables = even_verifier.commit_vec(L, self.even_commitments[parent_index]);
+                variables
+                    .iter()
+                    .map(|v| LinearCombination::<P0::ScalarField>::from(*v))
+                    .collect()
+            };
+            single_level_select_and_rerandomize(
+                even_verifier,
+                &parameters.odd_parameters,
+                child,
+                variables,
+                None,
+                None,
+            );
+        }
+    }
+
+    pub fn odd_verifier_gadget<T: BorrowMut<MerlinTranscript>>(
+        &self,
+        root: &Root<L, 1, P0, P1>,
+        odd_verifier: &mut Verifier<T, Affine<P1>>,
+        parameters: &SelRerandParameters<P0, P1>,
+    ) {
+        let (root_is_even, children_of_root) = match root {
+            Root::Odd(root) => {
+                (false, Some(root.x_coord_children[0].clone()))
+            }
+            _ => (true, None),
+        };
+
+        for parent_index in 0..self.odd_commitments.len() {
+            // If the root is at even level, then the first element in self.even_commitments will be the root
+            let child_index = if root_is_even {
+                parent_index + 1
+            } else {
+                parent_index
+            };
+            // self.even_commitments doesn't contain leaf so for the last `parent_index`, select the leaf
+            let child = if parent_index < self.odd_commitments.len() - 1 {
+                self.even_commitments[child_index]
+            } else {
+                self.re_randomized_leaf
+            };
+            let variables = if parent_index == 0 && !root_is_even {
+                // Root's children are not re-randomized
+                children_of_root.unwrap().map(|c| constant(c)).to_vec()
+            } else {
+                let variables = odd_verifier.commit_vec(L, self.odd_commitments[parent_index]);
+                variables
+                    .iter()
+                    .map(|v| LinearCombination::<P1::ScalarField>::from(*v))
+                    .collect()
+            };
+            single_level_select_and_rerandomize(
+                odd_verifier,
+                &parameters.even_parameters,
+                &child,
+                variables,
+                None,
+                None,
+            );
+        }
+    }
+
+    /// Get the public rerandomization of the selected (leaf) commitment
+    pub fn get_rerandomized_leaf(&self) -> Affine<P0> {
+        self.re_randomized_leaf
     }
 }
