@@ -227,8 +227,8 @@ pub fn test_curve_tree_with_parameters_new<
                 &sr_params.even_parameters.bp_gens,
             );
             verifier_time += clock.elapsed();
-            assert_eq!(vesta_res, pallas_res);
-            assert_eq!(vesta_res, Ok(()));
+            assert!(vesta_res.is_ok());
+            assert!(pallas_res.is_ok());
             assert_eq!(rerandomized_leaf.into_group(), curve_tree.get_leaf(*leaf_index) + (sr_params.even_parameters.pc_gens.B_blinding * re_randomization_of_leaf))
         }
     }
@@ -335,8 +335,8 @@ pub fn test_curve_tree_get_update<
                 &sr_params.even_parameters.pc_gens,
                 &sr_params.even_parameters.bp_gens,
             );
-            assert_eq!(vesta_res, pallas_res);
-            assert_eq!(vesta_res, Ok(()));
+            assert!(vesta_res.is_ok());
+            assert!(pallas_res.is_ok());
             assert_eq!(rerandomized_leaf.into_group(), curve_tree.get_leaf(*leaf_index) + (sr_params.even_parameters.pc_gens.B_blinding * re_randomization_of_leaf))
         }
     }

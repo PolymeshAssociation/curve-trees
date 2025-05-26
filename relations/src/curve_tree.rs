@@ -1,4 +1,5 @@
 use std::io::Read;
+use core::cmp;
 use crate::single_level_select_and_rerandomize::*;
 use ark_ec::AffineRepr;
 use ark_ec::{models::short_weierstrass::SWCurveConfig, short_weierstrass::Affine, CurveGroup};
@@ -328,13 +329,13 @@ pub struct SelectAndRerandomizeMultiPath<
 type Children<const L: usize, const M: usize, P0, P1> = [Option<CurveTreeNode<L, M, P1, P0>>; L];
 
 /// Root node of the tree. Used by verifier to check proofs and refer to tree.
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Root<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCurveConfig> {
     Even(RootNode<L, M, P0, P1>),
     Odd(RootNode<L, M, P1, P0>),
 }
 
-#[derive(Clone, CanonicalSerialize, CanonicalDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, CanonicalSerialize, CanonicalDeserialize)]
 pub struct RootNode<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCurveConfig> {
     /// Commitment(s) to x-coordinates of the immediate children
     pub commitments: [Affine<P0>; M],

@@ -83,6 +83,24 @@ impl<P: SWCurveConfig + Copy> SingleLayerParameters<P> {
         let comm = <Affine<P> as AffineRepr>::Group::msm(generators.as_slice(), scalars.as_slice());
         comm.unwrap().into_affine()
     }
+
+    pub fn commit_for_default_node(
+        &self,
+        x: P::ScalarField,
+        count: usize,
+        generator_set_index: usize,
+    ) -> Affine<P> {
+        let gens = self
+            .bp_gens
+            .share(0)
+            .G(count * (generator_set_index + 1))
+            .skip(count * generator_set_index);
+        let g = gens
+                    .copied().sum::<<Affine<P> as AffineRepr>::Group>();
+        
+        (g * x).into_affine()
+    }
+
 }
 
 /// Circuit for the single level select and rerandomize relation.

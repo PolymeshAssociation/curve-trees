@@ -32,3 +32,6 @@ pub mod range_proof;
 
 // Anonymous payments using Curve Trees and rerandomizable signatures
 pub mod coin;
+pub mod lean_curve_tree;
+pub mod partial_curve_tree;
+mod error;
