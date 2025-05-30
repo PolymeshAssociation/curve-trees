@@ -56,6 +56,9 @@ pub struct Verifier<T: BorrowMut<MerlinTranscript>, C: AffineRepr> {
     pending_multiplier: Option<usize>,
 }
 
+// todo I assume this would be automatically implemented by the compiler if it did not have a a mutable borrow of a transcript
+unsafe impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Send for Verifier<T, C> {} // todo fix after refactor
+
 /// Verifier in the randomizing phase.
 ///
 /// Note: this type is exported because it is used to specify the associated type

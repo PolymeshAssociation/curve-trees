@@ -8,18 +8,20 @@ use rand::thread_rng;
 use relations::curve_tree::*;
 use ark_ec::{short_weierstrass::{Affine, SWCurveConfig}, AffineRepr, CurveGroup};
 use ark_std::UniformRand;
+use ark_pallas::{Fq as PallasBase, PallasConfig};
+use ark_vesta::VestaConfig;
+use ark_secp256k1::{Config as SecpConfig, Fq as SecpBase};
+use ark_secq256k1::Config as SecqConfig;
+use dock_crypto_utils::transcript::MerlinTranscript;
+use rand::prelude::SliceRandom;
+
+mod common;
+use common::prove;
 
 type PallasParameters = ark_pallas::PallasConfig;
 type VestaParameters = ark_vesta::VestaConfig;
 type PallasP = ark_pallas::Projective;
 
-use ark_pallas::{Fq as PallasBase, PallasConfig};
-use ark_vesta::VestaConfig;
-
-use ark_secp256k1::{Config as SecpConfig, Fq as SecpBase};
-use ark_secq256k1::Config as SecqConfig;
-use dock_crypto_utils::transcript::MerlinTranscript;
-use rand::prelude::SliceRandom;
 
 #[test]
 pub fn test_curve_tree_even_depth() {
@@ -113,14 +115,9 @@ pub fn test_curve_tree_with_parameters<
         &sr_params,
         &mut rng,
     );
-
-    let pallas_proof = pallas_prover
-        .prove(&sr_params.even_parameters.bp_gens)
-        .unwrap();
-    let vesta_proof = vesta_prover
-        .prove(&sr_params.odd_parameters.bp_gens)
-        .unwrap();
-
+    
+    let (pallas_proof, vesta_proof) = prove(pallas_prover, vesta_prover, &sr_params).unwrap();
+    
     let root = curve_tree.root_node();
 
     {
@@ -199,12 +196,7 @@ pub fn test_curve_tree_with_parameters_new<
             &mut rng,
         );
 
-        let pallas_proof = pallas_prover
-            .prove(&sr_params.even_parameters.bp_gens)
-            .unwrap();
-        let vesta_proof = vesta_prover
-            .prove(&sr_params.odd_parameters.bp_gens)
-            .unwrap();
+        let (pallas_proof, vesta_proof) = prove(pallas_prover, vesta_prover, &sr_params).unwrap();
 
         prover_time += clock.elapsed();
         
@@ -311,12 +303,7 @@ pub fn test_curve_tree_get_update<
             &mut rng,
         );
 
-        let pallas_proof = pallas_prover
-            .prove(&sr_params.even_parameters.bp_gens)
-            .unwrap();
-        let vesta_proof = vesta_prover
-            .prove(&sr_params.odd_parameters.bp_gens)
-            .unwrap();
+        let (pallas_proof, vesta_proof) = prove(pallas_prover, vesta_prover, &sr_params).unwrap();
 
         {
             let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");

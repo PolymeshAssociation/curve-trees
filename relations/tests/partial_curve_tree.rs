@@ -6,8 +6,6 @@ use ark_pallas::PallasConfig;
 use ark_vesta::VestaConfig;
 use ark_pallas::{Fq as PallasBase};
 use ark_std::UniformRand;
-use rand::prelude::{SliceRandom};
-use rand::SeedableRng;
 use relations::curve_tree::SelRerandParameters;
 use relations::lean_curve_tree::LeanCurveTree;
 use relations::partial_curve_tree::PartialCurveTree;

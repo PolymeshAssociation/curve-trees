@@ -158,31 +158,17 @@ impl<
             let parent_pos = (curr_idx / (L as u64)) as InnerNodeIndex;
             let child_pos = curr_idx as InnerNodeIndex;
             if i % 2 == 0 {
-                let parent_level = &self.odd_levels[i / 2];
-                let parent_node = parent_level.get(&parent_pos).unwrap();
                 let child_node = if i == 0 {
                     leaf_value
                 } else {
                     let child_level = &self.even_levels[(i / 2) - 1];
                     child_level.get(&child_pos).unwrap().commitment
                 };
-                let default_x_coord = self.odd_level_default_nodes[i / 2].x_coord;
-                odd_witness_nodes.push(LeanCurveTree::get_witness_node(
-                    parent_node,
-                    child_node,
-                    default_x_coord,
-                ));
+                odd_witness_nodes.push(PartialCurveTree::<L, _, _>::_witness_node(parent_pos, &self.odd_levels[i / 2], child_node, self.odd_level_default_nodes[i / 2].clone()));
             } else {
-                let parent_level = &self.even_levels[i / 2];
-                let parent_node = parent_level.get(&parent_pos).unwrap();
                 let child_level = &self.odd_levels[i / 2];
                 let child_node = child_level.get(&child_pos).unwrap().commitment;
-                let default_x_coord = self.even_level_default_nodes[i / 2].x_coord;
-                even_witness_nodes.push(LeanCurveTree::get_witness_node(
-                    parent_node,
-                    child_node,
-                    default_x_coord,
-                ));
+                even_witness_nodes.push(PartialCurveTree::<L, _, _>::_witness_node(parent_pos, &self.even_levels[i / 2], child_node, self.even_level_default_nodes[i / 2].clone()));
             }
             curr_idx = curr_idx / L as u64;
         }
@@ -275,5 +261,16 @@ impl<
             );
             level_to_update.insert(parent_pos, node);
         }
+    }
+    
+    fn _witness_node(parent_pos: InnerNodeIndex, parent_level: &BTreeMap<InnerNodeIndex, Node<P0, P1>>, child_node: Affine<P0>, default_node: DefaultNode<P0, P1>,) -> WitnessNode<L, P1, P0> {
+        // TODO: Remove unwrap
+        let parent_node = parent_level.get(&parent_pos).unwrap();
+        let default_x_coord = default_node.x_coord;
+        LeanCurveTree::get_witness_node(
+            parent_node,
+            child_node,
+            default_x_coord,
+        )
     }
 }
