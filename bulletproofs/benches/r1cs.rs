@@ -154,13 +154,13 @@ fn bench_kshuffle_prove(c: &mut Criterion) {
     let pc_gens = PedersenGens::default();
     let bp_gens = BulletproofGens::new(2 * MAX_SHUFFLE_SIZE, 1);
 
-    c.bench_function_over_inputs(
-        "k-shuffle proof creation",
-        move |b, k| {
+    let mut group = c.benchmark_group("k-shuffle proof creation");
+    for k in (1..=LG_MAX_SHUFFLE_SIZE).map(|i| 1 << i) {
+        group.bench_function(format!("k = {}", k), |b| {
             // Generate inputs and outputs to kshuffle
             let mut rng = rand::thread_rng();
             let (min, max) = (0u64, std::u64::MAX);
-            let input: Vec<Scalar> = (0..*k)
+            let input: Vec<Scalar> = (0..k)
                 .map(|_| Scalar::from(rng.gen_range(min..max)))
                 .collect();
             let mut output = input.clone();
@@ -171,12 +171,10 @@ fn bench_kshuffle_prove(c: &mut Criterion) {
                 let mut prover_transcript = MerlinTranscript::new(b"ShuffleBenchmark");
                 ShuffleProof::prove(&pc_gens, &bp_gens, &mut prover_transcript, &input, &output)
                     .unwrap();
-            })
-        },
-        (1..=LG_MAX_SHUFFLE_SIZE)
-            .map(|i| 1 << i)
-            .collect::<Vec<_>>(),
-    );
+            });
+        });
+    }
+    group.finish();
 }
 
 criterion_group! {
@@ -193,16 +191,16 @@ fn bench_kshuffle_verify(c: &mut Criterion) {
     let pc_gens = PedersenGens::default();
     let bp_gens = BulletproofGens::new(2 * MAX_SHUFFLE_SIZE, 1);
 
-    c.bench_function_over_inputs(
-        "k-shuffle proof verification",
-        move |b, k| {
+    let mut group = c.benchmark_group("k-shuffle proof verification");
+    for k in (1..=LG_MAX_SHUFFLE_SIZE).map(|i| 1 << i) {
+        group.bench_function(format!("k = {}", k), |b| {
             // Generate the proof in its own scope to prevent reuse of
             // prover variables by the verifier
             let (proof, input_commitments, output_commitments) = {
                 // Generate inputs and outputs to kshuffle
                 let mut rng = rand::thread_rng();
                 let (min, max) = (0u64, std::u64::MAX);
-                let input: Vec<Scalar> = (0..*k)
+                let input: Vec<Scalar> = (0..k)
                     .map(|_| Scalar::from(rng.gen_range(min..max)))
                     .collect();
                 let mut output = input.clone();
@@ -226,12 +224,10 @@ fn bench_kshuffle_verify(c: &mut Criterion) {
                         &output_commitments,
                     )
                     .unwrap();
-            })
-        },
-        (1..=LG_MAX_SHUFFLE_SIZE)
-            .map(|i| 1 << i)
-            .collect::<Vec<_>>(),
-    );
+            });
+        });
+    }
+    group.finish();
 }
 
 criterion_group! {
