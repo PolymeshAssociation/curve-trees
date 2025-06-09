@@ -3,7 +3,7 @@
 use super::linear_combination::{LinearCombination, Variable};
 use super::R1CSError;
 use ark_ff::Field;
-use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
+use dock_crypto_utils::transcript::MerlinTranscript;
 
 /// The interface for a constraint system, abstracting over the prover
 /// and verifier's roles.

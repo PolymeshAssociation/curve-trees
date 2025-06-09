@@ -7,7 +7,7 @@ use alloc::vec::Vec;
 
 use ark_ec::{AffineRepr, VariableBaseMSM};
 use ark_ff::{fields::batch_inversion, Field};
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Read};
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress};
 use ark_std::One;
 use core::iter;
 use dock_crypto_utils::transcript::MerlinTranscript;
@@ -372,6 +372,7 @@ impl<C: AffineRepr> InnerProductProof<C> {
 
     /// Returns the size in bytes required to serialize the inner
     /// product proof.
+    #[allow(dead_code)]
     pub fn serialized_size(&self, compress: Compress) -> usize {
         // size of the two scalars
         let scalars_size = self.a.serialized_size(compress) * 2;
@@ -402,7 +403,6 @@ mod tests {
 
     use ark_pallas::Affine;
     use ark_std::UniformRand;
-    use dock_crypto_utils::transcript::new_merlin_transcript;
 
     type F = <Affine as AffineRepr>::ScalarField;
 

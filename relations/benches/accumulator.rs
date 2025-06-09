@@ -19,7 +19,7 @@ use ark_ec::short_weierstrass::{Affine, SWCurveConfig};
 use ark_serialize::{CanonicalSerialize, Compress};
 use ark_std::{UniformRand, Zero};
 
-use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
+use dock_crypto_utils::transcript::MerlinTranscript;
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;

@@ -2,13 +2,10 @@
 //! Definition of the proof struct.
 
 use ark_ec::AffineRepr;
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Valid};
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress};
 
 use crate::errors::R1CSError;
 use crate::inner_product_proof::InnerProductProof;
-
-const ONE_PHASE_COMMITMENTS: u8 = 0;
-const TWO_PHASE_COMMITMENTS: u8 = 1;
 
 /// A proof of some statement specified by a
 /// [`ConstraintSystem`](::r1cs::ConstraintSystem).
@@ -54,7 +51,7 @@ pub struct R1CSProof<C: AffineRepr> {
 }
 
 impl<C: AffineRepr> R1CSProof<C> {
-    fn missing_phase2_commitments(&self) -> bool {
+    pub fn missing_phase2_commitments(&self) -> bool {
         self.A_I2.is_zero() && self.A_O2.is_zero() && self.S2.is_zero()
     }
 
@@ -71,7 +68,11 @@ impl<C: AffineRepr> R1CSProof<C> {
     }
 }
 
-/*impl<C: AffineRepr> CanonicalSerialize for R1CSProof<C> {
+/*
+const ONE_PHASE_COMMITMENTS: u8 = 0;
+const TWO_PHASE_COMMITMENTS: u8 = 1;
+
+impl<C: AffineRepr> CanonicalSerialize for R1CSProof<C> {
     /// Returns the size in bytes required to serialize the `R1CSProof`.
     fn serialized_size(&self, compress: Compress) -> usize {
         let number_of_points = if self.missing_phase2_commitments() {

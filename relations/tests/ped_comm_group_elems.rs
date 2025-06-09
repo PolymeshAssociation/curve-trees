@@ -11,10 +11,8 @@ use bulletproofs::r1cs::{constant, ConstraintSystem, LinearCombination, Prover, 
 use common::prove;
 use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
 use rand::prelude::SliceRandom;
-use relations::curve::{curve_check, PointRepresentation};
 use relations::curve_tree::{CurveTree, SelRerandParameters};
 use relations::ped_comm_group_elems::{prove_naive, verify_naive};
-use relations::rerandomize::re_randomize;
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
@@ -232,7 +230,7 @@ pub fn check<
     let mut prover_time = Duration::default();
     let mut verifier_time = Duration::default();
 
-    for (leaf_index, (nested, comm)) in proof_indices {
+    for (leaf_index, (_, comm)) in proof_indices {
         let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
         let mut pallas_prover: Prover<_, Affine<P0>> =
             Prover::new(&sr_params.even_parameters.pc_gens, pallas_transcript);

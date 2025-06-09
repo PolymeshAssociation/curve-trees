@@ -19,7 +19,7 @@ use ark_ec::short_weierstrass::{Affine, SWCurveConfig};
 use ark_serialize::{CanonicalSerialize, Compress};
 use ark_std::UniformRand;
 
-use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
+use dock_crypto_utils::transcript::MerlinTranscript;
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -180,6 +180,7 @@ fn bench_select_and_rerandomize_with_parameters<
             + vesta_proof.serialized_size(Compress::Yes)
     );
 
+    #[cfg(any(feature = "detailed_benchmarks", feature = "bench_prover"))]
     {
         let mut group = c.benchmark_group(&prefix_string);
 

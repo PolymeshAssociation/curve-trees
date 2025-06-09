@@ -129,7 +129,7 @@ mod tests {
     use ark_ec::AffineRepr;
     use ark_std::UniformRand;
     use bulletproofs::{BulletproofGens, PedersenGens};
-    use dock_crypto_utils::transcript::{new_merlin_transcript, MerlinTranscript, Transcript};
+    use dock_crypto_utils::transcript::MerlinTranscript;
 
     use rand::thread_rng;
 

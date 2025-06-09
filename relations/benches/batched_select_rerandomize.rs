@@ -19,7 +19,7 @@ use ark_ec::short_weierstrass::{Affine, SWCurveConfig};
 use ark_serialize::{CanonicalSerialize, Compress};
 use ark_std::UniformRand;
 
-use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
+use dock_crypto_utils::transcript::MerlinTranscript;
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -221,6 +221,7 @@ fn bench_naive_batch_select_and_rerandomize_with_parameters<
             + odd_proof.serialized_size(Compress::Yes)
     );
 
+    #[cfg(any(feature = "detailed_benchmarks", feature = "bench_prover"))]
     {
         let mut group = c.benchmark_group(&prefix_string);
 
@@ -590,6 +591,7 @@ fn bench_grafted_batch_select_and_rerandomize_with_parameters<
             + odd_proof.serialized_size(Compress::Yes)
     );
 
+    #[cfg(any(feature = "detailed_benchmarks", feature = "bench_prover"))]
     {
         let mut group = c.benchmark_group(&prefix_string);
 
@@ -749,7 +751,7 @@ fn bench_grafted_batch_select_and_rerandomize_with_parameters<
                 b.iter(|| {
                     #[cfg(feature = "parallel")]
                     {
-                        let srvs = proofs.par_iter().map(|paths| {
+                        let srvs = proofs.par_iter().map(|_paths| {
                             let mut path_with_root = multi_path.clone();
                             curve_tree.batched_select_and_rerandomize_verification_commitments(
                                 &mut path_with_root,

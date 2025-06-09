@@ -1,6 +1,5 @@
 extern crate relations;
 use ark_ec::short_weierstrass::{Affine, SWCurveConfig};
-use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_pallas::Fq as PallasBase;
 use ark_pallas::PallasConfig;

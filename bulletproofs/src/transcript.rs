@@ -9,6 +9,7 @@ use crate::util;
 
 pub trait TranscriptProtocol {
     /// Append a domain separator for an `n`-bit, `m`-party range proof.
+    #[allow(dead_code)]
     fn rangeproof_domain_sep(&mut self, n: u64, m: u64);
 
     /// Append a domain separator for a length-`n` inner product proof.

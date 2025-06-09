@@ -1,7 +1,7 @@
 use ark_serialize::Compress;
 use ark_serialize::Valid;
 use bulletproofs::r1cs::*;
-use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
+use dock_crypto_utils::transcript::MerlinTranscript;
 use rand::Rng;
 
 use crate::curve_tree::*;
@@ -785,7 +785,6 @@ impl<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dock_crypto_utils::transcript::new_merlin_transcript;
 
     type PallasParameters = ark_pallas::PallasConfig;
     type VestaParameters = ark_vesta::VestaConfig;

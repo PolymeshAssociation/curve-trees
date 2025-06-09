@@ -7,8 +7,10 @@ use rand::RngCore;
 use relations::curve_tree::{Root, SelRerandParameters};
 use relations::curve_tree_prover::CurveTreeWitnessPath;
 
+#[allow(dead_code)]
 const PROOF_LABEL: &'static [u8; 22] = b"select_and_rerandomize";
 
+#[allow(dead_code)]
 pub fn prove<
     F: PrimeField,
     P0: SWCurveConfig<BaseField = F> + Copy,
@@ -34,6 +36,7 @@ pub fn prove<
     Ok((even_proof, odd_proof))
 }
 
+#[allow(dead_code)]
 pub fn check_proof<
     const L: usize,
     R: RngCore,

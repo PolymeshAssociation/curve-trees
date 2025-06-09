@@ -11,7 +11,6 @@ use ark_pallas::Affine;
 
 use bulletproofs::r1cs::*;
 use bulletproofs::{BulletproofGens, PedersenGens};
-use dock_crypto_utils::transcript::{new_merlin_transcript, Transcript};
 
 mod veccom_twice {
     use super::*;

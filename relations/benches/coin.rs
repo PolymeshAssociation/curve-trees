@@ -13,7 +13,7 @@ extern crate bulletproofs;
 use bulletproofs::r1cs::{batch_verify, Prover};
 
 extern crate relations;
-use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
+use dock_crypto_utils::transcript::MerlinTranscript;
 use relations::coin::*;
 use relations::curve_tree::*;
 
@@ -199,6 +199,7 @@ fn bench_pour_with_parameters<
         tx.serialized_size(Compress::Yes)
     );
 
+    #[cfg(any(feature = "bench_prover", feature = "detailed_benchmarks"))]
     {
         let mut group = c.benchmark_group(&prefix_string);
 

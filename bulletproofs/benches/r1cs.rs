@@ -14,7 +14,7 @@ use ark_ec::AffineRepr;
 use ark_std::UniformRand;
 use bulletproofs::r1cs::*;
 use bulletproofs::{BulletproofGens, PedersenGens};
-use dock_crypto_utils::transcript::{Transcript, MerlinTranscript};
+use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
 use rand::seq::SliceRandom;
 use rand::Rng;
 
@@ -80,9 +80,9 @@ impl ShuffleProof {
     ) -> Result<(ShuffleProof, Vec<Affine>, Vec<Affine>), R1CSError> {
         // Apply a domain separator with the shuffle parameters to the transcript
         // XXX should this be part of the gadget?
-        let k = input.len();
+        let k = input.len() as u64;
         transcript.append_message(b"dom-sep", b"ShuffleProof");
-        transcript.merlin.append_u64(b"k", k as u64);
+        transcript.append(b"k", &k);
 
         let mut prover = Prover::new(&pc_gens, transcript);
 
@@ -120,9 +120,9 @@ impl ShuffleProof {
     ) -> Result<(), R1CSError> {
         // Apply a domain separator with the shuffle parameters to the transcript
         // XXX should this be part of the gadget?
-        let k = input_commitments.len();
+        let k = input_commitments.len() as u64;
         transcript.append_message(b"dom-sep", b"ShuffleProof");
-        transcript.merlin.append_u64(b"k", k as u64);
+        transcript.append(b"k", &k);
 
         let mut verifier = Verifier::new(transcript);
 
