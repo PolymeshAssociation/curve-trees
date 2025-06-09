@@ -7,12 +7,10 @@ use alloc::vec::Vec;
 
 use ark_ec::{AffineRepr, VariableBaseMSM};
 use ark_ff::{fields::batch_inversion, Field};
-use ark_serialize::{
-    CanonicalDeserialize, CanonicalSerialize, Compress, Read
-};
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Read};
 use ark_std::One;
 use core::iter;
-use dock_crypto_utils::transcript::{MerlinTranscript};
+use dock_crypto_utils::transcript::MerlinTranscript;
 
 use crate::errors::ProofError;
 use crate::transcript::TranscriptProtocol;

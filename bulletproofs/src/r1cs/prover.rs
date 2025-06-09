@@ -4,7 +4,7 @@ use ark_ec::{AffineRepr, CurveGroup, VariableBaseMSM};
 use ark_ff::Field;
 use ark_std::{One, UniformRand, Zero};
 use core::borrow::BorrowMut;
-use dock_crypto_utils::transcript::{MerlinTranscript};
+use dock_crypto_utils::transcript::MerlinTranscript;
 use zeroize::{ZeroizeOnDrop, Zeroizing};
 
 use super::constraint_system::{
@@ -251,11 +251,8 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> RandomizedConstraintSyst
     for RandomizingProver<'g, T, C>
 {
     fn challenge_scalar(&mut self, label: &'static [u8]) -> C::ScalarField {
-        let t = self.prover
-            .transcript
-            .borrow_mut();
-            TranscriptProtocol::challenge_scalar::<C>(t, label)
-
+        let t = self.prover.transcript.borrow_mut();
+        TranscriptProtocol::challenge_scalar::<C>(t, label)
     }
 }
 
@@ -578,7 +575,10 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
         let n1 = self.size();
 
         if bp_gens.gens_capacity < n1 {
-            return Err(R1CSError::InvalidGeneratorsLength(bp_gens.gens_capacity, n1));
+            return Err(R1CSError::InvalidGeneratorsLength(
+                bp_gens.gens_capacity,
+                n1,
+            ));
         }
 
         // We are performing a single-party circuit proof, so party index is 0.
@@ -739,7 +739,10 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
         let pad = padded_n - n;
 
         if bp_gens.gens_capacity < padded_n {
-            return Err(R1CSError::InvalidGeneratorsLength(bp_gens.gens_capacity, padded_n));
+            return Err(R1CSError::InvalidGeneratorsLength(
+                bp_gens.gens_capacity,
+                padded_n,
+            ));
         }
 
         // Commit to the second-phase low-level witness variables

@@ -5,7 +5,7 @@ use ark_ff::Field;
 use ark_std::{One, UniformRand, Zero};
 use core::borrow::BorrowMut;
 use core::mem;
-use dock_crypto_utils::transcript::{MerlinTranscript};
+use dock_crypto_utils::transcript::MerlinTranscript;
 
 use super::constraint_system::{
     ConstraintSystem, RandomizableConstraintSystem, RandomizedConstraintSystem,
@@ -70,7 +70,9 @@ pub struct RandomizingVerifier<T: BorrowMut<MerlinTranscript>, C: AffineRepr> {
     verifier: Verifier<T, C>,
 }
 
-impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> ConstraintSystem<C::ScalarField> for Verifier<T, C> {
+impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> ConstraintSystem<C::ScalarField>
+    for Verifier<T, C>
+{
     fn transcript(&mut self) -> &mut MerlinTranscript {
         self.transcript.borrow_mut()
     }
@@ -225,10 +227,8 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> RandomizedConstraintSystem<C
     for RandomizingVerifier<T, C>
 {
     fn challenge_scalar(&mut self, label: &'static [u8]) -> C::ScalarField {
-        let t = self.verifier
-            .transcript
-            .borrow_mut();
-            TranscriptProtocol::challenge_scalar::<C>(t, label)
+        let t = self.verifier.transcript.borrow_mut();
+        TranscriptProtocol::challenge_scalar::<C>(t, label)
     }
 }
 
@@ -438,7 +438,10 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
         let gens = bp_gens.share(0);
 
         if bp_gens.gens_capacity < padded_n {
-            return Err(R1CSError::InvalidGeneratorsLength(bp_gens.gens_capacity, padded_n));
+            return Err(R1CSError::InvalidGeneratorsLength(
+                bp_gens.gens_capacity,
+                padded_n,
+            ));
         }
 
         use std::iter;
@@ -776,7 +779,10 @@ pub fn batch_verify<C: AffineRepr>(
     let gens = bp_gens.share(0);
 
     if bp_gens.gens_capacity < padded_n {
-        return Err(R1CSError::InvalidGeneratorsLength(bp_gens.gens_capacity, padded_n));
+        return Err(R1CSError::InvalidGeneratorsLength(
+            bp_gens.gens_capacity,
+            padded_n,
+        ));
     }
 
     use std::iter;

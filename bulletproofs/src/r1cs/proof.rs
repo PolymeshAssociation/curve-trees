@@ -2,9 +2,7 @@
 //! Definition of the proof struct.
 
 use ark_ec::AffineRepr;
-use ark_serialize::{
-    CanonicalDeserialize, CanonicalSerialize, Compress, Valid,
-};
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Valid};
 
 use crate::errors::R1CSError;
 use crate::inner_product_proof::InnerProductProof;

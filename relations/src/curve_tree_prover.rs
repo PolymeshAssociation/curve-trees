@@ -2,9 +2,7 @@ use bulletproofs::r1cs::*;
 
 use crate::single_level_select_and_rerandomize::*;
 
-use crate::curve_tree::{
-    CurveTree, CurveTreeNode, Root, SelRerandParameters, SelectAndRerandomizePath,
-};
+use crate::curve_tree::{CurveTree, CurveTreeNode, Root, SelRerandParameters, SelectAndRerandomizePath};
 
 use ark_ec::{
     models::short_weierstrass::SWCurveConfig, short_weierstrass::Affine, AffineRepr, CurveGroup,

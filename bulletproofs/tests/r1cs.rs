@@ -11,7 +11,7 @@ use ark_pallas::Affine;
 
 use bulletproofs::r1cs::*;
 use bulletproofs::{BulletproofGens, PedersenGens};
-use dock_crypto_utils::transcript::{Transcript, MerlinTranscript};
+use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
 use rand::seq::SliceRandom;
 
 // Shuffle gadget (documented in markdown file)

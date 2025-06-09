@@ -8,7 +8,7 @@ use std::ops::{Add, Mul, Neg, Sub};
 /// Represents a variable in a constraint system.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Variable<F: Field> {
-    /// A Pedersen vector commitment. The first usize corresponds to the index of the Pedersen commitment and 
+    /// A Pedersen vector commitment. The first usize corresponds to the index of the Pedersen commitment and
     /// the second corresponds to index of this variable in this committed vector
     VectorCommit(usize, usize),
     /// Represents an external input specified by a commitment.

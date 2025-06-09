@@ -52,7 +52,9 @@ impl From<MPCError> for ProofError {
         match e {
             MPCError::InvalidBitsize => ProofError::InvalidBitsize,
             MPCError::InvalidAggregation => ProofError::InvalidAggregation,
-            MPCError::InvalidGeneratorsLength(u1, u2) => ProofError::InvalidGeneratorsLength(u1, u2),
+            MPCError::InvalidGeneratorsLength(u1, u2) => {
+                ProofError::InvalidGeneratorsLength(u1, u2)
+            }
             _ => ProofError::ProvingError(e),
         }
     }
@@ -150,7 +152,9 @@ pub enum R1CSError {
 impl From<ProofError> for R1CSError {
     fn from(e: ProofError) -> R1CSError {
         match e {
-            ProofError::InvalidGeneratorsLength(u1, u2) => R1CSError::InvalidGeneratorsLength(u1, u2),
+            ProofError::InvalidGeneratorsLength(u1, u2) => {
+                R1CSError::InvalidGeneratorsLength(u1, u2)
+            }
             ProofError::FormatError => R1CSError::FormatError,
             ProofError::VerificationError => R1CSError::VerificationError,
             _ => panic!("unexpected error type in conversion"),

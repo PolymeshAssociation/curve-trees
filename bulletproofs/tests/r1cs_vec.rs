@@ -11,11 +11,11 @@ use ark_pallas::Affine;
 
 use bulletproofs::r1cs::*;
 use bulletproofs::{BulletproofGens, PedersenGens};
-use dock_crypto_utils::transcript::{Transcript, new_merlin_transcript};
+use dock_crypto_utils::transcript::{new_merlin_transcript, Transcript};
 
 mod veccom_twice {
-    use dock_crypto_utils::transcript::MerlinTranscript;
     use super::*;
+    use dock_crypto_utils::transcript::MerlinTranscript;
 
     // Prover's scope
     fn gadget_proof<C: AffineRepr>(
@@ -80,8 +80,8 @@ mod veccom_twice {
     }
 }
 mod veccom_empty {
-    use dock_crypto_utils::transcript::MerlinTranscript;
     use super::*;
+    use dock_crypto_utils::transcript::MerlinTranscript;
 
     // TODO: Constrain (a1 + a2) * (b1 + b2) = (c1 + c2)
     /// Constrains d1 == d2
@@ -194,8 +194,8 @@ mod veccom_empty {
 }
 
 mod veccom_non_empty_do_nothing {
-    use dock_crypto_utils::transcript::MerlinTranscript;
     use super::*;
+    use dock_crypto_utils::transcript::MerlinTranscript;
 
     fn gadget<F: Field, CS: ConstraintSystem<F>>(
         cs: &mut CS,
@@ -335,14 +335,14 @@ mod veccom_non_empty_do_nothing {
 }
 
 mod veccom_non_trivial_linear {
-    use dock_crypto_utils::transcript::MerlinTranscript;
     use super::*;
+    use dock_crypto_utils::transcript::MerlinTranscript;
 
-    /// Constrains: 
-    /// a1 == a2 
+    /// Constrains:
+    /// a1 == a2
     /// a2 == a3
-    /// a4 == (a1 + a2 + a3) 
-    /// d1 == (a1 + a2 + a3 + a4 + a5) 
+    /// a4 == (a1 + a2 + a3)
+    /// d1 == (a1 + a2 + a3 + a4 + a5)
     /// d1 == d2
     fn gadget<F: Field, CS: ConstraintSystem<F>>(
         cs: &mut CS,
@@ -486,8 +486,8 @@ mod veccom_non_trivial_linear {
 }
 
 mod veccom_large_linear {
-    use dock_crypto_utils::transcript::MerlinTranscript;
     use super::*;
+    use dock_crypto_utils::transcript::MerlinTranscript;
 
     const DIM: usize = 0x100;
 
@@ -583,8 +583,8 @@ mod veccom_large_linear {
 }
 
 mod veccom_mul_seperate {
-    use dock_crypto_utils::transcript::MerlinTranscript;
     use super::*;
+    use dock_crypto_utils::transcript::MerlinTranscript;
 
     const DIM: usize = 0;
 
@@ -682,8 +682,8 @@ mod veccom_mul_seperate {
 }
 
 mod veccom_mul {
-    use dock_crypto_utils::transcript::MerlinTranscript;
     use super::*;
+    use dock_crypto_utils::transcript::MerlinTranscript;
 
     /// Constrains (a1 + a2) * (b1 + b2) = (c1 + c2)
     fn gadget<F: Field, CS: ConstraintSystem<F>>(
