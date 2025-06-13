@@ -2,14 +2,14 @@ mod common;
 
 use ark_ec::short_weierstrass::{Affine, SWCurveConfig};
 use ark_ec::{AffineRepr, CurveGroup};
-use ark_ff::{One, PrimeField, Zero};
+use ark_ff::{PrimeField, Zero};
 use ark_pallas::{Fq as PallasBase, PallasConfig};
 use ark_serialize::CanonicalSerialize;
 use ark_std::UniformRand;
 use ark_vesta::VestaConfig;
-use bulletproofs::r1cs::{constant, ConstraintSystem, LinearCombination, Prover, Verifier};
+use bulletproofs::r1cs::{Prover, Verifier};
 use common::prove;
-use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
+use dock_crypto_utils::transcript::{MerlinTranscript};
 use rand::prelude::SliceRandom;
 use relations::curve_tree::{CurveTree, SelRerandParameters};
 use relations::ped_comm_group_elems::{prove_naive, verify_naive};

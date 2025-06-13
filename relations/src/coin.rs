@@ -528,12 +528,12 @@ impl<
             (
                 {
                     let mut path = self.randomized_path_0.clone();
-                    curve_tree.select_and_rerandomize_verification_commitments(&mut path);
+                    curve_tree.add_root_to_randomized_path(&mut path);
                     path
                 },
                 {
                     let mut path = self.randomized_path_1.clone();
-                    curve_tree.select_and_rerandomize_verification_commitments(&mut path);
+                    curve_tree.add_root_to_randomized_path(&mut path);
                     path
                 },
             )

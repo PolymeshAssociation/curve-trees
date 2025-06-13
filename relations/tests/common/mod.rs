@@ -28,8 +28,8 @@ pub fn prove<
 
     #[cfg(not(feature = "parallel"))]
     let (even_proof, odd_proof) = (
-        even_prover.prove(&account_tree_params.even_parameters.bp_gens),
-        odd_prover.prove(&account_tree_params.odd_parameters.bp_gens),
+        even_prover.prove(&sr_params.even_parameters.bp_gens),
+        odd_prover.prove(&sr_params.odd_parameters.bp_gens),
     );
 
     let (even_proof, odd_proof) = (even_proof?, odd_proof?);
@@ -105,16 +105,16 @@ pub fn check_proof<
 
         #[cfg(not(feature = "parallel"))]
         let (pallas_res, vesta_res) = {
-            pallas_verifier.verify(
+            (pallas_verifier.verify(
                 &pallas_proof,
                 &sr_params.even_parameters.pc_gens,
                 &sr_params.even_parameters.bp_gens,
-            );
+            ),
             vesta_verifier.verify(
                 &vesta_proof,
                 &sr_params.odd_parameters.pc_gens,
                 &sr_params.odd_parameters.bp_gens,
-            );
+            ))
         };
 
         assert!(vesta_res.is_ok());
