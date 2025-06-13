@@ -23,7 +23,7 @@ pub fn is_bit<F: Field, Cs: ConstraintSystem<F>>(cs: &mut Cs, var: LinearCombina
     cs.constrain(zero.into());
 }
 
-/// Constrain `val` to be a bit (0 or 1) 
+/// Constrain `val` to be a bit (0 or 1)
 fn bit<F: Field, Cs: ConstraintSystem<F>>(
     cs: &mut Cs,
     val: Option<bool>,
@@ -99,7 +99,7 @@ pub fn lookup<const N: usize, F: Field, Cs: ConstraintSystem<F>>(
     let (b1, b2, ba) =
         cs.allocate_multiplier(index.map(|i| (b2f((i >> 1) & 1 == 1), b2f((i >> 2) & 1 == 1))))?;
 
-    // enforce bits. Enforces that b0, b1, b2 are indeed bits 
+    // enforce bits. Enforces that b0, b1, b2 are indeed bits
     let b0 = bit::<F, Cs>(cs, index.map(|i| (i & 1) == 1))?;
     is_bit(cs, b1.into());
     is_bit(cs, b2.into());
@@ -129,7 +129,7 @@ mod tests {
     use ark_ec::AffineRepr;
     use ark_std::UniformRand;
     use bulletproofs::{BulletproofGens, PedersenGens};
-    use dock_crypto_utils::transcript::{Transcript, new_merlin_transcript, MerlinTranscript};
+    use dock_crypto_utils::transcript::{new_merlin_transcript, MerlinTranscript, Transcript};
 
     use rand::thread_rng;
 

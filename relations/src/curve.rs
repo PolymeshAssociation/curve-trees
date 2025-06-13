@@ -196,7 +196,7 @@ mod tests {
     use ark_pallas::Affine as PallasA;
     use ark_vesta::Affine as VestaA;
     type VestaScalar = <VestaA as AffineRepr>::ScalarField;
-    use dock_crypto_utils::transcript::{MerlinTranscript};
+    use dock_crypto_utils::transcript::MerlinTranscript;
 
     #[test]
     fn test_curve_addition() {

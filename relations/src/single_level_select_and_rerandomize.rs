@@ -12,9 +12,9 @@ use ark_ec::{
     VariableBaseMSM,
 };
 use ark_ff::{Field, PrimeField, Zero};
+use dock_crypto_utils::transcript::Transcript;
 use std::iter;
 use std::marker::PhantomData;
-use dock_crypto_utils::transcript::Transcript;
 
 pub struct SingleLayerParameters<P: SWCurveConfig + Copy> {
     pub bp_gens: BulletproofGens<Affine<P>>,
@@ -54,15 +54,13 @@ impl<P: SWCurveConfig + Copy> SingleLayerParameters<P> {
 
         let (generators, scalars) = if v_blinding.is_zero() {
             (
-                gens
-                    .copied()
-                    .collect::<Vec<_>>(),
+                gens.copied().collect::<Vec<_>>(),
                 v.iter()
                     .map(|s| {
                         let s: P::ScalarField = *s;
                         s
                     })
-                    .collect::<Vec<_>>()
+                    .collect::<Vec<_>>(),
             )
         } else {
             (
@@ -76,7 +74,7 @@ impl<P: SWCurveConfig + Copy> SingleLayerParameters<P> {
                         let s: P::ScalarField = *s;
                         s
                     })
-                    .collect::<Vec<_>>()
+                    .collect::<Vec<_>>(),
             )
         };
 
@@ -95,12 +93,10 @@ impl<P: SWCurveConfig + Copy> SingleLayerParameters<P> {
             .share(0)
             .G(count * (generator_set_index + 1))
             .skip(count * generator_set_index);
-        let g = gens
-                    .copied().sum::<<Affine<P> as AffineRepr>::Group>();
-        
+        let g = gens.copied().sum::<<Affine<P> as AffineRepr>::Group>();
+
         (g * x).into_affine()
     }
-
 }
 
 /// Circuit for the single level select and rerandomize relation.
@@ -114,7 +110,7 @@ pub fn single_level_select_and_rerandomize<
     parameters: &SingleLayerParameters<C2>,
     rerandomized_child: &Affine<C2>, // The public rerandomization of the selected child without Delta
     all_children: Vec<LinearCombination<Fs>>, // Variables representing members of the (parent) vector commitment
-    child_plus_delta: Option<Affine<C2>>, // Witness of the selected child plus Delta
+    child_plus_delta: Option<Affine<C2>>,     // Witness of the selected child plus Delta
     child_rerandomization_scalar: Option<Fb>, // The scalar used for randomizing, i.e. child + Delta + child_rerandomization_scalar * H = rerandomized_child + Delta
 ) {
     // Add the re-randomised child to the transcript
@@ -238,7 +234,7 @@ mod tests {
 
     use ark_ec::AffineRepr;
     use ark_std::UniformRand;
-    use dock_crypto_utils::transcript::{MerlinTranscript};
+    use dock_crypto_utils::transcript::MerlinTranscript;
 
     type PallasA = ark_pallas::Affine;
     type PallasScalar = <PallasA as AffineRepr>::ScalarField;
@@ -272,8 +268,7 @@ mod tests {
             child + (sr_params.even_parameters.pc_gens.B_blinding * rerandomization);
 
         let proof = {
-            let mut transcript =
-                MerlinTranscript::new(b"single_level_select_and_rerandomize");
+            let mut transcript = MerlinTranscript::new(b"single_level_select_and_rerandomize");
             let mut prover: Prover<_, VestaA> =
                 Prover::new(&sr_params.odd_parameters.pc_gens, &mut transcript);
 
@@ -359,8 +354,7 @@ mod tests {
         let rerandomized_sum = (rerandomized_child_1 + rerandomized_child_2).into_affine();
 
         let proof = {
-            let mut transcript =
-                MerlinTranscript::new(b"single_level_select_and_rerandomize");
+            let mut transcript = MerlinTranscript::new(b"single_level_select_and_rerandomize");
             let mut prover: Prover<_, VestaA> =
                 Prover::new(&sr_params.odd_parameters.pc_gens, &mut transcript);
 

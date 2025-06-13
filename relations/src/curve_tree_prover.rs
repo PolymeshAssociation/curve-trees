@@ -2,17 +2,21 @@ use bulletproofs::r1cs::*;
 
 use crate::single_level_select_and_rerandomize::*;
 
-use crate::curve_tree::{CurveTree, CurveTreeNode, Root, SelRerandParameters, SelectAndRerandomizePath};
+use crate::curve_tree::{
+    CurveTree, CurveTreeNode, Root, SelRerandParameters, SelectAndRerandomizePath,
+};
 
-use ark_ec::{models::short_weierstrass::SWCurveConfig, short_weierstrass::Affine, AffineRepr, CurveGroup};
+use ark_ec::{
+    models::short_weierstrass::SWCurveConfig, short_weierstrass::Affine, AffineRepr, CurveGroup,
+};
 use ark_ff::PrimeField;
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::fmt::Debug;
 use ark_std::fmt::Formatter;
 use ark_std::Zero;
-use dock_crypto_utils::transcript::{MerlinTranscript};
+use dock_crypto_utils::transcript::MerlinTranscript;
 use rand::Rng;
 use std::ops::Mul;
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 
 impl<
         const L: usize,
@@ -32,8 +36,7 @@ impl<
         current_level_witness_nodes: &mut Vec<WitnessNode<L, P0, P1>>,
         other_level_witness_nodes: &mut Vec<WitnessNode<L, P1, P0>>,
     ) {
-        if let Self::InnerNode(inner_node) = &self
-        {
+        if let Self::InnerNode(inner_node) = &self {
             let child_node_index_to_rerandomize = self.child_index(leaf_index).unwrap();
             let child_node_to_rerandomize = inner_node.get_child(child_node_index_to_rerandomize);
             // // x-coordinates of all the children of this node, including `node_to_rerandomize`
@@ -46,7 +49,10 @@ impl<
 
             // recursively add the remaining path
             child_node_to_rerandomize.generate_witness_node_for_this_and_children(
-                leaf_index, tree_index, other_level_witness_nodes, current_level_witness_nodes
+                leaf_index,
+                tree_index,
+                other_level_witness_nodes,
+                current_level_witness_nodes,
             );
         }
     }
@@ -98,7 +104,7 @@ impl<
             odd_internal_nodes,
         }
     }
-    
+
     /// Commits to the root and rerandomizations of the path to the leaf specified by `index`
     /// and proves the Select and rerandomize relation for each level.
     /// Returns the rerandomized commitments on the path to (and including) the selected leaf and the rerandomization scalar of the selected leaf.
@@ -235,10 +241,16 @@ impl<
                         // the parent is the root and thus not rerandomized
                         (F0::zero(), Affine::<P0>::zero())
                     } else {
-                        (even_rerandomization_scalars[i - 1], even_rerandomized_commitments[i-1])
+                        (
+                            even_rerandomization_scalars[i - 1],
+                            even_rerandomized_commitments[i - 1],
+                        )
                     }
                 } else {
-                    (even_rerandomization_scalars[i], even_rerandomized_commitments[i])
+                    (
+                        even_rerandomization_scalars[i],
+                        even_rerandomized_commitments[i],
+                    )
                 };
                 self.even_internal_nodes[i].single_level_select_and_rerandomize_prover_gadget(
                     prover,
@@ -257,10 +269,16 @@ impl<
                         // the parent is the root and thus not rerandomized
                         (F1::zero(), Affine::<P1>::zero())
                     } else {
-                        (odd_rerandomization_scalars[i - 1], odd_rerandomized_commitments[i-1])
+                        (
+                            odd_rerandomization_scalars[i - 1],
+                            odd_rerandomized_commitments[i - 1],
+                        )
                     }
                 } else {
-                    (odd_rerandomization_scalars[i], odd_rerandomized_commitments[i])
+                    (
+                        odd_rerandomization_scalars[i],
+                        odd_rerandomized_commitments[i],
+                    )
                 };
                 self.odd_internal_nodes[i].single_level_select_and_rerandomize_prover_gadget(
                     prover,

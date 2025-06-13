@@ -19,7 +19,7 @@ use ark_ec::short_weierstrass::{Affine, SWCurveConfig};
 use ark_serialize::{CanonicalSerialize, Compress};
 use ark_std::UniformRand;
 
-use dock_crypto_utils::transcript::{Transcript, MerlinTranscript};
+use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -405,7 +405,8 @@ fn bench_select_and_rerandomize_with_parameters<
                             let mut srv = path.clone();
                             curve_tree.select_and_rerandomize_verification_commitments(&mut srv);
                             {
-                                let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
+                                let pallas_transcript =
+                                    MerlinTranscript::new(b"select_and_rerandomize");
                                 let mut pallas_verifier = Verifier::new(pallas_transcript);
                                 srv.even_verifier_gadget(
                                     &mut pallas_verifier,
@@ -419,7 +420,8 @@ fn bench_select_and_rerandomize_with_parameters<
                             }
 
                             {
-                                let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
+                                let vesta_transcript =
+                                    MerlinTranscript::new(b"select_and_rerandomize");
                                 let mut vesta_verifier = Verifier::new(vesta_transcript);
                                 srv.odd_verifier_gadget(
                                     &mut vesta_verifier,

@@ -4,7 +4,7 @@
 //! Given points `P_i \in G` as `A = [P_0, P_1, ..., P_n]`. Commit to `A` in a Pedersen commitment of x-coordinate of
 //! each `P_i`, i.e. `P_i.x` in `C = PedCom(P_0.x, P_1.x, ..., P_n.x) = \sum_{G_i*P_i.x}` where `C \in H` where `G, H`
 //! are on 2 curves which form a 2-cycle (base field of one equals scalar field of other).
-//! 
+//!
 //! 1. Prover randomizes each `P_i` to get `A_r = [{P_r}_0, {P_r}_1, ..., {P_r}_n]` where `A_r[i] = {P_r}_i = P_i + r_i*B` where
 //! `B \in G` and `r_i` is chosen randomly.
 //! 2. Prover proves `\forall i, P_i \in G`, i.e. `P_i.x, P_i.y` are x and y coordinates of a point which lies in group `G`.
@@ -12,18 +12,18 @@
 //!
 //! The implementation adds a public element `delta` to each `P_i` as mentioned in the curve tree paper
 
-use std::time::{Duration, Instant};
-use ark_ec::{AffineRepr, CurveGroup};
-use ark_ec::short_weierstrass::{Affine, SWCurveConfig, Projective};
-use ark_ff::{Field, PrimeField};
-use ark_std::{cfg_iter};
-use dock_crypto_utils::msm::WindowTable;
-use dock_crypto_utils::transcript::{MerlinTranscript};
-use rand::RngCore;
-use bulletproofs::r1cs::{constant, ConstraintSystem, Prover, Variable, Verifier};
 use crate::curve::{curve_check, PointRepresentation};
 use crate::rerandomize::re_randomize;
 use crate::single_level_select_and_rerandomize::SingleLayerParameters;
+use ark_ec::short_weierstrass::{Affine, Projective, SWCurveConfig};
+use ark_ec::{AffineRepr, CurveGroup};
+use ark_ff::{Field, PrimeField};
+use ark_std::cfg_iter;
+use bulletproofs::r1cs::{constant, ConstraintSystem, Prover, Variable, Verifier};
+use dock_crypto_utils::msm::WindowTable;
+use dock_crypto_utils::transcript::MerlinTranscript;
+use rand::RngCore;
+use std::time::{Duration, Instant};
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -45,12 +45,11 @@ pub fn prove_naive<
     let size = points.len();
 
     // This could be stored once and reused.
-    let points_plus_delta = cfg_iter!(points).map(|n| *n + parameters.delta).collect::<Vec<_>>();
-    let points_plus_delta = Projective::normalize_batch(&points_plus_delta);
-    let x_coords = points_plus_delta
-        .iter()
-        .map(|n| n.x)
+    let points_plus_delta = cfg_iter!(points)
+        .map(|n| *n + parameters.delta)
         .collect::<Vec<_>>();
+    let points_plus_delta = Projective::normalize_batch(&points_plus_delta);
+    let x_coords = points_plus_delta.iter().map(|n| n.x).collect::<Vec<_>>();
 
     let blindings = (0..size)
         .map(|_| <P1::ScalarField>::rand(rng))
@@ -59,17 +58,24 @@ pub fn prove_naive<
     // For each nested, re-randomization nested_r[i] = nested[i] + B_blinding * blindings[i]
     let window_table = WindowTable::new(size, parameters.pc_gens.B_blinding.into_group());
     let blinders = window_table.multiply_many(&blindings);
-    let re_randomized_points = (0..size).map(|i| points[i] + blinders[i]).collect::<Vec<_>>();
+    let re_randomized_points = (0..size)
+        .map(|i| points[i] + blinders[i])
+        .collect::<Vec<_>>();
     let re_randomized_points = Projective::normalize_batch(&re_randomized_points);
 
     // Commit to all x-coordinates
-    let x_coord_vars = prover.vars_for_committed_vec(
-        re_randomized_comm,
-        &x_coords,
-        blinding_of_comm,
-    );
+    let x_coord_vars =
+        prover.vars_for_committed_vec(re_randomized_comm, &x_coords, blinding_of_comm);
 
-    naive_gadget::<Fb, Fs, P0, P1, _>(prover, size, x_coord_vars, Some(points_plus_delta), re_randomized_points.clone(), Some(blindings), parameters);
+    naive_gadget::<Fb, Fs, P0, P1, _>(
+        prover,
+        size,
+        x_coord_vars,
+        Some(points_plus_delta),
+        re_randomized_points.clone(),
+        Some(blindings),
+        parameters,
+    );
     re_randomized_points
 }
 
@@ -88,7 +94,15 @@ pub fn verify_naive<
     // Commit to all x-coordinates
     let x_coord_vars = verifier.commit_vec(size, re_randomized_comm);
 
-    naive_gadget::<Fb, Fs, P0, P1, _>(verifier, size, x_coord_vars, None, re_randomized_points.clone(), None, parameters);
+    naive_gadget::<Fb, Fs, P0, P1, _>(
+        verifier,
+        size,
+        x_coord_vars,
+        None,
+        re_randomized_points.clone(),
+        None,
+        parameters,
+    );
 }
 
 pub fn naive_gadget<
@@ -107,13 +121,18 @@ pub fn naive_gadget<
     parameters: &SingleLayerParameters<P1>,
 ) {
     let points_plus_delta_xy = if let Some(n) = points_plus_delta {
-        n.into_iter().map(|n| (Some(n), Some(n.y))).collect::<Vec<_>>()
+        n.into_iter()
+            .map(|n| (Some(n), Some(n.y)))
+            .collect::<Vec<_>>()
     } else {
         (0..size).map(|_| (None, None)).collect::<Vec<_>>()
     };
 
-    let re_randomized_points_plus_delta = cfg_iter!(re_randomized_points).map(|n| *n + parameters.delta).collect::<Vec<_>>();
-    let re_randomized_points_plus_delta = Projective::normalize_batch(&re_randomized_points_plus_delta);
+    let re_randomized_points_plus_delta = cfg_iter!(re_randomized_points)
+        .map(|n| *n + parameters.delta)
+        .collect::<Vec<_>>();
+    let re_randomized_points_plus_delta =
+        Projective::normalize_batch(&re_randomized_points_plus_delta);
 
     let blindings = if let Some(n) = blindings {
         n.into_iter().map(|n| Some(n)).collect::<Vec<_>>()
@@ -155,6 +174,11 @@ pub fn naive_gadget<
         );
         re_rand_duration += clock2.elapsed();
     }
-    
-    println!("size = {size}, {size} runs took={:?}, add={:?}, re-rand={:?}", clock1.elapsed(), add_duration, re_rand_duration);
+
+    println!(
+        "size = {size}, {size} runs took={:?}, add={:?}, re-rand={:?}",
+        clock1.elapsed(),
+        add_duration,
+        re_rand_duration
+    );
 }

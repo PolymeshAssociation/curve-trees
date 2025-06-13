@@ -19,7 +19,7 @@ use ark_ec::short_weierstrass::{Affine, SWCurveConfig};
 use ark_serialize::{CanonicalSerialize, Compress};
 use ark_std::{UniformRand, Zero};
 
-use dock_crypto_utils::transcript::{Transcript, MerlinTranscript};
+use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -192,8 +192,10 @@ fn bench_accumulator_with_parameters<
                                             &sr_params,
                                             &curve_tree,
                                         );
-                                        let leaf_vars = pallas_verifier
-                                            .commit_vec(leaf_width, path.get_rerandomized_leaf_old());
+                                        let leaf_vars = pallas_verifier.commit_vec(
+                                            leaf_width,
+                                            path.get_rerandomized_leaf_old(),
+                                        );
                                         select(
                                             &mut pallas_verifier,
                                             LinearCombination::from(element),

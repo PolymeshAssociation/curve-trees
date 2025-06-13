@@ -1,10 +1,12 @@
-use std::io::Read;
 use crate::single_level_select_and_rerandomize::*;
 use ark_ec::AffineRepr;
 use ark_ec::{models::short_weierstrass::SWCurveConfig, short_weierstrass::Affine, CurveGroup};
 use ark_ff::PrimeField;
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, SerializationError, Valid, Validate, Write};
+use ark_serialize::{
+    CanonicalDeserialize, CanonicalSerialize, Compress, SerializationError, Valid, Validate, Write,
+};
 use ark_std::Zero;
+use std::io::Read;
 
 /// Parameters for multi level select and rerandomize over a 2-cycle of curves
 pub struct SelRerandParameters<P0: SWCurveConfig + Copy, P1: SWCurveConfig + Copy> {
@@ -142,17 +144,27 @@ impl<
         let mut leaf = None;
         match self {
             Self::Even(node) => Self::parse_even_node_for_leaf(node, leaf_index, &mut leaf),
-            Self::Odd(node) => Self::parse_odd_node_for_leaf(node, leaf_index, &mut leaf)
+            Self::Odd(node) => Self::parse_odd_node_for_leaf(node, leaf_index, &mut leaf),
         }
         assert!(leaf.is_some());
         leaf.unwrap()
     }
 
     /// Update value of leaf at index `leaf_index` to `new_leaf_value`
-    pub fn update_leaf(&mut self, leaf_index: usize, tree_index: usize, new_leaf_value: Affine<P0>, parameters: &SelRerandParameters<P0, P1>,) {
+    pub fn update_leaf(
+        &mut self,
+        leaf_index: usize,
+        tree_index: usize,
+        new_leaf_value: Affine<P0>,
+        parameters: &SelRerandParameters<P0, P1>,
+    ) {
         match self {
-            Self::Even(node) => Self::update_even_node(node, leaf_index, tree_index, new_leaf_value, parameters),
-            Self::Odd(node) => Self::update_odd_node(node, leaf_index, tree_index, new_leaf_value, parameters),
+            Self::Even(node) => {
+                Self::update_even_node(node, leaf_index, tree_index, new_leaf_value, parameters)
+            }
+            Self::Odd(node) => {
+                Self::update_odd_node(node, leaf_index, tree_index, new_leaf_value, parameters)
+            }
         }
     }
 
@@ -168,17 +180,27 @@ impl<
     pub fn root_node(&self) -> Root<L, M, P0, P1> {
         match self {
             Self::Even(ct) => match ct {
-                CurveTreeNode::InnerNode(n) => Root::Even(RootNode {commitments: n.commitments_to_children.clone(), x_coord_children: n.x_coord_children.clone()}),
+                CurveTreeNode::InnerNode(n) => Root::Even(RootNode {
+                    commitments: n.commitments_to_children.clone(),
+                    x_coord_children: n.x_coord_children.clone(),
+                }),
                 _ => unreachable!("Root of a curve tree can't be a leaf"),
             },
             Self::Odd(ct) => match ct {
-                CurveTreeNode::InnerNode(n) => Root::Odd(RootNode {commitments: n.commitments_to_children.clone(), x_coord_children: n.x_coord_children.clone()}),
+                CurveTreeNode::InnerNode(n) => Root::Odd(RootNode {
+                    commitments: n.commitments_to_children.clone(),
+                    x_coord_children: n.x_coord_children.clone(),
+                }),
                 _ => unreachable!("Root of a curve tree can't be a leaf"),
             },
         }
     }
 
-    pub fn parse_odd_node_for_leaf(node: &CurveTreeNode<L, M, P1, P0>, leaf_index: usize, leaf: &mut Option<Affine<P0>>) {
+    pub fn parse_odd_node_for_leaf(
+        node: &CurveTreeNode<L, M, P1, P0>,
+        leaf_index: usize,
+        leaf: &mut Option<Affine<P0>>,
+    ) {
         match node {
             CurveTreeNode::Leaf(_) => unreachable!("Cannot have leaf at odd level"),
             CurveTreeNode::InnerNode(inner_node) => {
@@ -189,10 +211,14 @@ impl<
         }
     }
 
-    pub fn parse_even_node_for_leaf(node: &CurveTreeNode<L, M, P0, P1>, leaf_index: usize, leaf: &mut Option<Affine<P0>>) {
+    pub fn parse_even_node_for_leaf(
+        node: &CurveTreeNode<L, M, P0, P1>,
+        leaf_index: usize,
+        leaf: &mut Option<Affine<P0>>,
+    ) {
         match node {
             CurveTreeNode::Leaf(l) => *leaf = Some(*l),
-            CurveTreeNode::InnerNode(inner_node)=> {
+            CurveTreeNode::InnerNode(inner_node) => {
                 let child_index = node.child_index(leaf_index).unwrap();
                 let child = inner_node.get_child(child_index);
                 Self::parse_odd_node_for_leaf(child, leaf_index, leaf)
@@ -200,70 +226,113 @@ impl<
         }
     }
 
-    pub fn update_even_node(node: &mut CurveTreeNode<L, M, P0, P1>, leaf_index: usize, tree_index: usize, new_leaf_value: Affine<P0>, parameters: &SelRerandParameters<P0, P1>,) {
+    pub fn update_even_node(
+        node: &mut CurveTreeNode<L, M, P0, P1>,
+        leaf_index: usize,
+        tree_index: usize,
+        new_leaf_value: Affine<P0>,
+        parameters: &SelRerandParameters<P0, P1>,
+    ) {
         let child_node_index_to_update = node.child_index(leaf_index);
         match node {
             CurveTreeNode::Leaf(ref mut l) => {
                 *l = new_leaf_value;
-            },
+            }
             CurveTreeNode::InnerNode(inner_node) => {
                 let child_node_index_to_update = child_node_index_to_update.unwrap();
-                let mut child_node_to_update = match &mut inner_node.children[child_node_index_to_update] {
-                    None => panic!(
-                        "Child index out of bounds. Height: {}, Index: {}, Local index: {}",
-                        node.height(),
-                        leaf_index,
-                        child_node_index_to_update
-                    ),
-                    Some(child) => child,
-                };
-                Self::update_odd_node(&mut child_node_to_update, leaf_index, tree_index, new_leaf_value, parameters);
+                let mut child_node_to_update =
+                    match &mut inner_node.children[child_node_index_to_update] {
+                        None => panic!(
+                            "Child index out of bounds. Height: {}, Index: {}, Local index: {}",
+                            node.height(),
+                            leaf_index,
+                            child_node_index_to_update
+                        ),
+                        Some(child) => child,
+                    };
+                Self::update_odd_node(
+                    &mut child_node_to_update,
+                    leaf_index,
+                    tree_index,
+                    new_leaf_value,
+                    parameters,
+                );
 
-                let old_x_coord = inner_node.x_coord_children[tree_index][child_node_index_to_update].clone();
+                let old_x_coord =
+                    inner_node.x_coord_children[tree_index][child_node_index_to_update].clone();
                 let old_comm = inner_node.commitments_to_children[tree_index].clone();
-                let gen_iter = parameters.even_parameters.bp_gens
+                let gen_iter = parameters
+                    .even_parameters
+                    .bp_gens
                     .share(0)
                     .G(L * (tree_index + 1))
                     .skip(L * tree_index + child_node_index_to_update);
                 let gen = gen_iter.copied().next().unwrap();
-                let new_x_coord = (child_node_to_update.commitment(tree_index) + parameters.odd_parameters.delta).into_affine().x;
+                let new_x_coord = (child_node_to_update.commitment(tree_index)
+                    + parameters.odd_parameters.delta)
+                    .into_affine()
+                    .x;
                 inner_node.x_coord_children[tree_index][child_node_index_to_update] = new_x_coord;
                 let comm_diff = gen * (new_x_coord - old_x_coord);
-                inner_node.commitments_to_children[tree_index] = (old_comm.into_group() + comm_diff).into_affine();
-                inner_node.x_coord_children[tree_index][child_node_index_to_update] = (child_node_to_update.commitment(tree_index) + parameters.odd_parameters.delta).into_affine().x;
+                inner_node.commitments_to_children[tree_index] =
+                    (old_comm.into_group() + comm_diff).into_affine();
+                inner_node.x_coord_children[tree_index][child_node_index_to_update] =
+                    (child_node_to_update.commitment(tree_index) + parameters.odd_parameters.delta)
+                        .into_affine()
+                        .x;
             }
         }
     }
 
-    pub fn update_odd_node(node: &mut CurveTreeNode<L, M, P1, P0>, leaf_index: usize, tree_index: usize, new_leaf_value: Affine<P0>, parameters: &SelRerandParameters<P0, P1>,) {
+    pub fn update_odd_node(
+        node: &mut CurveTreeNode<L, M, P1, P0>,
+        leaf_index: usize,
+        tree_index: usize,
+        new_leaf_value: Affine<P0>,
+        parameters: &SelRerandParameters<P0, P1>,
+    ) {
         let child_node_index_to_update = node.child_index(leaf_index);
         match node {
             CurveTreeNode::InnerNode(inner_node) => {
                 let child_node_index_to_update = child_node_index_to_update.unwrap();
 
-                let mut child_node_to_update = match &mut inner_node.children[child_node_index_to_update] {
-                    None => panic!(
-                        "Child index out of bounds. Height: {}, Index: {}, Local index: {}",
-                        node.height(),
-                        leaf_index,
-                        child_node_index_to_update
-                    ),
-                    Some(child) => child,
-                };
-                Self::update_even_node(&mut child_node_to_update, leaf_index, tree_index, new_leaf_value, parameters);
+                let mut child_node_to_update =
+                    match &mut inner_node.children[child_node_index_to_update] {
+                        None => panic!(
+                            "Child index out of bounds. Height: {}, Index: {}, Local index: {}",
+                            node.height(),
+                            leaf_index,
+                            child_node_index_to_update
+                        ),
+                        Some(child) => child,
+                    };
+                Self::update_even_node(
+                    &mut child_node_to_update,
+                    leaf_index,
+                    tree_index,
+                    new_leaf_value,
+                    parameters,
+                );
 
                 // TODO: Remove code duplication as this is similar to above function
-                let old_x_coord = inner_node.x_coord_children[tree_index][child_node_index_to_update].clone();
+                let old_x_coord =
+                    inner_node.x_coord_children[tree_index][child_node_index_to_update].clone();
                 let old_comm = inner_node.commitments_to_children[tree_index].clone();
-                let gen_iter = parameters.odd_parameters.bp_gens
+                let gen_iter = parameters
+                    .odd_parameters
+                    .bp_gens
                     .share(0)
                     .G(L * (tree_index + 1))
                     .skip(L * tree_index + child_node_index_to_update);
                 let gen = gen_iter.copied().next().unwrap();
-                let new_x_coord = (child_node_to_update.commitment(tree_index) + parameters.even_parameters.delta).into_affine().x;
+                let new_x_coord = (child_node_to_update.commitment(tree_index)
+                    + parameters.even_parameters.delta)
+                    .into_affine()
+                    .x;
                 inner_node.x_coord_children[tree_index][child_node_index_to_update] = new_x_coord;
                 let comm_diff = gen * (new_x_coord - old_x_coord);
-                inner_node.commitments_to_children[tree_index] = (old_comm.into_group() + comm_diff).into_affine();
+                inner_node.commitments_to_children[tree_index] =
+                    (old_comm.into_group() + comm_diff).into_affine();
 
                 // The following doesn't work due to 2 mutable borrows of inner_node
                 // Self::update_x_coord_and_commitment(child_node_to_update, inner_node, child_node_index_to_update, tree_index, &parameters.odd_parameters, &parameters.even_parameters)
@@ -273,27 +342,35 @@ impl<
     }
 
     #[allow(dead_code)]
-    fn update_x_coord_and_commitment<F: PrimeField,
+    fn update_x_coord_and_commitment<
+        F: PrimeField,
         G0: SWCurveConfig<BaseField = F> + Copy,
         G1: SWCurveConfig<BaseField = G0::ScalarField, ScalarField = F> + Copy,
     >(
         child_node_to_update: &CurveTreeNode<L, M, G0, G1>,
         inner_node: &mut InnerNode<L, M, G1, G0>,
-        child_node_index_to_update: usize, tree_index: usize,
+        child_node_index_to_update: usize,
+        tree_index: usize,
         current_level_parameters: &SingleLayerParameters<G1>,
         child_level_parameters: &SingleLayerParameters<G0>,
     ) {
-        let old_x_coord = inner_node.x_coord_children[tree_index][child_node_index_to_update].clone();
+        let old_x_coord =
+            inner_node.x_coord_children[tree_index][child_node_index_to_update].clone();
         let old_comm = inner_node.commitments_to_children[tree_index].clone();
-        let gen_iter = current_level_parameters.bp_gens
+        let gen_iter = current_level_parameters
+            .bp_gens
             .share(0)
             .G(L * (tree_index + 1))
             .skip(L * tree_index + child_node_index_to_update);
         let gen = gen_iter.copied().next().unwrap();
-        let new_x_coord = (child_node_to_update.commitment(tree_index) + child_level_parameters.delta).into_affine().x;
+        let new_x_coord = (child_node_to_update.commitment(tree_index)
+            + child_level_parameters.delta)
+            .into_affine()
+            .x;
         inner_node.x_coord_children[tree_index][child_node_index_to_update] = new_x_coord;
         let comm_diff = gen * (new_x_coord - old_x_coord);
-        inner_node.commitments_to_children[tree_index] = (old_comm.into_group() + comm_diff).into_affine();
+        inner_node.commitments_to_children[tree_index] =
+            (old_comm.into_group() + comm_diff).into_affine();
     }
 }
 
@@ -384,17 +461,15 @@ pub struct InnerNode<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCu
 }
 
 impl<
-    const L: usize,
-    const M: usize,
-    P0: SWCurveConfig,
-    P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = P0::BaseField> + Copy,
-> InnerNode<L, M, P0, P1> {
+        const L: usize,
+        const M: usize,
+        P0: SWCurveConfig,
+        P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = P0::BaseField> + Copy,
+    > InnerNode<L, M, P0, P1>
+{
     pub fn get_child(&self, index: usize) -> &CurveTreeNode<L, M, P1, P0> {
         let child = match &self.children[index] {
-            None => panic!(
-                "Child index out of bounds. Local index: {}",
-                index
-            ),
+            None => panic!("Child index out of bounds. Local index: {}", index),
             Some(child) => child,
         };
         child
@@ -402,10 +477,7 @@ impl<
 
     pub fn get_child_mut(&mut self, index: usize) -> &mut CurveTreeNode<L, M, P1, P0> {
         let child = match &mut self.children[index] {
-            None => panic!(
-                "Child index out of bounds. Local index: {}",
-                index
-            ),
+            None => panic!("Child index out of bounds. Local index: {}", index),
             Some(child) => child,
         };
         child
@@ -500,11 +572,7 @@ impl<
         let mut x_coords = vec![[P1::BaseField::zero(); L]; M];
         for (tree_index, (c, x)) in commitments.iter_mut().zip(x_coords.iter_mut()).enumerate() {
             *x = x_coordinates(&children, delta, tree_index);
-            *c = parameters.commit(
-                x,
-                P0::ScalarField::zero(),
-                tree_index,
-            );
+            *c = parameters.commit(x, P0::ScalarField::zero(), tree_index);
         }
         Self::InnerNode(InnerNode {
             commitments_to_children: commitments,
@@ -521,18 +589,12 @@ impl<const L: usize, P0: SWCurveConfig, P1: SWCurveConfig> SelectAndRerandomizeP
     pub fn add_root(&mut self, root: &Root<L, 1, P0, P1>) -> bool {
         match root {
             Root::Odd(ct) => {
-                assert_eq!(
-                    self.even_commitments.len(),
-                    self.odd_commitments.len()
-                );
+                assert_eq!(self.even_commitments.len(), self.odd_commitments.len());
                 self.odd_commitments.insert(0, ct.commitments[0].clone());
                 false
             }
             Root::Even(ct) => {
-                assert_eq!(
-                    self.even_commitments.len() + 1,
-                    self.odd_commitments.len()
-                );
+                assert_eq!(self.even_commitments.len() + 1, self.odd_commitments.len());
                 self.even_commitments.insert(0, ct.commitments[0].clone());
                 true
             }
@@ -540,7 +602,9 @@ impl<const L: usize, P0: SWCurveConfig, P1: SWCurveConfig> SelectAndRerandomizeP
     }
 }
 
-impl<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCurveConfig> Valid for Root<L, M, P0, P1> {
+impl<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCurveConfig> Valid
+    for Root<L, M, P0, P1>
+{
     fn check(&self) -> Result<(), SerializationError> {
         match self {
             Self::Even(n) => n.check(),
@@ -549,8 +613,14 @@ impl<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCurveConfig> Valid
     }
 }
 
-impl<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCurveConfig> CanonicalSerialize for Root<L, M, P0, P1> {
-    fn serialize_with_mode<W: Write>(&self, mut writer: W, compress: Compress) -> Result<(), SerializationError> {
+impl<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCurveConfig> CanonicalSerialize
+    for Root<L, M, P0, P1>
+{
+    fn serialize_with_mode<W: Write>(
+        &self,
+        mut writer: W,
+        compress: Compress,
+    ) -> Result<(), SerializationError> {
         match self {
             Self::Even(n) => {
                 CanonicalSerialize::serialize_with_mode(&0u8, &mut writer, compress)?;
@@ -571,10 +641,15 @@ impl<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCurveConfig> Canon
     }
 }
 
-impl<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCurveConfig> CanonicalDeserialize for Root<L, M, P0, P1> {
-    fn deserialize_with_mode<R: Read>(mut reader: R, compress: Compress, validate: Validate) -> Result<Self, SerializationError> {
-        let t: u8 =
-            CanonicalDeserialize::deserialize_with_mode(&mut reader, compress, validate)?;
+impl<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCurveConfig> CanonicalDeserialize
+    for Root<L, M, P0, P1>
+{
+    fn deserialize_with_mode<R: Read>(
+        mut reader: R,
+        compress: Compress,
+        validate: Validate,
+    ) -> Result<Self, SerializationError> {
+        let t: u8 = CanonicalDeserialize::deserialize_with_mode(&mut reader, compress, validate)?;
         match t {
             0u8 => Ok(Self::Even(CanonicalDeserialize::deserialize_with_mode(
                 &mut reader,

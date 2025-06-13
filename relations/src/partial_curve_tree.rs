@@ -1,13 +1,13 @@
-use std::collections::BTreeSet;
 use crate::curve_tree::{Root, SelRerandParameters};
 use crate::curve_tree_prover::{CurveTreeWitnessPath, WitnessNode};
+use crate::error::Error;
 use crate::lean_curve_tree::{DefaultNode, LeanCurveTree, Node};
+use crate::single_level_select_and_rerandomize::SingleLayerParameters;
 use ark_ec::short_weierstrass::{Affine, SWCurveConfig};
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::collections::BTreeMap;
-use crate::error::Error;
-use crate::single_level_select_and_rerandomize::SingleLayerParameters;
+use std::collections::BTreeSet;
 
 type InnerNodeIndex = u64;
 
@@ -38,14 +38,16 @@ impl<
 {
     pub fn new(height: u8, parameters: &SelRerandParameters<P0, P1>) -> Result<Self, Error> {
         if height == 0 {
-            return Err(Error::HeightCantBe0)
+            return Err(Error::HeightCantBe0);
         }
         let (odd_level_default_nodes, even_level_default_nodes) =
             LeanCurveTree::<L, P0, P1>::get_default_nodes(height, parameters);
-        let mut even_levels =
-            Vec::<BTreeMap<InnerNodeIndex, Node<P1, P0>>>::with_capacity(even_level_default_nodes.len());
-        let mut odd_levels =
-            Vec::<BTreeMap<InnerNodeIndex, Node<P0, P1>>>::with_capacity(odd_level_default_nodes.len());
+        let mut even_levels = Vec::<BTreeMap<InnerNodeIndex, Node<P1, P0>>>::with_capacity(
+            even_level_default_nodes.len(),
+        );
+        let mut odd_levels = Vec::<BTreeMap<InnerNodeIndex, Node<P0, P1>>>::with_capacity(
+            odd_level_default_nodes.len(),
+        );
         for _ in 0..odd_level_default_nodes.len() {
             odd_levels.push(BTreeMap::new());
         }
@@ -63,7 +65,7 @@ impl<
         })
     }
 
-    /// Insert a leaf that is tracked and for which path can be retrieved 
+    /// Insert a leaf that is tracked and for which path can be retrieved
     pub fn insert_leaf(
         &mut self,
         leaf_index: u64,
@@ -72,17 +74,23 @@ impl<
         even_level_path_nodes: Vec<Node<P1, P0>>,
     ) -> Result<(), Error> {
         if self.next_leaf_index == (L as u64).pow(self.height as u32) {
-            return Err(Error::TreeWontSupportRequiredInsertions(self.next_leaf_index, self.next_leaf_index + 1))
+            return Err(Error::TreeWontSupportRequiredInsertions(
+                self.next_leaf_index,
+                self.next_leaf_index + 1,
+            ));
         }
 
         if self.leaves.contains_key(&leaf_index) {
-            return Err(Error::LeafAlreadyExistAtIndex(leaf_index))
+            return Err(Error::LeafAlreadyExistAtIndex(leaf_index));
         }
 
         // If the tree isn't empty then leaves should be inserted in order
         if !self.leaves.is_empty() {
             if leaf_index != self.next_leaf_index {
-                return Err(Error::LeafIndexNotAsExpected(leaf_index, self.next_leaf_index))
+                return Err(Error::LeafIndexNotAsExpected(
+                    leaf_index,
+                    self.next_leaf_index,
+                ));
             }
         }
 
@@ -91,10 +99,16 @@ impl<
             let parent_pos = curr_idx / (L as u64);
             if i % 2 == 0 {
                 let level_to_update = &mut self.odd_levels[i / 2];
-                level_to_update.insert(parent_pos as InnerNodeIndex, odd_level_path_nodes[i / 2].clone());
+                level_to_update.insert(
+                    parent_pos as InnerNodeIndex,
+                    odd_level_path_nodes[i / 2].clone(),
+                );
             } else {
                 let level_to_update = &mut self.even_levels[i / 2];
-                level_to_update.insert(parent_pos as InnerNodeIndex, even_level_path_nodes[i / 2].clone());
+                level_to_update.insert(
+                    parent_pos as InnerNodeIndex,
+                    even_level_path_nodes[i / 2].clone(),
+                );
             }
             curr_idx /= L as u64;
         }
@@ -112,7 +126,10 @@ impl<
         parameters: &SelRerandParameters<P0, P1>,
     ) -> Result<(), Error> {
         if (self.next_leaf_index + leaves.len() as u64) > (L as u64).pow(self.height as u32) {
-            return Err(Error::TreeWontSupportRequiredInsertions(self.next_leaf_index, self.next_leaf_index + leaves.len() as u64))
+            return Err(Error::TreeWontSupportRequiredInsertions(
+                self.next_leaf_index,
+                self.next_leaf_index + leaves.len() as u64,
+            ));
         }
         // TODO: Batch the updates together
         let offset = self.next_leaf_index;
@@ -131,11 +148,27 @@ impl<
                         let child_level = &self.even_levels[(i / 2) - 1];
                         child_level.get(&child_pos).unwrap().commitment
                     };
-                    PartialCurveTree::<L, _, _>::_update(pos, parent_pos, &mut self.odd_levels[i / 2], child_node, self.odd_level_default_nodes[i / 2].clone(), &parameters.odd_parameters, &parameters.even_parameters)
+                    PartialCurveTree::<L, _, _>::_update(
+                        pos,
+                        parent_pos,
+                        &mut self.odd_levels[i / 2],
+                        child_node,
+                        self.odd_level_default_nodes[i / 2].clone(),
+                        &parameters.odd_parameters,
+                        &parameters.even_parameters,
+                    )
                 } else {
                     let child_level = &self.odd_levels[i / 2];
                     let child_node = child_level.get(&child_pos).unwrap().commitment;
-                    PartialCurveTree::<L, _, _>::_update(pos, parent_pos, &mut self.even_levels[i / 2], child_node, self.even_level_default_nodes[i / 2].clone(), &parameters.even_parameters, &parameters.odd_parameters)
+                    PartialCurveTree::<L, _, _>::_update(
+                        pos,
+                        parent_pos,
+                        &mut self.even_levels[i / 2],
+                        child_node,
+                        self.even_level_default_nodes[i / 2].clone(),
+                        &parameters.even_parameters,
+                        &parameters.odd_parameters,
+                    )
                 }
                 curr_idx /= L as u64;
             }
@@ -144,10 +177,13 @@ impl<
         Ok(())
     }
 
-    pub fn get_path_to_leaf(&self, leaf_index: u64) -> Result<CurveTreeWitnessPath<L, P0, P1>, Error> {
+    pub fn get_path_to_leaf(
+        &self,
+        leaf_index: u64,
+    ) -> Result<CurveTreeWitnessPath<L, P0, P1>, Error> {
         println!("Querying leaf {}", leaf_index);
         if !self.leaves.contains_key(&leaf_index) {
-            return Err(Error::LeafDoesntExistAtIndex(leaf_index))
+            return Err(Error::LeafDoesntExistAtIndex(leaf_index));
         }
         let leaf_value = self.leaves.get(&leaf_index).unwrap().clone();
         let mut even_witness_nodes = Vec::<WitnessNode<L, P0, P1>>::new();
@@ -164,11 +200,21 @@ impl<
                     let child_level = &self.even_levels[(i / 2) - 1];
                     child_level.get(&child_pos).unwrap().commitment
                 };
-                odd_witness_nodes.push(PartialCurveTree::<L, _, _>::_witness_node(parent_pos, &self.odd_levels[i / 2], child_node, self.odd_level_default_nodes[i / 2].clone()));
+                odd_witness_nodes.push(PartialCurveTree::<L, _, _>::_witness_node(
+                    parent_pos,
+                    &self.odd_levels[i / 2],
+                    child_node,
+                    self.odd_level_default_nodes[i / 2].clone(),
+                ));
             } else {
                 let child_level = &self.odd_levels[i / 2];
                 let child_node = child_level.get(&child_pos).unwrap().commitment;
-                even_witness_nodes.push(PartialCurveTree::<L, _, _>::_witness_node(parent_pos, &self.even_levels[i / 2], child_node, self.even_level_default_nodes[i / 2].clone()));
+                even_witness_nodes.push(PartialCurveTree::<L, _, _>::_witness_node(
+                    parent_pos,
+                    &self.even_levels[i / 2],
+                    child_node,
+                    self.even_level_default_nodes[i / 2].clone(),
+                ));
             }
             curr_idx = curr_idx / L as u64;
         }
@@ -194,15 +240,22 @@ impl<
         }
     }
 
-    /// Remove the full nodes that don't lie on the path to any leaf that is being tracked. 
+    /// Remove the full nodes that don't lie on the path to any leaf that is being tracked.
     pub fn clear_full_nodes(&mut self) -> u64 {
         let mut removed_nodes = 0;
         for i in 0..self.height as usize {
             let children_count = (L as u64).pow((i + 1) as u32);
-            let parent_node_indices_of_leaves = self.leaves.keys().map(|j| *j / children_count).collect::<BTreeSet<InnerNodeIndex>>();
+            let parent_node_indices_of_leaves = self
+                .leaves
+                .keys()
+                .map(|j| *j / children_count)
+                .collect::<BTreeSet<InnerNodeIndex>>();
             if i % 2 == 0 {
                 let parent_level = &mut self.odd_levels[i / 2];
-                let all_parent_node_indices = parent_level.keys().map(|j| *j).collect::<Vec<InnerNodeIndex>>();
+                let all_parent_node_indices = parent_level
+                    .keys()
+                    .map(|j| *j)
+                    .collect::<Vec<InnerNodeIndex>>();
                 for j in all_parent_node_indices {
                     if !parent_node_indices_of_leaves.contains(&j) {
                         parent_level.remove(&j);
@@ -211,7 +264,10 @@ impl<
                 }
             } else {
                 let parent_level = &mut self.even_levels[i / 2];
-                let all_parent_node_indices = parent_level.keys().map(|j| *j).collect::<Vec<InnerNodeIndex>>();
+                let all_parent_node_indices = parent_level
+                    .keys()
+                    .map(|j| *j)
+                    .collect::<Vec<InnerNodeIndex>>();
                 for j in all_parent_node_indices {
                     if !parent_node_indices_of_leaves.contains(&j) {
                         parent_level.remove(&j);
@@ -262,15 +318,16 @@ impl<
             level_to_update.insert(parent_pos, node);
         }
     }
-    
-    fn _witness_node(parent_pos: InnerNodeIndex, parent_level: &BTreeMap<InnerNodeIndex, Node<P0, P1>>, child_node: Affine<P0>, default_node: DefaultNode<P0, P1>,) -> WitnessNode<L, P1, P0> {
+
+    fn _witness_node(
+        parent_pos: InnerNodeIndex,
+        parent_level: &BTreeMap<InnerNodeIndex, Node<P0, P1>>,
+        child_node: Affine<P0>,
+        default_node: DefaultNode<P0, P1>,
+    ) -> WitnessNode<L, P1, P0> {
         // TODO: Remove unwrap
         let parent_node = parent_level.get(&parent_pos).unwrap();
         let default_x_coord = default_node.x_coord;
-        LeanCurveTree::get_witness_node(
-            parent_node,
-            child_node,
-            default_x_coord,
-        )
+        LeanCurveTree::get_witness_node(parent_node, child_node, default_x_coord)
     }
 }

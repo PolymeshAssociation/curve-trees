@@ -1,9 +1,9 @@
 extern crate bulletproofs;
 extern crate relations;
 
-use std::time::Instant;
 use ark_ff::PrimeField;
 use bulletproofs::r1cs::*;
+use std::time::Instant;
 
 use relations::curve_tree::*;
 
@@ -79,8 +79,13 @@ pub fn test_batched_curve_tree_with_parameters<
         .prove(&sr_params.odd_parameters.bp_gens)
         .unwrap();
     println!("Proving time: {:?}", clock.elapsed());
-    println!("Proof size: {}", path_commitments.compressed_size() + pallas_proof.compressed_size() + vesta_proof.compressed_size());
-    
+    println!(
+        "Proof size: {}",
+        path_commitments.compressed_size()
+            + pallas_proof.compressed_size()
+            + vesta_proof.compressed_size()
+    );
+
     {
         let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
         let mut pallas_verifier = Verifier::new(pallas_transcript);
@@ -94,16 +99,20 @@ pub fn test_batched_curve_tree_with_parameters<
             path_commitments,
             &sr_params,
         );
-        vesta_verifier.verify(
-            &vesta_proof,
-            &sr_params.odd_parameters.pc_gens,
-            &sr_params.odd_parameters.bp_gens,
-        ).unwrap();
-        pallas_verifier.verify(
-            &pallas_proof,
-            &sr_params.even_parameters.pc_gens,
-            &sr_params.even_parameters.bp_gens,
-        ).unwrap();
+        vesta_verifier
+            .verify(
+                &vesta_proof,
+                &sr_params.odd_parameters.pc_gens,
+                &sr_params.odd_parameters.bp_gens,
+            )
+            .unwrap();
+        pallas_verifier
+            .verify(
+                &pallas_proof,
+                &sr_params.even_parameters.pc_gens,
+                &sr_params.even_parameters.bp_gens,
+            )
+            .unwrap();
         println!("Verifying time: {:?}", clock.elapsed());
     }
 }

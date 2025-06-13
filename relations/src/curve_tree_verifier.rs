@@ -2,10 +2,12 @@ use bulletproofs::r1cs::*;
 
 use crate::single_level_select_and_rerandomize::*;
 
-use crate::curve_tree::{CurveTree, CurveTreeNode, Root, SelRerandParameters, SelectAndRerandomizePath};
+use crate::curve_tree::{
+    CurveTree, CurveTreeNode, Root, SelRerandParameters, SelectAndRerandomizePath,
+};
 use ark_ec::{models::short_weierstrass::SWCurveConfig, short_weierstrass::Affine};
 use ark_ff::PrimeField;
-use dock_crypto_utils::transcript::{MerlinTranscript};
+use dock_crypto_utils::transcript::MerlinTranscript;
 use std::borrow::BorrowMut;
 
 impl<
@@ -106,8 +108,7 @@ impl<
                 // Root's children are not re-randomized
                 let children = match &ct {
                     CurveTree::Even(root) => {
-                        if let CurveTreeNode::InnerNode(inner_node) = root
-                        {
+                        if let CurveTreeNode::InnerNode(inner_node) = root {
                             inner_node.x_coord_children[0]
                         } else {
                             unreachable!("Root of a curve tree can't be a leaf")
@@ -160,8 +161,7 @@ impl<
                 // Root's children are not re-randomized
                 let children = match &ct {
                     CurveTree::Odd(root) => {
-                        if let CurveTreeNode::InnerNode(inner_node) = root
-                        {
+                        if let CurveTreeNode::InnerNode(inner_node) = root {
                             inner_node.x_coord_children[0]
                         } else {
                             unreachable!("Root of a curve tree can't be a leaf")
@@ -190,11 +190,12 @@ impl<
 }
 
 impl<
-    const L: usize,
-    F: PrimeField,
-    P0: SWCurveConfig<BaseField = F> + Copy + Send,
-    P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = F> + Copy + Send
-> SelectAndRerandomizePath<L, P0, P1> {
+        const L: usize,
+        F: PrimeField,
+        P0: SWCurveConfig<BaseField = F> + Copy + Send,
+        P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = F> + Copy + Send,
+    > SelectAndRerandomizePath<L, P0, P1>
+{
     pub fn select_and_rerandomize_verifier_gadget<T: BorrowMut<MerlinTranscript>>(
         &mut self,
         root: &Root<L, 1, P0, P1>,
@@ -217,9 +218,7 @@ impl<
         parameters: &SelRerandParameters<P0, P1>,
     ) {
         let (root_is_even, children_of_root) = match root {
-            Root::Even(root) => {
-                (true, Some(root.x_coord_children[0].clone()))
-            }
+            Root::Even(root) => (true, Some(root.x_coord_children[0].clone())),
             _ => (false, None),
         };
 
@@ -258,9 +257,7 @@ impl<
         parameters: &SelRerandParameters<P0, P1>,
     ) {
         let (root_is_even, children_of_root) = match root {
-            Root::Odd(root) => {
-                (false, Some(root.x_coord_children[0].clone()))
-            }
+            Root::Odd(root) => (false, Some(root.x_coord_children[0].clone())),
             _ => (true, None),
         };
 

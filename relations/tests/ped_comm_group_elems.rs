@@ -4,6 +4,7 @@ use ark_ec::short_weierstrass::{Affine, SWCurveConfig};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{One, PrimeField, Zero};
 use ark_pallas::{Fq as PallasBase, PallasConfig};
+use ark_serialize::CanonicalSerialize;
 use ark_std::UniformRand;
 use ark_vesta::VestaConfig;
 use bulletproofs::r1cs::{constant, ConstraintSystem, LinearCombination, Prover, Verifier};
@@ -12,11 +13,10 @@ use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
 use rand::prelude::SliceRandom;
 use relations::curve::{curve_check, PointRepresentation};
 use relations::curve_tree::{CurveTree, SelRerandParameters};
+use relations::ped_comm_group_elems::{prove_naive, verify_naive};
 use relations::rerandomize::re_randomize;
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
-use ark_serialize::CanonicalSerialize;
-use relations::ped_comm_group_elems::{prove_naive, verify_naive};
 
 #[test]
 pub fn commitment_naive() {
@@ -104,15 +104,32 @@ pub fn check_naive<
                 &mut rng,
             );
 
-        let re_randomized_nested = prove_naive(&mut rng, &mut pallas_prover, nested, &path_commitments.re_randomized_leaf, re_randomization_of_leaf, &sr_params.odd_parameters);
-        
+        let re_randomized_nested = prove_naive(
+            &mut rng,
+            &mut pallas_prover,
+            nested,
+            &path_commitments.re_randomized_leaf,
+            re_randomization_of_leaf,
+            &sr_params.odd_parameters,
+        );
+
         let (pallas_proof, vesta_proof) = prove(pallas_prover, vesta_prover, &sr_params).unwrap();
 
         prover_time += clock.elapsed();
 
-        assert_eq!(path_commitments.re_randomized_leaf, comm + (sr_params.even_parameters.pc_gens.B_blinding * re_randomization_of_leaf).into_affine());
+        assert_eq!(
+            path_commitments.re_randomized_leaf,
+            comm + (sr_params.even_parameters.pc_gens.B_blinding * re_randomization_of_leaf)
+                .into_affine()
+        );
 
-        println!("Proof size: {}", path_commitments.compressed_size() + re_randomized_nested.compressed_size() + pallas_proof.compressed_size() + vesta_proof.compressed_size());
+        println!(
+            "Proof size: {}",
+            path_commitments.compressed_size()
+                + re_randomized_nested.compressed_size()
+                + pallas_proof.compressed_size()
+                + vesta_proof.compressed_size()
+        );
 
         {
             let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
@@ -128,9 +145,14 @@ pub fn check_naive<
                 &mut vesta_verifier,
                 &sr_params,
             );
-            
-            verify_naive(&mut pallas_verifier, rerandomized_leaf, re_randomized_nested, &sr_params.odd_parameters);
-            
+
+            verify_naive(
+                &mut pallas_verifier,
+                rerandomized_leaf,
+                re_randomized_nested,
+                &sr_params.odd_parameters,
+            );
+
             let vesta_res = vesta_verifier.verify(
                 &vesta_proof,
                 &sr_params.odd_parameters.pc_gens,
@@ -230,9 +252,13 @@ pub fn check<
                 &mut rng,
             );
 
-        assert_eq!(path_commitments.re_randomized_leaf, comm + (sr_params.even_parameters.pc_gens.B_blinding * re_randomization_of_leaf).into_affine());
+        assert_eq!(
+            path_commitments.re_randomized_leaf,
+            comm + (sr_params.even_parameters.pc_gens.B_blinding * re_randomization_of_leaf)
+                .into_affine()
+        );
 
-        // TODO: 
+        // TODO:
 
         let (pallas_proof, vesta_proof) = prove(pallas_prover, vesta_prover, &sr_params).unwrap();
 
@@ -252,8 +278,6 @@ pub fn check<
                 &mut vesta_verifier,
                 &sr_params,
             );
-
-
 
             let vesta_res = vesta_verifier.verify(
                 &vesta_proof,

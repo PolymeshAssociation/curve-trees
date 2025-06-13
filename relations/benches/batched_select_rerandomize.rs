@@ -19,7 +19,7 @@ use ark_ec::short_weierstrass::{Affine, SWCurveConfig};
 use ark_serialize::{CanonicalSerialize, Compress};
 use ark_std::UniformRand;
 
-use dock_crypto_utils::transcript::{Transcript, MerlinTranscript};
+use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -382,8 +382,7 @@ fn bench_naive_batch_select_and_rerandomize_with_parameters<
                             let mut paths_with_root = Vec::new();
                             for i in 0..M {
                                 let mut path = paths[i].clone();
-                                curve_tree
-                                    .add_root_to_randomized_path(&mut path);
+                                curve_tree.add_root_to_randomized_path(&mut path);
                                 paths_with_root.push(path);
                             }
                             paths_with_root
@@ -472,7 +471,8 @@ fn bench_naive_batch_select_and_rerandomize_with_parameters<
                                 }
 
                                 {
-                                    let odd_transcript = MerlinTranscript::new(b"select_and_rerandomize");
+                                    let odd_transcript =
+                                        MerlinTranscript::new(b"select_and_rerandomize");
                                     let mut odd_verifier = Verifier::new(odd_transcript);
                                     srv.odd_verifier_gadget(
                                         &mut odd_verifier,
@@ -823,7 +823,8 @@ fn bench_grafted_batch_select_and_rerandomize_with_parameters<
                             curve_tree
                                 .batched_select_and_rerandomize_verification_commitments(&mut srv);
                             {
-                                let even_transcript = MerlinTranscript::new(b"select_and_rerandomize");
+                                let even_transcript =
+                                    MerlinTranscript::new(b"select_and_rerandomize");
                                 let mut even_verifier = Verifier::new(even_transcript);
                                 srv.even_verifier_gadget(
                                     &mut even_verifier,
@@ -837,7 +838,8 @@ fn bench_grafted_batch_select_and_rerandomize_with_parameters<
                             }
 
                             {
-                                let odd_transcript = MerlinTranscript::new(b"select_and_rerandomize");
+                                let odd_transcript =
+                                    MerlinTranscript::new(b"select_and_rerandomize");
                                 let mut odd_verifier = Verifier::new(odd_transcript);
                                 srv.odd_verifier_gadget(&mut odd_verifier, &sr_params, &curve_tree);
 

@@ -9,7 +9,7 @@ use crate::curve_tree::{
 };
 use ark_ec::{models::short_weierstrass::SWCurveConfig, short_weierstrass::Affine};
 use ark_ff::{PrimeField, Zero};
-use dock_crypto_utils::transcript::{Transcript, MerlinTranscript};
+use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
 use std::borrow::BorrowMut;
 
 impl<
@@ -123,13 +123,10 @@ impl<
                     let children = match &ct {
                         CurveTree::Even(root) => {
                             // todo why not branch on this to determine if the root is even and if so extract the children, otherwise commit to get first set of vars
-                            if let CurveTreeNode::InnerNode(inner_node) = root
-                            {
+                            if let CurveTreeNode::InnerNode(inner_node) = root {
                                 let mut children_xs = Vec::new();
                                 for i in 0..M {
-                                    children_xs.append(
-                                        &mut inner_node.x_coord_children[i].to_vec(),
-                                    )
+                                    children_xs.append(&mut inner_node.x_coord_children[i].to_vec())
                                 }
                                 children_xs
                             } else {
@@ -182,13 +179,10 @@ impl<
             {
                 let children = match &ct {
                     CurveTree::Odd(root) => {
-                        if let CurveTreeNode::InnerNode(inner_node) = root
-                        {
+                        if let CurveTreeNode::InnerNode(inner_node) = root {
                             let mut children_xs = Vec::new();
                             for i in 0..M {
-                                children_xs.append(
-                                    &mut inner_node.x_coord_children[i].to_vec(),
-                                )
+                                children_xs.append(&mut inner_node.x_coord_children[i].to_vec())
                             }
                             children_xs
                         } else {

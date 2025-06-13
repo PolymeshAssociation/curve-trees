@@ -193,7 +193,7 @@ mod tests {
     use ark_pallas::Affine as PallasA;
     use ark_std::UniformRand;
     use ark_vesta::Affine as VestaA;
-    use dock_crypto_utils::transcript::{MerlinTranscript};
+    use dock_crypto_utils::transcript::MerlinTranscript;
 
     type PallasScalar = <PallasA as AffineRepr>::ScalarField;
 

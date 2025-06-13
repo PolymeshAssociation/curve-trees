@@ -13,7 +13,7 @@ extern crate bulletproofs;
 use bulletproofs::r1cs::{batch_verify, Prover};
 
 extern crate relations;
-use dock_crypto_utils::transcript::{Transcript, MerlinTranscript};
+use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
 use relations::coin::*;
 use relations::curve_tree::*;
 

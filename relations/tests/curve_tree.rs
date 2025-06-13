@@ -1,19 +1,22 @@
 extern crate bulletproofs;
 extern crate relations;
-use std::collections::BTreeSet;
-use std::time::{Duration, Instant};
+use ark_ec::{
+    short_weierstrass::{Affine, SWCurveConfig},
+    AffineRepr, CurveGroup,
+};
 use ark_ff::PrimeField;
-use bulletproofs::r1cs::*;
-use rand::thread_rng;
-use relations::curve_tree::*;
-use ark_ec::{short_weierstrass::{Affine, SWCurveConfig}, AffineRepr, CurveGroup};
-use ark_std::UniformRand;
 use ark_pallas::{Fq as PallasBase, PallasConfig};
-use ark_vesta::VestaConfig;
 use ark_secp256k1::{Config as SecpConfig, Fq as SecpBase};
 use ark_secq256k1::Config as SecqConfig;
+use ark_std::UniformRand;
+use ark_vesta::VestaConfig;
+use bulletproofs::r1cs::*;
 use dock_crypto_utils::transcript::MerlinTranscript;
 use rand::prelude::SliceRandom;
+use rand::thread_rng;
+use relations::curve_tree::*;
+use std::collections::BTreeSet;
+use std::time::{Duration, Instant};
 
 mod common;
 use common::prove;
@@ -21,7 +24,6 @@ use common::prove;
 type PallasParameters = ark_pallas::PallasConfig;
 type VestaParameters = ark_vesta::VestaConfig;
 type PallasP = ark_pallas::Projective;
-
 
 #[test]
 pub fn test_curve_tree_even_depth() {
@@ -37,28 +39,76 @@ pub fn test_curve_tree_odd_depth() {
 
 #[test]
 pub fn test_curve_tree_even_depth_new() {
-    test_curve_tree_with_parameters_new::<32, PallasBase, PallasConfig, VestaConfig>(Some(4), 11, 8, 3);
-    test_curve_tree_with_parameters_new::<32, PallasBase, PallasConfig, VestaConfig>(Some(4), 11, 4, 3);
-    test_curve_tree_with_parameters_new::<32, PallasBase, PallasConfig, VestaConfig>(Some(4), 11, 16, 5);
+    test_curve_tree_with_parameters_new::<32, PallasBase, PallasConfig, VestaConfig>(
+        Some(4),
+        11,
+        8,
+        3,
+    );
+    test_curve_tree_with_parameters_new::<32, PallasBase, PallasConfig, VestaConfig>(
+        Some(4),
+        11,
+        4,
+        3,
+    );
+    test_curve_tree_with_parameters_new::<32, PallasBase, PallasConfig, VestaConfig>(
+        Some(4),
+        11,
+        16,
+        5,
+    );
 }
 
 #[test]
 pub fn test_curve_tree_even_depth_large() {
-    test_curve_tree_with_parameters_new::<32, PallasBase, PallasConfig, VestaConfig>(Some(4), 11, 64, 15);
-    test_curve_tree_with_parameters_new::<32, PallasBase, PallasConfig, VestaConfig>(Some(4), 11, 128, 15);
-    test_curve_tree_with_parameters_new::<32, PallasBase, PallasConfig, VestaConfig>(Some(4), 11, 256, 15);
+    test_curve_tree_with_parameters_new::<32, PallasBase, PallasConfig, VestaConfig>(
+        Some(4),
+        11,
+        64,
+        15,
+    );
+    test_curve_tree_with_parameters_new::<32, PallasBase, PallasConfig, VestaConfig>(
+        Some(4),
+        11,
+        128,
+        15,
+    );
+    test_curve_tree_with_parameters_new::<32, PallasBase, PallasConfig, VestaConfig>(
+        Some(4),
+        11,
+        256,
+        15,
+    );
 
-    test_curve_tree_with_parameters_new::<32, PallasBase, PallasConfig, VestaConfig>(None, 11, 64, 15);
-    test_curve_tree_with_parameters_new::<32, PallasBase, PallasConfig, VestaConfig>(None, 11, 128, 15);
-    test_curve_tree_with_parameters_new::<32, PallasBase, PallasConfig, VestaConfig>(None, 11, 256, 15);
+    test_curve_tree_with_parameters_new::<32, PallasBase, PallasConfig, VestaConfig>(
+        None, 11, 64, 15,
+    );
+    test_curve_tree_with_parameters_new::<32, PallasBase, PallasConfig, VestaConfig>(
+        None, 11, 128, 15,
+    );
+    test_curve_tree_with_parameters_new::<32, PallasBase, PallasConfig, VestaConfig>(
+        None, 11, 256, 15,
+    );
 }
 
 #[test]
 pub fn test_curve_tree_odd_depth_large() {
-    test_curve_tree_with_parameters_new::<32, PallasBase, PallasConfig, VestaConfig>(Some(3), 11, 64, 10);
-    test_curve_tree_with_parameters_new::<32, SecpBase, SecpConfig, SecqConfig>(Some(3), 11, 128, 10);
+    test_curve_tree_with_parameters_new::<32, PallasBase, PallasConfig, VestaConfig>(
+        Some(3),
+        11,
+        64,
+        10,
+    );
+    test_curve_tree_with_parameters_new::<32, SecpBase, SecpConfig, SecqConfig>(
+        Some(3),
+        11,
+        128,
+        10,
+    );
 
-    test_curve_tree_with_parameters_new::<32, PallasBase, PallasConfig, VestaConfig>(None, 11, 64, 10);
+    test_curve_tree_with_parameters_new::<32, PallasBase, PallasConfig, VestaConfig>(
+        None, 11, 64, 10,
+    );
     test_curve_tree_with_parameters_new::<32, SecpBase, SecpConfig, SecqConfig>(None, 11, 128, 10);
 }
 
@@ -67,7 +117,9 @@ pub fn test_curve_tree_small() {
     test_curve_tree_with_parameters_new::<2, PallasBase, PallasConfig, VestaConfig>(None, 11, 2, 2);
     test_curve_tree_with_parameters_new::<2, PallasBase, PallasConfig, VestaConfig>(None, 11, 4, 2);
     test_curve_tree_with_parameters_new::<2, PallasBase, PallasConfig, VestaConfig>(None, 11, 8, 2);
-    test_curve_tree_with_parameters_new::<2, PallasBase, PallasConfig, VestaConfig>(None, 11, 16, 2);
+    test_curve_tree_with_parameters_new::<2, PallasBase, PallasConfig, VestaConfig>(
+        None, 11, 16, 2,
+    );
 }
 
 #[test]
@@ -107,17 +159,18 @@ pub fn test_curve_tree_with_parameters<
     let curve_tree = CurveTree::<L, 1, P0, P1>::from_leaves(&set, &sr_params, Some(depth));
     assert_eq!(curve_tree.height(), depth);
 
-    let (mut path_commitments, re_randomization_of_leaf) = curve_tree.select_and_rerandomize_prover_gadget(
-        0,
-        0,
-        &mut pallas_prover,
-        &mut vesta_prover,
-        &sr_params,
-        &mut rng,
-    );
-    
+    let (mut path_commitments, re_randomization_of_leaf) = curve_tree
+        .select_and_rerandomize_prover_gadget(
+            0,
+            0,
+            &mut pallas_prover,
+            &mut vesta_prover,
+            &sr_params,
+            &mut rng,
+        );
+
     let (pallas_proof, vesta_proof) = prove(pallas_prover, vesta_prover, &sr_params).unwrap();
-    
+
     let root = curve_tree.root_node();
 
     {
@@ -126,7 +179,12 @@ pub fn test_curve_tree_with_parameters<
         let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
         let mut vesta_verifier = Verifier::new(vesta_transcript);
 
-        let rerandomized_leaf = path_commitments.select_and_rerandomize_verifier_gadget(&root, &mut pallas_verifier, &mut vesta_verifier, &sr_params);
+        let rerandomized_leaf = path_commitments.select_and_rerandomize_verifier_gadget(
+            &root,
+            &mut pallas_verifier,
+            &mut vesta_verifier,
+            &sr_params,
+        );
         let vesta_res = vesta_verifier.verify(
             &vesta_proof,
             &sr_params.odd_parameters.pc_gens,
@@ -139,7 +197,11 @@ pub fn test_curve_tree_with_parameters<
         );
         assert_eq!(vesta_res, pallas_res);
         assert_eq!(vesta_res, Ok(()));
-        assert_eq!(rerandomized_leaf.into_group(), curve_tree.get_leaf(0) + (sr_params.even_parameters.pc_gens.B_blinding * re_randomization_of_leaf))
+        assert_eq!(
+            rerandomized_leaf.into_group(),
+            curve_tree.get_leaf(0)
+                + (sr_params.even_parameters.pc_gens.B_blinding * re_randomization_of_leaf)
+        )
     }
 }
 
@@ -158,8 +220,10 @@ pub fn test_curve_tree_with_parameters_new<
     let generators_length = 1 << generators_length_log_2;
 
     let sr_params = SelRerandParameters::<P0, P1>::new(generators_length, generators_length);
-    
-    let set = (0..num_leaves).map(|_| Affine::<P0>::rand(&mut rng)).collect::<Vec<_>>();
+
+    let set = (0..num_leaves)
+        .map(|_| Affine::<P0>::rand(&mut rng))
+        .collect::<Vec<_>>();
     let curve_tree = CurveTree::<L, 1, P0, P1>::from_leaves(&set, &sr_params, depth);
     if let Some(d) = depth {
         assert_eq!(curve_tree.height(), d);
@@ -178,7 +242,7 @@ pub fn test_curve_tree_with_parameters_new<
 
     for leaf_index in proof_indices {
         let clock = Instant::now();
-        
+
         let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
         let mut pallas_prover: Prover<_, Affine<P0>> =
             Prover::new(&sr_params.even_parameters.pc_gens, pallas_transcript);
@@ -186,20 +250,21 @@ pub fn test_curve_tree_with_parameters_new<
         let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
         let mut vesta_prover: Prover<_, Affine<P1>> =
             Prover::new(&sr_params.odd_parameters.pc_gens, vesta_transcript);
-        
-        let (mut path_commitments, re_randomization_of_leaf) = curve_tree.select_and_rerandomize_prover_gadget(
-            *leaf_index,
-            0,
-            &mut pallas_prover,
-            &mut vesta_prover,
-            &sr_params,
-            &mut rng,
-        );
+
+        let (mut path_commitments, re_randomization_of_leaf) = curve_tree
+            .select_and_rerandomize_prover_gadget(
+                *leaf_index,
+                0,
+                &mut pallas_prover,
+                &mut vesta_prover,
+                &sr_params,
+                &mut rng,
+            );
 
         let (pallas_proof, vesta_proof) = prove(pallas_prover, vesta_prover, &sr_params).unwrap();
 
         prover_time += clock.elapsed();
-        
+
         {
             let clock = Instant::now();
             let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
@@ -207,7 +272,12 @@ pub fn test_curve_tree_with_parameters_new<
             let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
             let mut vesta_verifier = Verifier::new(vesta_transcript);
 
-            let rerandomized_leaf = path_commitments.select_and_rerandomize_verifier_gadget(&root, &mut pallas_verifier, &mut vesta_verifier, &sr_params);
+            let rerandomized_leaf = path_commitments.select_and_rerandomize_verifier_gadget(
+                &root,
+                &mut pallas_verifier,
+                &mut vesta_verifier,
+                &sr_params,
+            );
             let vesta_res = vesta_verifier.verify(
                 &vesta_proof,
                 &sr_params.odd_parameters.pc_gens,
@@ -221,11 +291,18 @@ pub fn test_curve_tree_with_parameters_new<
             verifier_time += clock.elapsed();
             assert!(vesta_res.is_ok());
             assert!(pallas_res.is_ok());
-            assert_eq!(rerandomized_leaf.into_group(), curve_tree.get_leaf(*leaf_index) + (sr_params.even_parameters.pc_gens.B_blinding * re_randomization_of_leaf))
+            assert_eq!(
+                rerandomized_leaf.into_group(),
+                curve_tree.get_leaf(*leaf_index)
+                    + (sr_params.even_parameters.pc_gens.B_blinding * re_randomization_of_leaf)
+            )
         }
     }
-    
-    println!("For tree with {} leaves, {} proofs took {:?} prover time and {:?} verifier time", num_leaves, num_proofs, prover_time, verifier_time);
+
+    println!(
+        "For tree with {} leaves, {} proofs took {:?} prover time and {:?} verifier time",
+        num_leaves, num_proofs, prover_time, verifier_time
+    );
 }
 
 pub fn test_curve_tree_get_update<
@@ -244,7 +321,9 @@ pub fn test_curve_tree_get_update<
 
     let sr_params = SelRerandParameters::<P0, P1>::new(generators_length, generators_length);
 
-    let leaves = (0..num_leaves).map(|_| Affine::<P0>::rand(&mut rng)).collect::<Vec<_>>();
+    let leaves = (0..num_leaves)
+        .map(|_| Affine::<P0>::rand(&mut rng))
+        .collect::<Vec<_>>();
     let mut curve_tree = CurveTree::<L, 1, P0, P1>::from_leaves(&leaves, &sr_params, depth);
     if let Some(d) = depth {
         assert_eq!(curve_tree.height(), d);
@@ -294,14 +373,15 @@ pub fn test_curve_tree_get_update<
         let mut vesta_prover: Prover<_, Affine<P1>> =
             Prover::new(&sr_params.odd_parameters.pc_gens, vesta_transcript);
 
-        let (mut path_commitments, re_randomization_of_leaf) = curve_tree.select_and_rerandomize_prover_gadget(
-            *leaf_index,
-            0,
-            &mut pallas_prover,
-            &mut vesta_prover,
-            &sr_params,
-            &mut rng,
-        );
+        let (mut path_commitments, re_randomization_of_leaf) = curve_tree
+            .select_and_rerandomize_prover_gadget(
+                *leaf_index,
+                0,
+                &mut pallas_prover,
+                &mut vesta_prover,
+                &sr_params,
+                &mut rng,
+            );
 
         let (pallas_proof, vesta_proof) = prove(pallas_prover, vesta_prover, &sr_params).unwrap();
 
@@ -311,7 +391,12 @@ pub fn test_curve_tree_get_update<
             let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
             let mut vesta_verifier = Verifier::new(vesta_transcript);
 
-            let rerandomized_leaf = path_commitments.select_and_rerandomize_verifier_gadget(&root, &mut pallas_verifier, &mut vesta_verifier, &sr_params);
+            let rerandomized_leaf = path_commitments.select_and_rerandomize_verifier_gadget(
+                &root,
+                &mut pallas_verifier,
+                &mut vesta_verifier,
+                &sr_params,
+            );
             let vesta_res = vesta_verifier.verify(
                 &vesta_proof,
                 &sr_params.odd_parameters.pc_gens,
@@ -324,7 +409,11 @@ pub fn test_curve_tree_get_update<
             );
             assert!(vesta_res.is_ok());
             assert!(pallas_res.is_ok());
-            assert_eq!(rerandomized_leaf.into_group(), curve_tree.get_leaf(*leaf_index) + (sr_params.even_parameters.pc_gens.B_blinding * re_randomization_of_leaf))
+            assert_eq!(
+                rerandomized_leaf.into_group(),
+                curve_tree.get_leaf(*leaf_index)
+                    + (sr_params.even_parameters.pc_gens.B_blinding * re_randomization_of_leaf)
+            )
         }
     }
 }
@@ -341,8 +430,11 @@ pub fn test_curve_tree_batch_verification() {
 
     let some_point = PallasP::rand(&mut rng).into_affine();
     let set = vec![some_point];
-    let curve_tree =
-        CurveTree::<32, 1, PallasParameters, VestaParameters>::from_leaves(&set, &sr_params, Some(4));
+    let curve_tree = CurveTree::<32, 1, PallasParameters, VestaParameters>::from_leaves(
+        &set,
+        &sr_params,
+        Some(4),
+    );
     assert_eq!(curve_tree.height(), 4);
 
     let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");

@@ -18,25 +18,16 @@ pub fn prove<
     odd_prover: Prover<MerlinTranscript, Affine<P1>>,
     sr_params: &SelRerandParameters<P0, P1>,
 ) -> Result<(R1CSProof<Affine<P0>>, R1CSProof<Affine<P1>>), R1CSError> {
-    
     #[cfg(feature = "parallel")]
     let (even_proof, odd_proof) = rayon::join(
-        || {
-            even_prover
-                .prove(&sr_params.even_parameters.bp_gens)
-        },
-        || {
-            odd_prover
-                .prove(&sr_params.odd_parameters.bp_gens)
-        },
+        || even_prover.prove(&sr_params.even_parameters.bp_gens),
+        || odd_prover.prove(&sr_params.odd_parameters.bp_gens),
     );
 
     #[cfg(not(feature = "parallel"))]
     let (even_proof, odd_proof) = (
-        even_prover
-            .prove(&account_tree_params.even_parameters.bp_gens),
-        odd_prover
-            .prove(&account_tree_params.odd_parameters.bp_gens),
+        even_prover.prove(&account_tree_params.even_parameters.bp_gens),
+        odd_prover.prove(&account_tree_params.odd_parameters.bp_gens),
     );
 
     let (even_proof, odd_proof) = (even_proof?, odd_proof?);
@@ -90,7 +81,7 @@ pub fn check_proof<
             &mut vesta_verifier,
             &sr_params,
         );
-        
+
         #[cfg(feature = "parallel")]
         let (pallas_res, vesta_res) = rayon::join(
             || {
@@ -131,5 +122,3 @@ pub fn check_proof<
         )
     }
 }
-
-
