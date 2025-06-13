@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 sha3 = { version = "0.10.6", default-features = false }
 rand = { version = "0.8", default-features = false }
+thiserror = { version = "2", default-features = false }
 bulletproofs = { path = "../bulletproofs", default-features = false, features = ["std"]}
 ark-ff = { version = "0.4"}
 ark-ec = { version = "0.4"}
@@ -29,7 +30,8 @@ ark-secp256k1 = "0.4"
 ark-secq256k1 = "0.4"
 
 [features]
-default = ["asm", "parallel"]
+default = ["std", "asm", "parallel"]
+std = ["rand/std", "thiserror/std"]
 asm = ["ark-ff/asm", "bulletproofs/asm"]
 parallel = ["rayon", "ark-ec/parallel", "ark-ff/parallel", "ark-std/parallel", "bulletproofs/parallel", "dock_crypto_utils/parallel", "schnorr_pok/parallel", "verifiable_encryption/parallel", "equality_across_groups/parallel"]
 bench_prover = []
