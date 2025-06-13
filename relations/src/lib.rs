@@ -35,3 +35,4 @@ pub mod coin;
 pub mod lean_curve_tree;
 pub mod partial_curve_tree;
 mod error;
+pub mod ped_comm_group_elems;

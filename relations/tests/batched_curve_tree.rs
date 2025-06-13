@@ -1,6 +1,7 @@
 extern crate bulletproofs;
 extern crate relations;
 
+use std::time::Instant;
 use ark_ff::PrimeField;
 use bulletproofs::r1cs::*;
 
@@ -14,6 +15,7 @@ use ark_vesta::VestaConfig;
 
 use ark_secp256k1::{Config as SecpConfig, Fq as SecpBase};
 use ark_secq256k1::Config as SecqConfig;
+use ark_serialize::CanonicalSerialize;
 use dock_crypto_utils::transcript::MerlinTranscript;
 
 #[test]
@@ -60,6 +62,8 @@ pub fn test_batched_curve_tree_with_parameters<
     let curve_tree = CurveTree::<L, M, P0, P1>::from_leaves(&set, &sr_params, Some(depth));
     assert_eq!(curve_tree.height(), depth);
 
+    println!("For batch size {M}, width {L} and height {depth}");
+    let clock = Instant::now();
     let (path_commitments, _) = curve_tree.batched_select_and_rerandomize_prover_gadget(
         indices,
         &mut pallas_prover,
@@ -74,31 +78,32 @@ pub fn test_batched_curve_tree_with_parameters<
     let vesta_proof = vesta_prover
         .prove(&sr_params.odd_parameters.bp_gens)
         .unwrap();
-
+    println!("Proving time: {:?}", clock.elapsed());
+    println!("Proof size: {}", path_commitments.compressed_size() + pallas_proof.compressed_size() + vesta_proof.compressed_size());
+    
     {
         let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
         let mut pallas_verifier = Verifier::new(pallas_transcript);
         let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
         let mut vesta_verifier = Verifier::new(vesta_transcript);
 
+        let clock = Instant::now();
         let _rerandomized_leaves = curve_tree.batched_select_and_rerandomize_verifier_gadget(
             &mut pallas_verifier,
             &mut vesta_verifier,
             path_commitments,
             &sr_params,
         );
-        let vesta_res = vesta_verifier.verify(
+        vesta_verifier.verify(
             &vesta_proof,
             &sr_params.odd_parameters.pc_gens,
             &sr_params.odd_parameters.bp_gens,
-        );
-        let pallas_res = pallas_verifier.verify(
+        ).unwrap();
+        pallas_verifier.verify(
             &pallas_proof,
             &sr_params.even_parameters.pc_gens,
             &sr_params.even_parameters.bp_gens,
-        );
-        println!("\n\nOdd: {:?}, Even: {:?}\n\n", vesta_res, pallas_res);
-        assert_eq!(vesta_res, pallas_res);
-        assert_eq!(vesta_res, Ok(()));
+        ).unwrap();
+        println!("Verifying time: {:?}", clock.elapsed());
     }
 }

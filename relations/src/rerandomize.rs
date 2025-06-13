@@ -96,7 +96,7 @@ pub fn re_randomize<
                 let x_left = if i == 1 {
                     F::zero()
                 } else {
-                    *blinding_accumulator.x().unwrap()
+                    blinding_accumulator.x
                 }; // read before updating blinding accumulator
                 let y_left = if i == 1 {
                     F::zero()
@@ -124,8 +124,8 @@ pub fn re_randomize<
                     Some(index),
                     x_left_minus_x_right_inv,
                     delta,
-                    Some(*blinding_accumulator.x().unwrap()),
-                    Some(*blinding_accumulator.y().unwrap()),
+                    Some(blinding_accumulator.x),
+                    Some(blinding_accumulator.y),
                 )
             }
         };
@@ -162,12 +162,12 @@ pub fn re_randomize<
     // constrain (x_tilde, y_tilde) = (x, y) + (R_m) - with checked addition
     let (delta, x_l_minus_x_r_inv) = match commitment.witness {
         Some(commitment) => {
-            let x_left = commitment.x().unwrap();
-            let y_left = commitment.y().unwrap();
-            let x_right = blinding_accumulator.x().unwrap();
-            let y_right = blinding_accumulator.y().unwrap();
-            let delta = (*y_right - y_left) / (*x_right - x_left);
-            (Some(delta), Some(F::one() / (*x_left - x_right)))
+            let x_left = commitment.x;
+            let y_left = commitment.y;
+            let x_right = blinding_accumulator.x;
+            let y_right = blinding_accumulator.y;
+            let delta = (y_right - y_left) / (x_right - x_left);
+            (Some(delta), Some(F::one() / (x_left - x_right)))
         }
         _ => (None, None),
     };

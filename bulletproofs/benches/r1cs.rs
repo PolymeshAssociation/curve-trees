@@ -14,7 +14,7 @@ use ark_ec::AffineRepr;
 use ark_std::UniformRand;
 use bulletproofs::r1cs::*;
 use bulletproofs::{BulletproofGens, PedersenGens};
-use dock_crypto_utils::transcript::{Transcript, new_merlin_transcript, MerlinTranscript};
+use dock_crypto_utils::transcript::{Transcript, MerlinTranscript};
 use rand::seq::SliceRandom;
 use rand::Rng;
 
@@ -74,7 +74,7 @@ impl ShuffleProof {
     pub fn prove<'a, 'b>(
         pc_gens: &'b PedersenGens<Affine>,
         bp_gens: &'b BulletproofGens<Affine>,
-        transcript: &'a mut Transcript,
+        transcript: &'a mut MerlinTranscript,
         input: &[<Affine as AffineRepr>::ScalarField],
         output: &[<Affine as AffineRepr>::ScalarField],
     ) -> Result<(ShuffleProof, Vec<Affine>, Vec<Affine>), R1CSError> {
@@ -82,7 +82,7 @@ impl ShuffleProof {
         // XXX should this be part of the gadget?
         let k = input.len();
         transcript.append_message(b"dom-sep", b"ShuffleProof");
-        transcript.append_u64(b"k", k as u64);
+        transcript.merlin.append_u64(b"k", k as u64);
 
         let mut prover = Prover::new(&pc_gens, transcript);
 
@@ -114,7 +114,7 @@ impl ShuffleProof {
         &self,
         pc_gens: &'b PedersenGens<Affine>,
         bp_gens: &'b BulletproofGens<Affine>,
-        transcript: &'a mut Transcript,
+        transcript: &'a mut MerlinTranscript,
         input_commitments: &Vec<Affine>,
         output_commitments: &Vec<Affine>,
     ) -> Result<(), R1CSError> {
@@ -122,7 +122,7 @@ impl ShuffleProof {
         // XXX should this be part of the gadget?
         let k = input_commitments.len();
         transcript.append_message(b"dom-sep", b"ShuffleProof");
-        transcript.append_u64(b"k", k as u64);
+        transcript.merlin.append_u64(b"k", k as u64);
 
         let mut verifier = Verifier::new(transcript);
 

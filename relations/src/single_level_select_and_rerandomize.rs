@@ -181,7 +181,7 @@ pub fn single_level_batched_select_and_rerandomize<
     let mut sum_of_selected = PointRepresentation {
         x: Variable::One(PhantomData).into(),
         y: Variable::One(PhantomData).into(),
-        witness: children_plus_delta.map(|_| (Affine::<C2>::zero())),
+        witness: children_plus_delta.map(|_| Affine::<C2>::zero()),
     };
     // Split the variables of the vector commitments into chunks corresponding to the M parents.
     let chunks = children.chunks_exact(children.len() / M);
@@ -261,7 +261,7 @@ mod tests {
 
         // Parent is a commitment to the x coordinate of the children where Delta is added to each child.
         let child_plus_delta = (child + sr_params.even_parameters.delta).into_affine();
-        let child_plus_delta_x = *child_plus_delta.x().unwrap();
+        let child_plus_delta_x = child_plus_delta.x;
         let xs = vec![child_plus_delta_x];
         let blinding = VestaScalar::rand(&mut rng);
         let parent = sr_params.odd_parameters.commit(xs.as_slice(), blinding, 0);
@@ -340,7 +340,7 @@ mod tests {
             .collect();
         let xs: Vec<_> = children_plus_delta
             .iter()
-            .map(|child_plus_delta| *child_plus_delta.x().unwrap())
+            .map(|child_plus_delta| child_plus_delta.x)
             .collect();
         let blinding = VestaScalar::rand(&mut rng);
         let parent = sr_params.odd_parameters.commit(xs.as_slice(), blinding, 0);

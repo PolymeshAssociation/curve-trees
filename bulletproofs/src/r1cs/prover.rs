@@ -1,6 +1,6 @@
 #![allow(non_snake_case)]
 
-use ark_ec::{AffineRepr, VariableBaseMSM};
+use ark_ec::{AffineRepr, CurveGroup, VariableBaseMSM};
 use ark_ff::Field;
 use ark_std::{One, UniformRand, Zero};
 use core::borrow::BorrowMut;
@@ -357,8 +357,20 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
 
         assert_eq!(generators.len(), scalars.len());
 
-        let comm = C::Group::msm_unchecked(generators.as_slice(), scalars.as_slice());
+        let comm = C::Group::msm_unchecked(generators.as_slice(), scalars.as_slice()).into_affine();
+        
+        let vars = self.vars_for_committed_vec(&comm, v, v_blinding);
 
+        (comm, vars)
+    }
+
+    /// Returns variables for the values in `v` and blinding `v_blinding` which were committed inside the commitment `comm`  
+    pub fn vars_for_committed_vec(
+        &mut self,
+        comm: &C,
+        v: &[C::ScalarField],
+        v_blinding: C::ScalarField,
+    ) -> Vec<Variable<C::ScalarField>> {
         // create variables for all the addressable coordinates
         let comm_idx = self.secrets.vec_open.len();
         let vars = (0..v.len())
@@ -369,10 +381,8 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
         self.secrets.vec_open.push((v_blinding, v.to_owned()));
 
         // add the commitment to the transcript.
-        let comm = comm.into();
-        self.transcript.borrow_mut().append_point(b"V", &comm);
-
-        (comm, vars)
+        self.transcript.borrow_mut().append_point(b"V", comm);
+        vars
     }
 
     /// Use a challenge, `z`, to flatten the constraints in the

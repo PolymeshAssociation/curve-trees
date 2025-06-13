@@ -2,11 +2,9 @@ use bulletproofs::r1cs::*;
 
 use crate::single_level_select_and_rerandomize::*;
 
-use crate::curve_tree::{
-    CurveTree, CurveTreeNode, SelRerandParameters, SelectAndRerandomizePath,
-};
+use crate::curve_tree::{CurveTree, CurveTreeNode, Root, SelRerandParameters, SelectAndRerandomizePath};
 
-use ark_ec::{models::short_weierstrass::SWCurveConfig, short_weierstrass::Affine, CurveGroup};
+use ark_ec::{models::short_weierstrass::SWCurveConfig, short_weierstrass::Affine, AffineRepr, CurveGroup};
 use ark_ff::PrimeField;
 use ark_std::fmt::Debug;
 use ark_std::fmt::Formatter;
@@ -100,7 +98,7 @@ impl<
             odd_internal_nodes,
         }
     }
-
+    
     /// Commits to the root and rerandomizations of the path to the leaf specified by `index`
     /// and proves the Select and rerandomize relation for each level.
     /// Returns the rerandomized commitments on the path to (and including) the selected leaf and the rerandomization scalar of the selected leaf.
@@ -232,20 +230,20 @@ impl<
 
         let prove_even = |prover: &mut Prover<MerlinTranscript, Affine<P0>>| {
             for i in 0..even_length {
-                let current_node_rerandomization = if self.root_is_even() {
+                let (current_node_rerandomization, current_node) = if self.root_is_even() {
                     if i == 0 {
                         // the parent is the root and thus not rerandomized
-                        F0::zero()
+                        (F0::zero(), Affine::<P0>::zero())
                     } else {
-                        even_rerandomization_scalars[i - 1]
+                        (even_rerandomization_scalars[i - 1], even_rerandomized_commitments[i-1])
                     }
                 } else {
-                    even_rerandomization_scalars[i]
+                    (even_rerandomization_scalars[i], even_rerandomized_commitments[i])
                 };
                 self.even_internal_nodes[i].single_level_select_and_rerandomize_prover_gadget(
                     prover,
-                    &parameters.even_parameters,
                     &parameters.odd_parameters,
+                    &current_node,
                     current_node_rerandomization,
                     odd_rerandomization_scalars[i],
                 );
@@ -254,20 +252,20 @@ impl<
 
         let prove_odd = |prover: &mut Prover<MerlinTranscript, Affine<P1>>| {
             for i in 0..odd_length {
-                let current_node_rerandomization = if !self.root_is_even() {
+                let (current_node_rerandomization, current_node) = if !self.root_is_even() {
                     if i == 0 {
                         // the parent is the root and thus not rerandomized
-                        F1::zero()
+                        (F1::zero(), Affine::<P1>::zero())
                     } else {
-                        odd_rerandomization_scalars[i - 1]
+                        (odd_rerandomization_scalars[i - 1], odd_rerandomized_commitments[i-1])
                     }
                 } else {
-                    odd_rerandomization_scalars[i]
+                    (odd_rerandomization_scalars[i], odd_rerandomized_commitments[i])
                 };
                 self.odd_internal_nodes[i].single_level_select_and_rerandomize_prover_gadget(
                     prover,
-                    &parameters.odd_parameters,
                     &parameters.even_parameters,
+                    &current_node,
                     current_node_rerandomization,
                     even_rerandomization_scalars[i],
                 );
@@ -321,8 +319,8 @@ impl<
     pub fn single_level_select_and_rerandomize_prover_gadget(
         &self,
         prover: &mut Prover<MerlinTranscript, Affine<P0>>,
-        current_level_parameters: &SingleLayerParameters<P0>,
         child_level_parameters: &SingleLayerParameters<P1>,
+        self_node: &Affine<P0>,
         self_rerandomization_scalar: P0::ScalarField,
         child_rerandomization_scalar: P1::ScalarField,
     ) {
@@ -330,16 +328,12 @@ impl<
             // In this case this (`self`) is the root and the children are treated as public input to the circuit.
             self.x_coord_children.map(constant).to_vec()
         } else {
-            // TODO: We can pass the commitment directly and avoid creating again. Should be a variation of `commit_vec` like `alloc_for_commitment`.
-            // The witness path doesn't need to be updated as the previous (upper) node contains commitment to next node.
-            // Only randomization of the commitment is needed.
-
-            // In this case this (`self`) is a rerandomized commitment and the children (and the scalar used for rerandomizing) are part of the witness.
-            // Commit to x-coordinates of child nodes with `self_rerandomization_scalar` as the blinding
-            let (_, children_vars) = prover.commit_vec(
+            // In this case this (`self`) is a non-root inner node and the children (and the scalar used for rerandomizing) are part of the witness.
+            // Allocate variables for x-coordinates (which are committed in `self_node`) of child nodes with `self_rerandomization_scalar` as the blinding
+            let children_vars = prover.vars_for_committed_vec(
+                self_node,
                 &self.x_coord_children,
                 self_rerandomization_scalar,
-                &current_level_parameters.bp_gens,
             );
             children_vars
                 .iter()

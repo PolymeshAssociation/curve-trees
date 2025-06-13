@@ -15,6 +15,7 @@ use ark_std::Zero;
 use dock_crypto_utils::transcript::{MerlinTranscript};
 use rand::Rng;
 use std::ops::Mul;
+use std::time::Instant;
 
 // Implements prover operations on the Curve Tree
 impl<
@@ -28,7 +29,8 @@ impl<
 {
     /// Commits to the root and rerandomizations of the path to the leaf specified by `index`
     /// and proves the Select and rerandomize relation for each level.
-    /// Returns the rerandomized commitments on the path to (and including) the selected leaf and the rerandomization scalar of the selected leaf.
+    /// Returns the rerandomized commitments on the path to (and including) the selected leaf 
+    /// and the rerandomization scalar of the selected leaf.
     pub fn batched_select_and_rerandomize_prover_gadget<R: Rng>(
         &self,
         indices: [usize; M],
@@ -55,16 +57,16 @@ impl<
         &self,
         indices: [usize; M],
     ) -> CurveTreeWitnessMultiPath<L, M, P0, P1> {
-        let mut single_witnesses: Vec<CurveTreeWitnessPath<L, P0, P1>> = Vec::with_capacity(M);
+        let mut independent_paths: Vec<CurveTreeWitnessPath<L, P0, P1>> = Vec::with_capacity(M);
         for (tree_index, leaf_index) in indices.iter().enumerate() {
-            single_witnesses.push(self.get_path_to_leaf_for_proof(
+            independent_paths.push(self.get_path_to_leaf_for_proof(
                 *leaf_index,
                 tree_index,
             ));
         }
         let mut even_internal_nodes: Vec<[WitnessNode<L, P0, P1>; M]> = Vec::new();
-        for i in 0..single_witnesses[0].even_internal_nodes.len() {
-            let witnesses: Vec<_> = single_witnesses
+        for i in 0..independent_paths[0].even_internal_nodes.len() {
+            let witnesses: Vec<_> = independent_paths
                 .iter()
                 .map(|w| w.even_internal_nodes[i])
                 .collect();
@@ -72,8 +74,8 @@ impl<
         }
 
         let mut odd_internal_nodes: Vec<[WitnessNode<L, P1, P0>; M]> = Vec::new();
-        for i in 0..single_witnesses[0].odd_internal_nodes.len() {
-            let witnesses: Vec<_> = single_witnesses
+        for i in 0..independent_paths[0].odd_internal_nodes.len() {
+            let witnesses: Vec<_> = independent_paths
                 .iter()
                 .map(|w| w.odd_internal_nodes[i])
                 .collect();
@@ -127,7 +129,7 @@ impl<
 
     /// Commits to the root and rerandomizations of the path to the leaf specified by `index`
     /// and proves the Select and rerandomize relation for each level.
-    /// Returns the rerandomized commitments on the path to (and including) the selected leaf
+    /// Returns the rerandomized commitments on the path to (and including) the selected leaf
     /// and the rerandomization scalar of the selected leaf.
     pub fn batched_select_and_rerandomize_prover_gadget<R: Rng>(
         &self,
@@ -184,6 +186,7 @@ impl<
                     .into_affine();
                 even_rerandomized_commitments.push((sum_of_selected + blinding).into());
             } else {
+                // multi_node is the parent of leaves
                 for i in 0..M {
                     let rerandomization: F0 = F0::rand(rng);
                     rerandomization_scalars_of_selected[i] = rerandomization;
@@ -201,21 +204,21 @@ impl<
 
         let prove_even = |prover: &mut Prover<MerlinTranscript, Affine<P0>>| {
             for i in 0..even_length {
-                let parent_rerandomization = if self.root_is_even() {
+                let (parent_rerandomization, parent_node) = if self.root_is_even() {
                     if i == 0 {
-                        // the parent is the the root and thus not rerandomized
-                        F0::zero()
+                        // the parent is the root and thus not rerandomized
+                        (F0::zero(), Affine::<P0>::zero())
                     } else {
-                        even_rerandomization_scalars[i - 1]
+                        (even_rerandomization_scalars[i - 1], even_rerandomized_commitments[i - 1])
                     }
                 } else {
-                    even_rerandomization_scalars[i]
+                    (even_rerandomization_scalars[i], even_rerandomized_commitments[i])
                 };
                 WitnessNode::single_level_batched_select_and_rerandomize_prover_gadget(
                     &self.even_internal_nodes[i],
                     prover,
-                    &parameters.even_parameters,
                     &parameters.odd_parameters,
+                    &parent_node,
                     parent_rerandomization,
                     odd_rerandomization_scalars[i],
                 );
@@ -225,22 +228,22 @@ impl<
         prove_even(even_prover);
         let prove_odd = |prover: &mut Prover<MerlinTranscript, Affine<P1>>| {
             for i in 0..odd_length {
-                let parent_rerandomization = if !self.root_is_even() {
+                let (parent_rerandomization, parent_node) = if !self.root_is_even() {
                     if i == 0 {
-                        // the parent is the the root and thus not rerandomized
-                        F1::zero()
+                        // the parent is the root and thus not rerandomized
+                        (F1::zero(), Affine::<P1>::zero())
                     } else {
-                        odd_rerandomization_scalars[i - 1]
+                        (odd_rerandomization_scalars[i - 1], odd_rerandomized_commitments[i-1])
                     }
                 } else {
-                    odd_rerandomization_scalars[i]
+                    (odd_rerandomization_scalars[i], odd_rerandomized_commitments[i])
                 };
                 if i < odd_length - 1 {
                     WitnessNode::single_level_batched_select_and_rerandomize_prover_gadget(
                         &self.odd_internal_nodes[i],
                         prover,
-                        &parameters.odd_parameters,
                         &parameters.even_parameters,
+                        &parent_node,
                         parent_rerandomization,
                         even_rerandomization_scalars[i],
                     );
@@ -249,13 +252,15 @@ impl<
                     let children_vars = WitnessNode::allocate_multi_node_variables(
                         &self.odd_internal_nodes[i],
                         prover,
-                        &parameters.odd_parameters,
+                        &parent_node,
                         parent_rerandomization,
                     );
 
                     // The selected leaves are rerandomized individually, as we allow these commitments to use the same generators.
                     // Split the variables of the vector commitments into chunks corresponding to the M parents.
                     let chunks = children_vars.chunks_exact(children_vars.len() / M);
+                    let mut j = 0;
+                    let clock = Instant::now();
                     for (inclusion_index, chunk) in chunks.enumerate() {
                         single_level_select_and_rerandomize(
                             prover,
@@ -269,7 +274,9 @@ impl<
                             ),
                             Some(rerandomization_scalars_of_selected[inclusion_index]),
                         );
+                        j += 1;
                     }
+                    println!("For L = {L}, M = {M}, {j} runs took: {:?}", clock.elapsed());
                 }
             }
         };
@@ -301,20 +308,21 @@ impl<
     pub fn single_level_batched_select_and_rerandomize_prover_gadget<const M: usize>(
         nodes: &[Self; M],
         prover: &mut Prover<MerlinTranscript, Affine<P0>>,
-        even_parameters: &SingleLayerParameters<P0>,
         odd_parameters: &SingleLayerParameters<P1>,
+        parent_node: &Affine<P0>,
         parent_rerandomization_scalar: P0::ScalarField,
         child_rerandomization_scalar: P1::ScalarField,
     ) {
+        // `children_vars` is a vector of x-coordinates of all the `nodes`
         let children_vars = Self::allocate_multi_node_variables(
             nodes,
             prover,
-            even_parameters,
+            parent_node,
             parent_rerandomization_scalar,
         );
 
         // Todo: The sum of selected was computed previously
-        let (selected_children, sum_of_selected) = {
+        let (selected_children_plus_delta, sum_of_selected) = {
             let mut sum_of_selected = Projective::<P1>::zero();
             let mut children: [Affine<P1>; M] = [Affine::<P1>::zero(); M];
             for i in 0..M {
@@ -331,7 +339,7 @@ impl<
             odd_parameters,
             &rerandomized_sum_of_selected,
             children_vars,
-            Some(&selected_children),
+            Some(&selected_children_plus_delta),
             Some(child_rerandomization_scalar),
         );
     }
@@ -340,9 +348,10 @@ impl<
     pub fn allocate_multi_node_variables<const M: usize>(
         nodes: &[Self; M],
         prover: &mut Prover<MerlinTranscript, Affine<P0>>,
-        even_parameters: &SingleLayerParameters<P0>,
+        parent_node: &Affine<P0>,
         parent_rerandomization_scalar: P0::ScalarField,
     ) -> Vec<LinearCombination<<P0>::ScalarField>> {
+        // `children_vars` is a vector of x-coordinates of all the `nodes`
         let children_vars = if parent_rerandomization_scalar.is_zero() {
             let mut children_vars: Vec<LinearCombination<P0::ScalarField>> = Vec::new();
             for node in nodes {
@@ -354,10 +363,10 @@ impl<
             for node in nodes {
                 children.append(&mut node.x_coord_children.to_vec());
             }
-            let (_, children_vars) = prover.commit_vec(
+            let children_vars = prover.vars_for_committed_vec(
+                parent_node,
                 &children,
                 parent_rerandomization_scalar,
-                &even_parameters.bp_gens,
             );
             children_vars
                 .iter()

@@ -1,5 +1,4 @@
 use std::io::Read;
-use core::cmp;
 use crate::single_level_select_and_rerandomize::*;
 use ark_ec::AffineRepr;
 use ark_ec::{models::short_weierstrass::SWCurveConfig, short_weierstrass::Affine, CurveGroup};
