@@ -2,7 +2,7 @@ extern crate alloc;
 
 mod util;
 
-mod errors;
+pub mod errors;
 mod generators;
 mod inner_product_proof;
 mod transcript;
