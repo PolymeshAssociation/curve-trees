@@ -7,19 +7,19 @@ extern crate alloc;
 use alloc::vec;
 use alloc::vec::Vec;
 use ark_ec::AffineRepr;
-use ark_ff::Field;
+use ark_ff::PrimeField;
 use zeroize::ZeroizeOnDrop;
 
 use dock_crypto_utils::ff::inner_product;
 
 /// Represents a degree-1 vector polynomial \\(\mathbf{a} + \mathbf{b} \cdot x\\).
 #[derive(ZeroizeOnDrop)]
-pub struct VecPoly1<F: Field>(pub Vec<F>, pub Vec<F>);
+pub struct VecPoly1<F: PrimeField>(pub Vec<F>, pub Vec<F>);
 
 /// Represents a degree-3 vector polynomial
 /// \\(\mathbf{a} + \mathbf{b} \cdot x + \mathbf{c} \cdot x^2 + \mathbf{d} \cdot x^3 \\).
 #[derive(ZeroizeOnDrop)]
-pub struct VecPoly3<F: Field>(pub Vec<F>, pub Vec<F>, pub Vec<F>, pub Vec<F>);
+pub struct VecPoly3<F: PrimeField>(pub Vec<F>, pub Vec<F>, pub Vec<F>, pub Vec<F>);
 
 pub const T_LABELS: [&[u8]; 41] = [
     b"T_0", b"T_1", b"T_2", b"T_3", b"T_4", b"T_5", b"T_6", b"T_7", b"T_8", b"T_9", b"T_10",
@@ -29,11 +29,11 @@ pub const T_LABELS: [&[u8]; 41] = [
 ];
 
 /// The general case for Vector CP.
-pub struct VecPoly<F: Field>(Vec<Vec<F>>);
+pub struct VecPoly<F: PrimeField>(Vec<Vec<F>>);
 
-pub struct Poly<F: Field>(Vec<F>);
+pub struct Poly<F: PrimeField>(Vec<F>);
 
-impl<F: Field> Poly<F> {
+impl<F: PrimeField> Poly<F> {
     pub fn zero(deg: usize) -> Self {
         Poly(vec![F::zero(); deg + 1])
     }
@@ -56,13 +56,13 @@ impl<F: Field> Poly<F> {
     }
 }
 
-impl<F: Field> From<Vec<F>> for Poly<F> {
+impl<F: PrimeField> From<Vec<F>> for Poly<F> {
     fn from(v: Vec<F>) -> Self {
         Self(v)
     }
 }
 
-impl<F: Field> VecPoly<F> {
+impl<F: PrimeField> VecPoly<F> {
     pub fn coeff_mut(&mut self, deg: usize) -> &mut [F] {
         &mut self.0[deg]
     }
@@ -120,12 +120,12 @@ impl<F: Field> VecPoly<F> {
 
 /// Represents a degree-2 scalar polynomial \\(a + b \cdot x + c \cdot x^2\\)
 #[derive(ZeroizeOnDrop)]
-pub struct Poly2<F: Field>(pub F, pub F, pub F);
+pub struct Poly2<F: PrimeField>(pub F, pub F, pub F);
 
 /// Represents a degree-6 scalar polynomial, without the zeroth degree
 /// \\(a \cdot x + b \cdot x^2 + c \cdot x^3 + d \cdot x^4 + e \cdot x^5 + f \cdot x^6\\)
 #[derive(ZeroizeOnDrop)]
-pub struct Poly6<F: Field> {
+pub struct Poly6<F: PrimeField> {
     pub t1: F,
     pub t2: F,
     pub t3: F,
@@ -137,12 +137,12 @@ pub struct Poly6<F: Field> {
 /// Provides an iterator over the powers of a `Scalar`.
 ///
 /// This struct is created by the `exp_iter` function.
-pub struct ScalarExp<F: Field> {
+pub struct ScalarExp<F: PrimeField> {
     x: F,
     next_exp_x: F,
 }
 
-impl<F: Field> Iterator for ScalarExp<F> {
+impl<F: PrimeField> Iterator for ScalarExp<F> {
     type Item = F;
 
     fn next(&mut self) -> Option<F> {
@@ -157,12 +157,12 @@ impl<F: Field> Iterator for ScalarExp<F> {
 }
 
 /// Return an iterator of the powers of `x`.
-pub fn exp_iter<F: Field>(x: F) -> ScalarExp<F> {
+pub fn exp_iter<F: PrimeField>(x: F) -> ScalarExp<F> {
     let next_exp_x = F::one();
     ScalarExp { x, next_exp_x }
 }
 
-pub fn add_vec<F: Field>(a: &[F], b: &[F]) -> Vec<F> {
+pub fn add_vec<F: PrimeField>(a: &[F], b: &[F]) -> Vec<F> {
     if a.len() != b.len() {
         // throw some error
         //log::debug!("lengths of vectors don't match for vector addition");
@@ -174,7 +174,7 @@ pub fn add_vec<F: Field>(a: &[F], b: &[F]) -> Vec<F> {
     out
 }
 
-impl<F: Field> VecPoly1<F> {
+impl<F: PrimeField> VecPoly1<F> {
     pub fn zero(n: usize) -> Self {
         VecPoly1(vec![F::zero(); n], vec![F::zero(); n])
     }
@@ -205,7 +205,7 @@ impl<F: Field> VecPoly1<F> {
     }
 }
 
-impl<F: Field> VecPoly3<F> {
+impl<F: PrimeField> VecPoly3<F> {
     pub fn zero(n: usize) -> Self {
         VecPoly3(
             vec![F::zero(); n],
@@ -250,13 +250,13 @@ impl<F: Field> VecPoly3<F> {
     }
 }
 
-impl<F: Field> Poly2<F> {
+impl<F: PrimeField> Poly2<F> {
     pub fn eval(&self, x: F) -> F {
         self.0 + x * (self.1 + x * self.2)
     }
 }
 
-impl<F: Field> Poly6<F> {
+impl<F: PrimeField> Poly6<F> {
     pub fn eval(&self, x: F) -> F {
         x * (self.t1 + x * (self.t2 + x * (self.t3 + x * (self.t4 + x * (self.t5 + x * self.t6)))))
     }
@@ -266,7 +266,7 @@ impl<F: Field> Poly6<F> {
 // /// If `n` is a power of 2, it uses the efficient algorithm with `2*lg n` multiplications and additions.
 // /// If `n` is not a power of 2, it uses the slow algorithm with `n` multiplications and additions.
 // /// In the Bulletproofs case, all calls to `sum_of_powers` should have `n` as a power of 2.
-pub fn sum_of_powers<F: Field>(x: &F, n: usize) -> F {
+pub fn sum_of_powers<F: PrimeField>(x: &F, n: usize) -> F {
     if !n.is_power_of_two() {
         return sum_of_powers_slow(x, n);
     }
@@ -285,7 +285,7 @@ pub fn sum_of_powers<F: Field>(x: &F, n: usize) -> F {
 }
 
 // takes the sum of all of the powers of x, up to n
-fn sum_of_powers_slow<F: Field>(x: &F, n: usize) -> F {
+fn sum_of_powers_slow<F: PrimeField>(x: &F, n: usize) -> F {
     exp_iter(*x).take(n).sum()
 }
 
@@ -313,7 +313,7 @@ pub fn affine_from_bytes_tai<C: AffineRepr>(bytes: &[u8]) -> C {
     panic!()
 }
 
-pub fn field_as_bytes<F: Field>(field: &F) -> Vec<u8> {
+pub fn field_as_bytes<F: PrimeField>(field: &F) -> Vec<u8> {
     let mut bytes = Vec::new();
     if let Err(e) = field.serialize_compressed(&mut bytes) {
         panic!("{}", e)
