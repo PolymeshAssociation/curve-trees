@@ -62,7 +62,7 @@ pub fn test_batched_curve_tree_with_parameters<
     let curve_tree = CurveTree::<L, M, P0, P1>::from_leaves(&set, &sr_params, Some(depth));
     assert_eq!(curve_tree.height(), depth);
 
-    println!("For batch size {M}, width {L} and height {depth}");
+    log::debug!("For batch size {M}, width {L} and height {depth}");
     let clock = Instant::now();
     let (path_commitments, _) = curve_tree.batched_select_and_rerandomize_prover_gadget(
         indices,
@@ -78,8 +78,8 @@ pub fn test_batched_curve_tree_with_parameters<
     let vesta_proof = vesta_prover
         .prove(&sr_params.odd_parameters.bp_gens)
         .unwrap();
-    println!("Proving time: {:?}", clock.elapsed());
-    println!(
+    log::debug!("Proving time: {:?}", clock.elapsed());
+    log::debug!(
         "Proof size: {}",
         path_commitments.compressed_size()
             + pallas_proof.compressed_size()
@@ -113,6 +113,6 @@ pub fn test_batched_curve_tree_with_parameters<
                 &sr_params.even_parameters.bp_gens,
             )
             .unwrap();
-        println!("Verifying time: {:?}", clock.elapsed());
+        log::debug!("Verifying time: {:?}", clock.elapsed());
     }
 }

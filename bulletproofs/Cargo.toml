@@ -16,6 +16,7 @@ edition = "2018"
 sha3 = { version = "0.9.1", default-features = false }
 digest = { version = "0.9.0", default-features = false }
 rand = { version = "0.8", default-features = false, optional = true }
+log = { version = "0.4.27", default-features = false }
 byteorder = { version = "1", default-features = false }
 thiserror = { version = "2", default-features = false }
 ark-ec = { version = "0.4"}
@@ -27,6 +28,7 @@ zeroize = { version = "1", features = ["zeroize_derive"] }
 dock_crypto_utils = {git = "https://github.com/docknetwork/crypto", default-features = false}
 
 [dev-dependencies]
+test-log = "0.2"
 criterion = "0.3"
 ark-algebra-test-templates = "0.3.0"
 ark-pallas = "0.4"

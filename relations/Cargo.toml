@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 sha3 = { version = "0.10.6", default-features = false }
 rand = { version = "0.8", default-features = false }
+log = { version = "0.4.27", default-features = false }
 thiserror = { version = "2", default-features = false }
 bulletproofs = { path = "../bulletproofs", default-features = false, features = ["std"]}
 ark-ff = { version = "0.4"}
@@ -23,6 +24,7 @@ schnorr_pok = {git = "https://github.com/docknetwork/crypto", default-features =
 itertools = "0.12.1"
 
 [dev-dependencies]
+test-log = "0.2"
 criterion = "0.3"
 ark-pallas = "0.4"
 ark-vesta = "0.4"

@@ -400,6 +400,7 @@ pub fn inner_product<S: Field>(a: &[S], b: &[S]) -> S {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_log::test;
 
     use ark_pallas::Affine;
     use ark_std::UniformRand;

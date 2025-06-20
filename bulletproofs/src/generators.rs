@@ -293,6 +293,7 @@ impl<'a, C: AffineRepr> BulletproofGensShare<'a, C> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_log::test;
 
     use ark_pallas::*;
 

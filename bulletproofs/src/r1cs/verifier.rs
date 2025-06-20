@@ -500,9 +500,9 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
 
         // #[cfg(debug_assertions)]
         // {
-        //     println!("op_degree = {}", op_degree);
-        //     println!("t_poly_deg = {}", t_poly_deg);
-        //     println!("ops = {:?}", &ops);
+        //     log::debug!("op_degree = {}", op_degree);
+        //     log::debug!("t_poly_deg = {}", t_poly_deg);
+        //     log::debug!("ops = {:?}", &ops);
         // }
 
         let op_aLaR = ops[0];
@@ -528,7 +528,7 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
         let padded_n = n.next_power_of_two();
         let pad = padded_n - n;
 
-        // println!("padded_n = {}", padded_n);
+        // log::debug!("padded_n = {}", padded_n);
 
         use crate::inner_product_proof::inner_product;
         use crate::util;
@@ -547,7 +547,7 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
             if d == op_degree {
                 continue;
             }
-            // println!("{}", &proof.T[d]);
+            // log::debug!("{}", &proof.T[d]);
             transcript.validate_and_append_point(util::T_LABELS[d], &proof.T[d])?;
         }
 
@@ -555,7 +555,7 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
         let x = TranscriptProtocol::challenge_scalar::<C>(transcript, b"x");
 
         #[cfg(debug_assertions)]
-        println!("verifier: x = {}", x);
+        log::debug!("verifier: x = {}", x);
 
         // compute powers for vector commitments
         // they are assigned the lowest powers and therefore the coefficients
@@ -583,7 +583,7 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
         let (wL, wR, wO, wV, wVCs, wc) = self.flattened_constraints(&z);
 
         // #[cfg(debug_assertions)]
-        // println!("verifier wVCs = {:?}", &wVCs);
+        // log::debug!("verifier wVCs = {:?}", &wVCs);
 
         // Get IPP variables
         let (u_sq, u_inv_sq, s) = proof
@@ -672,7 +672,7 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
             }
             #[cfg(debug_assertions)]
             {
-                println!("T[{}]: {} {}", d, proof.T[d].clone(), _rx);
+                log::debug!("T[{}]: {} {}", d, proof.T[d].clone(), _rx);
             }
             T_points.push(proof.T[d]);
             T_scalars.push(rxs[d]);

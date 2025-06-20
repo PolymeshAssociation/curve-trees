@@ -175,7 +175,7 @@ pub fn naive_gadget<
         re_rand_duration += clock2.elapsed();
     }
 
-    println!(
+    log::debug!(
         "size = {size}, {size} runs took={:?}, add={:?}, re-rand={:?}",
         clock1.elapsed(),
         add_duration,

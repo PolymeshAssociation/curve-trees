@@ -39,30 +39,30 @@ fn bench_pour(c: &mut Criterion) {
         let threaded = "";
 
         let curves = "pasta";
-        println!("Table 3\n");
-        println!("Benchmark Pour over the pasta cycle, |S|=2^20\n");
+        log::debug!("Table 3\n");
+        log::debug!("Benchmark Pour over the pasta cycle, |S|=2^20\n");
         bench_pour_with_parameters::<1024, PallasBase, PallasConfig, VestaConfig>(
             c, 2, 12, threaded, curves,
         );
-        println!("Benchmark Pour over the pasta cycle, |S|=2^32\n");
+        log::debug!("Benchmark Pour over the pasta cycle, |S|=2^32\n");
         bench_pour_with_parameters::<256, PallasBase, PallasConfig, VestaConfig>(
             c, 4, 13, threaded, curves,
         );
-        println!("Benchmark Pour over the pasta cycle, |S|=2^40\n");
+        log::debug!("Benchmark Pour over the pasta cycle, |S|=2^40\n");
         bench_pour_with_parameters::<1024, PallasBase, PallasConfig, VestaConfig>(
             c, 4, 13, threaded, curves,
         );
         let curves = "secp&q";
-        println!("Benchmark Pour over the secp256k1 / seqp256k1 cycle, |S|=2^20\n");
+        log::debug!("Benchmark Pour over the secp256k1 / seqp256k1 cycle, |S|=2^20\n");
         bench_pour_with_parameters::<1024, SecpBase, SecpConfig, SecqConfig>(
             c, 2, 12, threaded, curves,
         );
-        println!("Benchmark Pour over the secp256k1 / seqp256k1 cycle, |S|=2^32\n");
+        log::debug!("Benchmark Pour over the secp256k1 / seqp256k1 cycle, |S|=2^32\n");
         bench_pour_with_parameters::<256, SecpBase, SecpConfig, SecqConfig>(
             c, 4, 13, threaded, curves,
         );
 
-        println!("Benchmark Pour over the secp256k1 / seqp256k1 cycle, |S|=2^40\n");
+        log::debug!("Benchmark Pour over the secp256k1 / seqp256k1 cycle, |S|=2^40\n");
         bench_pour_with_parameters::<1024, SecpBase, SecpConfig, SecqConfig>(
             c, 4, 13, threaded, curves,
         );
@@ -193,7 +193,7 @@ fn bench_pour_with_parameters<
     let pour_proof =
         Pour::<L, P0, P1, Projective<P0>>::deserialize_compressed(&tx.pour_bytes[..]).unwrap();
 
-    println!(
+    log::debug!(
         "{}_ProofSize: {} bytes",
         &prefix_string,
         tx.serialized_size(Compress::Yes)

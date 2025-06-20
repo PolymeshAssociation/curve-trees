@@ -355,7 +355,7 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
         assert_eq!(generators.len(), scalars.len());
 
         let comm = C::Group::msm_unchecked(generators.as_slice(), scalars.as_slice()).into_affine();
-        
+
         let vars = self.vars_for_committed_vec(&comm, v, v_blinding);
 
         (comm, vars)
@@ -531,10 +531,10 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
 
         #[cfg(debug_assertions)]
         {
-            println!("op_degree: {}", op_degree);
-            println!("number of commitments: {}", ncomm);
-            println!("number of constraints: {}", self.secrets.a_L.len());
-            println!("ops = {:?}", &ops[..]);
+            log::debug!("op_degree: {}", op_degree);
+            log::debug!("number of commitments: {}", ncomm);
+            log::debug!("number of constraints: {}", self.secrets.a_L.len());
+            log::debug!("ops = {:?}", &ops[..]);
         }
 
         // Commit a length _suffix_ for the number of high-level variables.
@@ -838,20 +838,20 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
         let y = TranscriptProtocol::challenge_scalar::<C>(transcript, b"y");
         let z = TranscriptProtocol::challenge_scalar::<C>(transcript, b"z");
 
-        // println!("P A_I2 {}", &A_I2);
-        // println!("P A_O2 {}", &A_O2);
-        // println!("P S2 {}", &S2);
-        // println!("P z {}", z);
+        // log::debug!("P A_I2 {}", &A_I2);
+        // log::debug!("P A_O2 {}", &A_O2);
+        // log::debug!("P S2 {}", &S2);
+        // log::debug!("P z {}", z);
 
         let (wL, wR, wO, wV, wVCs) = self.flattened_constraints(&z);
 
         // #[cfg(debug_assertions)]
         // {
-        //     println!("Length of constraints vector: {}", self.constraints.len());
-        //     println!("prover wVCs = {:?}", &wVCs);
-        //     println!("prover wL = {:?}", &wL);
-        //     println!("prover wR = {:?}", &wR);
-        //     println!("prover wO = {:?}", &wO);
+        //     log::debug!("Length of constraints vector: {}", self.constraints.len());
+        //     log::debug!("prover wVCs = {:?}", &wVCs);
+        //     log::debug!("prover wL = {:?}", &wL);
+        //     log::debug!("prover wR = {:?}", &wR);
+        //     log::debug!("prover wO = {:?}", &wO);
         // }
 
         let mut l_poly = util::VecPoly::<C::ScalarField>::zero(n, op_degree + 1);
@@ -1018,7 +1018,7 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
                 continue;
             }
             t_blinding_poly.coeff()[d] = C::ScalarField::rand(&mut rng);
-            // println!("T_{}", d);
+            // log::debug!("T_{}", d);
         }
 
         // commit to t-poly
@@ -1051,7 +1051,7 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
         }
 
         #[cfg(debug_assertions)]
-        println!("prover: x = {}", x);
+        log::debug!("prover: x = {}", x);
 
         t_blinding_poly.coeff()[op_degree] = wV
             .iter()
@@ -1118,7 +1118,7 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
             t2 += delta;
 
             assert_eq!(t_poly.coeff()[op_degree], t2, "t_poly term check failed");
-            println!("sanity check passed");
+            log::debug!("sanity check passed");
         }
 
         let i_blinding = i_blinding1 + u * i_blinding2;
@@ -1145,7 +1145,7 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
         // #[cfg(debug_assertions)]
         // {
         //     for (i, e) in e_terms.iter().enumerate() {
-        //         println!("e_terms, x^{} = {:?}", i, e);
+        //         log::debug!("e_terms, x^{} = {:?}", i, e);
         //     }
         // }
 

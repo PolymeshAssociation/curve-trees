@@ -286,7 +286,7 @@ impl<
                         );
                         j += 1;
                     }
-                    println!("For L = {L}, M = {M}, {j} runs took: {:?}", clock.elapsed());
+                    log::debug!("For L = {L}, M = {M}, {j} runs took: {:?}", clock.elapsed());
                 }
             }
         };

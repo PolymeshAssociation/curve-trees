@@ -187,7 +187,7 @@ fn bench_naive_batch_select_and_rerandomize_with_parameters<
             paths.push(path)
         }
         if print {
-            println!(
+            log::debug!(
                 "{}_Constraints: {}",
                 &prefix_string,
                 even_prover.number_of_constraints() + odd_prover.number_of_constraints()
@@ -213,7 +213,7 @@ fn bench_naive_batch_select_and_rerandomize_with_parameters<
     };
     let (paths, even_proof, odd_proof) = prove(true);
 
-    println!(
+    log::debug!(
         "{}_ProofSize: {} bytes\n",
         &prefix_string,
         paths.serialized_size(Compress::Yes)
@@ -552,12 +552,12 @@ fn bench_grafted_batch_select_and_rerandomize_with_parameters<
             &mut rand::thread_rng(),
         );
         if print {
-            println!(
+            log::debug!(
                 "{}_Constraints: {}",
                 &prefix_string,
                 even_prover.number_of_constraints() + odd_prover.number_of_constraints()
             );
-            println!(
+            log::debug!(
                 "EvenConstraints: {}, OddConstraints: {}",
                 even_prover.number_of_constraints(),
                 odd_prover.number_of_constraints()
@@ -583,7 +583,7 @@ fn bench_grafted_batch_select_and_rerandomize_with_parameters<
     };
     let (multi_path, even_proof, odd_proof) = prove(true);
 
-    println!(
+    log::debug!(
         "{}_ProofSize: {} bytes\n",
         &prefix_string,
         multi_path.serialized_size(Compress::Yes)

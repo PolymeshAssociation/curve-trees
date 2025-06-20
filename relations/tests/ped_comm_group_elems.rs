@@ -121,7 +121,7 @@ pub fn check_naive<
                 .into_affine()
         );
 
-        println!(
+        log::debug!(
             "Proof size: {}",
             path_commitments.compressed_size()
                 + re_randomized_nested.compressed_size()
@@ -173,7 +173,7 @@ pub fn check_naive<
         }
     }
 
-    println!("For tree with {num_leaves} leaves, nesting size {nesting_size}, {num_proofs} proofs took {:?} prover time and {:?} verifier time", prover_time, verifier_time);
+    log::debug!("For tree with {num_leaves} leaves, nesting size {nesting_size}, {num_proofs} proofs took {:?} prover time and {:?} verifier time", prover_time, verifier_time);
 }
 
 pub fn check<
@@ -299,5 +299,5 @@ pub fn check<
         }
     }
 
-    println!("For tree with {num_leaves} leaves, nesting size {nesting_size}, {num_proofs} proofs took {:?} prover time and {:?} verifier time", prover_time, verifier_time);
+    log::debug!("For tree with {num_leaves} leaves, nesting size {nesting_size}, {num_proofs} proofs took {:?} prover time and {:?} verifier time", prover_time, verifier_time);
 }

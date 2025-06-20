@@ -181,7 +181,7 @@ impl<
         &self,
         leaf_index: u64,
     ) -> Result<CurveTreeWitnessPath<L, P0, P1>, Error> {
-        println!("Querying leaf {}", leaf_index);
+        log::debug!("Querying leaf {}", leaf_index);
         if !self.leaves.contains_key(&leaf_index) {
             return Err(Error::LeafDoesntExistAtIndex(leaf_index));
         }

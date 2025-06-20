@@ -101,7 +101,7 @@ impl<F: Field> VecPoly<F> {
 
         let deg = lhs.deg() + rhs.deg();
 
-        // println!("combined degree: {}", deg);
+        // log::debug!("combined degree: {}", deg);
 
         let mut res = Poly::zero(deg);
 
@@ -165,7 +165,7 @@ pub fn exp_iter<F: Field>(x: F) -> ScalarExp<F> {
 pub fn add_vec<F: Field>(a: &[F], b: &[F]) -> Vec<F> {
     if a.len() != b.len() {
         // throw some error
-        //println!("lengths of vectors don't match for vector addition");
+        //log::debug!("lengths of vectors don't match for vector addition");
     }
     let mut out = vec![F::zero(); b.len()];
     for i in 0..a.len() {
@@ -324,6 +324,7 @@ pub fn field_as_bytes<F: Field>(field: &F) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_log::test;
 
     use ark_pallas::*;
 

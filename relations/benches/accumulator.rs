@@ -28,12 +28,12 @@ use rayon::prelude::*;
 fn bench_accumulator(c: &mut Criterion) {
     #[cfg(feature = "table2")]
     {
-        println!("Table 2\n");
-        println!("Benchmark accumulator over the pasta cycle, |S|=2^30\n");
+        log::debug!("Table 2\n");
+        log::debug!("Benchmark accumulator over the pasta cycle, |S|=2^30\n");
         bench_accumulator_with_parameters::<256, PallasBase, PallasConfig, VestaConfig>(
             c, 3, 64, 11, 12, "pasta",
         );
-        println!("Benchmark accumulator over the secp256k1 / secq256k1 cycle, |S|=2^30\n");
+        log::debug!("Benchmark accumulator over the secp256k1 / secq256k1 cycle, |S|=2^30\n");
         bench_accumulator_with_parameters::<256, SecpBase, SecpConfig, SecqConfig>(
             c, 3, 64, 11, 12, "secp&q",
         );
@@ -118,7 +118,7 @@ fn bench_accumulator_with_parameters<
         );
 
         if print {
-            println!(
+            log::debug!(
                 "{prefix_string}_Constraints: {}",
                 pallas_prover.number_of_constraints() + vesta_prover.number_of_constraints()
             );
@@ -149,7 +149,7 @@ fn bench_accumulator_with_parameters<
     };
     let (path, pallas_proof, vesta_proof) = prove(true);
 
-    println!(
+    log::debug!(
         "{}_ProofSize: {} bytes\n",
         &prefix_string,
         path.serialized_size(Compress::Yes)
