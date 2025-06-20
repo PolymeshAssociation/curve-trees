@@ -259,28 +259,14 @@ impl<
                     parameters,
                 );
 
-                let old_x_coord =
-                    inner_node.x_coord_children[tree_index][child_node_index_to_update].clone();
-                let old_comm = inner_node.commitments_to_children[tree_index].clone();
-                let gen_iter = parameters
-                    .even_parameters
-                    .bp_gens
-                    .share(0)
-                    .G(L * (tree_index + 1))
-                    .skip(L * tree_index + child_node_index_to_update);
-                let gen = gen_iter.copied().next().unwrap();
-                let new_x_coord = (child_node_to_update.commitment(tree_index)
-                    + parameters.odd_parameters.delta)
-                    .into_affine()
-                    .x;
-                inner_node.x_coord_children[tree_index][child_node_index_to_update] = new_x_coord;
-                let comm_diff = gen * (new_x_coord - old_x_coord);
-                inner_node.commitments_to_children[tree_index] =
-                    (old_comm.into_group() + comm_diff).into_affine();
-                inner_node.x_coord_children[tree_index][child_node_index_to_update] =
-                    (child_node_to_update.commitment(tree_index) + parameters.odd_parameters.delta)
-                        .into_affine()
-                        .x;
+                let child_commitment = child_node_to_update.commitment(tree_index);
+                inner_node.update_x_coord_and_commitment(
+                    tree_index,
+                    child_node_index_to_update,
+                    child_commitment,
+                    &parameters.even_parameters,
+                    &parameters.odd_parameters,
+                );
             }
         }
     }
@@ -315,63 +301,17 @@ impl<
                     parameters,
                 );
 
-                // TODO: Remove code duplication as this is similar to above function
-                let old_x_coord =
-                    inner_node.x_coord_children[tree_index][child_node_index_to_update].clone();
-                let old_comm = inner_node.commitments_to_children[tree_index].clone();
-                let gen_iter = parameters
-                    .odd_parameters
-                    .bp_gens
-                    .share(0)
-                    .G(L * (tree_index + 1))
-                    .skip(L * tree_index + child_node_index_to_update);
-                let gen = gen_iter.copied().next().unwrap();
-                let new_x_coord = (child_node_to_update.commitment(tree_index)
-                    + parameters.even_parameters.delta)
-                    .into_affine()
-                    .x;
-                inner_node.x_coord_children[tree_index][child_node_index_to_update] = new_x_coord;
-                let comm_diff = gen * (new_x_coord - old_x_coord);
-                inner_node.commitments_to_children[tree_index] =
-                    (old_comm.into_group() + comm_diff).into_affine();
-
-                // The following doesn't work due to 2 mutable borrows of inner_node
-                // Self::update_x_coord_and_commitment(child_node_to_update, inner_node, child_node_index_to_update, tree_index, &parameters.odd_parameters, &parameters.even_parameters)
+                let child_commitment = child_node_to_update.commitment(tree_index);
+                inner_node.update_x_coord_and_commitment(
+                    tree_index,
+                    child_node_index_to_update,
+                    child_commitment,
+                    &parameters.odd_parameters,
+                    &parameters.even_parameters,
+                );
             }
             _ => unreachable!("Cannot have leaf at odd level"),
         }
-    }
-
-    #[allow(dead_code)]
-    fn update_x_coord_and_commitment<
-        F: PrimeField,
-        G0: SWCurveConfig<BaseField = F> + Copy,
-        G1: SWCurveConfig<BaseField = G0::ScalarField, ScalarField = F> + Copy,
-    >(
-        child_node_to_update: &CurveTreeNode<L, M, G0, G1>,
-        inner_node: &mut InnerNode<L, M, G1, G0>,
-        child_node_index_to_update: usize,
-        tree_index: usize,
-        current_level_parameters: &SingleLayerParameters<G1>,
-        child_level_parameters: &SingleLayerParameters<G0>,
-    ) {
-        let old_x_coord =
-            inner_node.x_coord_children[tree_index][child_node_index_to_update].clone();
-        let old_comm = inner_node.commitments_to_children[tree_index].clone();
-        let gen_iter = current_level_parameters
-            .bp_gens
-            .share(0)
-            .G(L * (tree_index + 1))
-            .skip(L * tree_index + child_node_index_to_update);
-        let gen = gen_iter.copied().next().unwrap();
-        let new_x_coord = (child_node_to_update.commitment(tree_index)
-            + child_level_parameters.delta)
-            .into_affine()
-            .x;
-        inner_node.x_coord_children[tree_index][child_node_index_to_update] = new_x_coord;
-        let comm_diff = gen * (new_x_coord - old_x_coord);
-        inner_node.commitments_to_children[tree_index] =
-            (old_comm.into_group() + comm_diff).into_affine();
     }
 }
 
@@ -464,7 +404,7 @@ pub struct InnerNode<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCu
 impl<
         const L: usize,
         const M: usize,
-        P0: SWCurveConfig,
+        P0: SWCurveConfig + Copy,
         P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = P0::BaseField> + Copy,
     > InnerNode<L, M, P0, P1>
 {
@@ -482,6 +422,31 @@ impl<
             Some(child) => child,
         };
         child
+    }
+
+    pub fn update_x_coord_and_commitment(
+        &mut self,
+        tree_index: usize,
+        child_node_index_to_update: usize,
+        child_commitment: Affine<P1>,
+        current_level_parameters: &SingleLayerParameters<P0>,
+        child_level_parameters: &SingleLayerParameters<P1>,
+    ) {
+        let old_x_coord = self.x_coord_children[tree_index][child_node_index_to_update].clone();
+        let old_comm = self.commitments_to_children[tree_index].clone();
+        let gen_iter = current_level_parameters
+            .bp_gens
+            .share(0)
+            .G(L * (tree_index + 1))
+            .skip(L * tree_index + child_node_index_to_update);
+        let gen = gen_iter.copied().next().unwrap();
+        let new_x_coord = (child_commitment + child_level_parameters.delta)
+            .into_affine()
+            .x;
+        self.x_coord_children[tree_index][child_node_index_to_update] = new_x_coord;
+        let comm_diff = gen * (new_x_coord - old_x_coord);
+        self.commitments_to_children[tree_index] =
+            (old_comm.into_group() + comm_diff).into_affine();
     }
 }
 
