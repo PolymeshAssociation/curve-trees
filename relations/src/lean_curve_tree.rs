@@ -20,6 +20,7 @@ pub struct Node<P0: SWCurveConfig, P1: SWCurveConfig> {
     pub commitment: Affine<P1>,
 }
 
+/// Append only curve tree with minimal nodes to keep that reflect the most recent tree state
 #[derive(Clone, Default, CanonicalSerialize, CanonicalDeserialize)]
 pub struct LeanCurveTree<const L: usize, P0: SWCurveConfig, P1: SWCurveConfig> {
     pub height: u8,

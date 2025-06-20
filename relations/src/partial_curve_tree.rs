@@ -15,6 +15,7 @@ type InnerNodeIndex = u64;
 
 // TODO: Add persistence
 
+/// Append only curve tree which allows tracking certain leaves and providing their most recent path 
 #[derive(Clone, Default, CanonicalSerialize, CanonicalDeserialize)]
 pub struct PartialCurveTree<const L: usize, P0: SWCurveConfig, P1: SWCurveConfig> {
     pub height: u8,

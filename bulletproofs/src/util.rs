@@ -10,7 +10,7 @@ use ark_ec::AffineRepr;
 use ark_ff::Field;
 use zeroize::ZeroizeOnDrop;
 
-use crate::inner_product_proof::inner_product;
+use dock_crypto_utils::ff::inner_product;
 
 /// Represents a degree-1 vector polynomial \\(\mathbf{a} + \mathbf{b} \cdot x\\).
 #[derive(ZeroizeOnDrop)]

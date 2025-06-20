@@ -1077,7 +1077,7 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
         // sanity check
         #[cfg(debug_assertions)]
         {
-            use crate::inner_product_proof::inner_product;
+            use dock_crypto_utils::ff::inner_product;
 
             let y_inv = y.inverse().unwrap();
             let y_inv_vec = util::exp_iter(y_inv)

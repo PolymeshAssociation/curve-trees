@@ -530,7 +530,7 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
 
         // log::debug!("padded_n = {}", padded_n);
 
-        use crate::inner_product_proof::inner_product;
+        use dock_crypto_utils::ff::inner_product;
         use crate::util;
         use std::iter;
 

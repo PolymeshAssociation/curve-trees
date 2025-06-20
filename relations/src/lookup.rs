@@ -1,11 +1,12 @@
 use bulletproofs::r1cs::*;
 
 use ark_ff::Field;
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 
 const WINDOW_SIZE: usize = 3;
 pub const WINDOW_ELEMS: usize = 1 << WINDOW_SIZE;
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, CanonicalSerialize, CanonicalDeserialize)]
 pub struct Lookup3Bit<const N: usize, F: Field> {
     pub elems: [[F; WINDOW_ELEMS]; N],
 }

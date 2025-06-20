@@ -37,9 +37,7 @@ impl<
         if let Self::InnerNode(inner_node) = &self {
             let child_node_index_to_rerandomize = self.child_index(leaf_index).unwrap();
             let child_node_to_rerandomize = inner_node.get_child(child_node_index_to_rerandomize);
-            // // x-coordinates of all the children of this node, including `node_to_rerandomize`
-            // let x_coord_children = x_coordinates(children, next_level_delta, tree_index);
-
+            
             current_level_witness_nodes.push(WitnessNode {
                 x_coord_children: inner_node.x_coord_children[tree_index],
                 child_node_to_randomize: child_node_to_rerandomize.commitment(tree_index),

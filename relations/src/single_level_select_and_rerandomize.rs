@@ -1,4 +1,4 @@
-use ark_serialize::CanonicalSerialize;
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use bulletproofs::r1cs::*;
 use bulletproofs::{affine_from_bytes_tai, BulletproofGens, PedersenGens};
 
@@ -16,7 +16,7 @@ use dock_crypto_utils::transcript::Transcript;
 use std::iter;
 use std::marker::PhantomData;
 
-#[derive(Clone)]
+#[derive(Clone, CanonicalSerialize, CanonicalDeserialize)]
 pub struct SingleLayerParameters<P: SWCurveConfig + Copy> {
     pub bp_gens: BulletproofGens<Affine<P>>,
     pub pc_gens: PedersenGens<Affine<P>>,
@@ -110,7 +110,7 @@ pub fn single_level_select_and_rerandomize<
     cs: &mut Cs, // Prover or verifier
     parameters: &SingleLayerParameters<C2>,
     rerandomized_child: &Affine<C2>, // The public rerandomization of the selected child without Delta
-    all_children: Vec<LinearCombination<Fs>>, // Variables representing members of the (parent) vector commitment
+    all_children_plus_delta: Vec<LinearCombination<Fs>>, // Variables representing members of the (parent) vector commitment
     child_plus_delta: Option<Affine<C2>>,     // Witness of the selected child plus Delta
     child_rerandomization_scalar: Option<Fb>, // The scalar used for randomizing, i.e. child + Delta + child_rerandomization_scalar * H = rerandomized_child + Delta
 ) {
@@ -127,7 +127,7 @@ pub fn single_level_select_and_rerandomize<
 
     // Show that child is part of `all_children` by showing that the child's x-coordinate is present in x-coordinates of the all children
     let x_var = cs.allocate(child_plus_delta.map(|xy| xy.x)).unwrap();
-    select(cs, x_var.into(), all_children.iter().cloned());
+    select(cs, x_var.into(), all_children_plus_delta.iter().cloned());
 
     // Proof that the opened x coordinate with the witnessed y is a point on the curve
     // Note that empty branches are encoded as 0 which works because x=0 does not satisfy the curve equation for any of the curves used.

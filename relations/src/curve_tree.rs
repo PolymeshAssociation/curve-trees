@@ -9,7 +9,7 @@ use ark_std::Zero;
 use std::io::Read;
 
 /// Parameters for multi level select and rerandomize over a 2-cycle of curves
-#[derive(Clone)]
+#[derive(Clone, CanonicalSerialize, CanonicalDeserialize)]
 pub struct SelRerandParameters<P0: SWCurveConfig + Copy, P1: SWCurveConfig + Copy> {
     pub even_parameters: SingleLayerParameters<P0>,
     pub odd_parameters: SingleLayerParameters<P1>,

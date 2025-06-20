@@ -9,7 +9,7 @@ extern crate alloc;
 use alloc::vec::Vec;
 use ark_ec::{AffineRepr, VariableBaseMSM};
 use std::marker::PhantomData;
-
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use crate::util;
 use digest::{ExtendableOutputDirty, Update, XofReader};
 use sha3::{Sha3XofReader, Shake256};
@@ -26,7 +26,7 @@ use sha3::{Sha3XofReader, Shake256};
 /// * `B_blinding`: the result of `ristretto255` SHA3-512 // todo
 ///
 /// hash-to-group on input `B_bytes`.
-#[derive(Clone)]
+#[derive(Clone, CanonicalSerialize, CanonicalDeserialize)]
 pub struct PedersenGens<C: AffineRepr> {
     /// Bases for the committed values.
     pub B: C,
@@ -132,7 +132,7 @@ impl<C: AffineRepr> Iterator for GeneratorsChain<C> {
 /// chain, and even forward-compatible to multiparty aggregation of
 /// constraint system proofs, since the generators are namespaced by
 /// their party index.
-#[derive(Clone)]
+#[derive(Clone, CanonicalSerialize, CanonicalDeserialize)]
 pub struct BulletproofGens<C: AffineRepr> {
     /// The maximum number of usable generators for each party.
     pub gens_capacity: usize,
