@@ -34,6 +34,17 @@ pub enum CurveTree<
     Odd(CurveTreeNode<L, M, P1, P0>),
 }
 
+impl<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCurveConfig> std::fmt::Debug
+    for CurveTree<L, M, P0, P1>
+{
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        match self {
+            Self::Even(ct) => fmt.debug_tuple("Even").field(&ct).finish(),
+            Self::Odd(ct) => fmt.debug_tuple("Odd").field(&ct).finish(),
+        }
+    }
+}
+
 /// Implements functionality for creating the Curve Tree
 impl<
         const L: usize,
@@ -346,18 +357,40 @@ pub struct SelectAndRerandomizeMultiPath<
 type Children<const L: usize, const M: usize, P0, P1> = [Option<CurveTreeNode<L, M, P1, P0>>; L];
 
 /// Root node of the tree. Used by verifier to check proofs and refer to tree.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum Root<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCurveConfig> {
     Even(RootNode<L, M, P0, P1>),
     Odd(RootNode<L, M, P1, P0>),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, CanonicalSerialize, CanonicalDeserialize)]
+impl<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCurveConfig> std::fmt::Debug
+    for Root<L, M, P0, P1>
+{
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        match self {
+            Self::Even(n) => fmt.debug_tuple("Even").field(&n).finish(),
+            Self::Odd(n) => fmt.debug_tuple("Odd").field(&n).finish(),
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, CanonicalSerialize, CanonicalDeserialize)]
 pub struct RootNode<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCurveConfig> {
     /// Commitment(s) to x-coordinates of the immediate children
     pub commitments: [Affine<P0>; M],
     /// x-coordinates of the immediate children
     pub x_coord_children: Vec<[P1::BaseField; L]>,
+}
+
+impl<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCurveConfig> std::fmt::Debug
+    for RootNode<L, M, P0, P1>
+{
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        fmt.debug_struct("RootNode")
+            .field("commitments", &self.commitments)
+            .field("x_coord_children", &self.x_coord_children)
+            .finish()
+    }
 }
 
 /// map L children to their x-coordinate with 0 representing the empty node.
@@ -401,6 +434,19 @@ pub struct InnerNode<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCu
     pub elements: usize,
 }
 
+impl<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCurveConfig> std::fmt::Debug
+    for InnerNode<L, M, P0, P1>
+{
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        fmt.debug_struct("InnerNode")
+            .field("commitments_to_children", &self.commitments_to_children)
+            .field("children", &self.children)
+            .field("x_coord_children", &self.x_coord_children)
+            .field("height", &self.height)
+            .field("elements", &self.elements)
+            .finish()
+    }
+}
 impl<
         const L: usize,
         const M: usize,
@@ -454,7 +500,10 @@ impl<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCurveConfig> std::
     for CurveTreeNode<L, M, P0, P1>
 {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        write!(fmt, "")
+        match self {
+            Self::InnerNode(inner_node) => fmt.debug_tuple("InnerNode").field(&inner_node).finish(),
+            Self::Leaf(c) => fmt.debug_tuple("Leaf").field(&c).finish(),
+        }
     }
 }
 
