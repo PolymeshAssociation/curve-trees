@@ -18,8 +18,8 @@ digest = "0.10.7"
 blake2 = "0.10"
 rayon = {version = "1.5.3", optional = true}
 dock_crypto_utils = {git = "https://github.com/docknetwork/crypto", default-features = false}
-verifiable_encryption = {git = "https://github.com/docknetwork/crypto", default-features = false}
-equality_across_groups = {git = "https://github.com/docknetwork/crypto", default-features = false}
+#verifiable_encryption = {git = "https://github.com/docknetwork/crypto", default-features = false}
+#equality_across_groups = {git = "https://github.com/docknetwork/crypto", default-features = false}
 schnorr_pok = {git = "https://github.com/docknetwork/crypto", default-features = false}
 itertools = "0.12.1"
 
@@ -35,7 +35,7 @@ ark-secq256k1 = "0.4"
 default = ["std", "asm", "parallel"]
 std = ["rand/std", "thiserror/std"]
 asm = ["ark-ff/asm", "bulletproofs/asm"]
-parallel = ["rayon", "ark-ec/parallel", "ark-ff/parallel", "ark-std/parallel", "bulletproofs/parallel", "dock_crypto_utils/parallel", "schnorr_pok/parallel", "verifiable_encryption/parallel", "equality_across_groups/parallel"]
+parallel = ["rayon", "ark-ec/parallel", "ark-ff/parallel", "ark-std/parallel", "bulletproofs/parallel", "dock_crypto_utils/parallel", "schnorr_pok/parallel"]
 bench_prover = []
 detailed_benchmarks = []
 usenix = ["bench_prover"]
