@@ -28,9 +28,15 @@ pub enum Error {
 
     /// Serialization error
     #[error("Serialization error: {0}")]
-    SerializationError(#[from] SerializationError),
+    SerializationError(SerializationError),
 
     /// Schnorr proof error
     #[error("Schnorr proof error: {0:?}")]
     SchnorrError(SchnorrError),
+}
+
+impl From<ark_serialize::SerializationError> for Error {
+    fn from(err: ark_serialize::SerializationError) -> Self {
+        Error::SerializationError(err)
+    }
 }

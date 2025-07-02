@@ -6,7 +6,7 @@ use ark_serialize::{
     CanonicalDeserialize, CanonicalSerialize, Compress, SerializationError, Valid, Validate, Write,
 };
 use ark_std::Zero;
-use std::io::Read;
+use ark_std::io::Read;
 
 /// Parameters for multi level select and rerandomize over a 2-cycle of curves
 #[derive(Clone, CanonicalSerialize, CanonicalDeserialize)]

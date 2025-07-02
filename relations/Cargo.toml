@@ -8,20 +8,18 @@ sha3 = { version = "0.10.6", default-features = false }
 rand = { version = "0.8", default-features = false }
 log = { version = "0.4.27", default-features = false }
 thiserror = { version = "2", default-features = false }
-bulletproofs = { path = "../bulletproofs", default-features = false, features = ["std"]}
-ark-ff = { version = "0.4"}
-ark-ec = { version = "0.4"}
-ark-serialize = { version = "0.4" } 
-ark-std = { version = "0.4"}
-ark-crypto-primitives = { version = "0.4", features = ["signature"]}
-digest = "0.10.7"
-blake2 = "0.10"
-rayon = {version = "1.5.3", optional = true}
-dock_crypto_utils = {git = "https://github.com/docknetwork/crypto", default-features = false}
-#verifiable_encryption = {git = "https://github.com/docknetwork/crypto", default-features = false}
-#equality_across_groups = {git = "https://github.com/docknetwork/crypto", default-features = false}
-schnorr_pok = {git = "https://github.com/docknetwork/crypto", default-features = false}
-itertools = "0.12.1"
+bulletproofs = { path = "../bulletproofs", default-features = false }
+ark-ff = { version = "0.4", default-features = false }
+ark-ec = { version = "0.4", default-features = false }
+ark-serialize = { version = "0.4", default-features = false }
+ark-std = { version = "0.4", default-features = false }
+ark-crypto-primitives = { version = "0.4", default-features = false, features = ["signature"] }
+digest = { version = "0.10.7", default-features = false }
+blake2 = { version = "0.10", default-features = false }
+rayon = { version = "1.5.3", optional = true, default-features = false }
+
+dock_crypto_utils = { workspace = true, default-features = false }
+schnorr_pok = { workspace = true, default-features = false }
 
 [dev-dependencies]
 test-log = "0.2"
@@ -33,7 +31,10 @@ ark-secq256k1 = "0.4"
 
 [features]
 default = ["std", "asm", "parallel"]
-std = ["rand/std", "thiserror/std"]
+
+no_std = []
+std = ["rand/std", "thiserror/std", "bulletproofs/std", "ark-serialize/std"]
+
 asm = ["ark-ff/asm", "bulletproofs/asm"]
 parallel = ["rayon", "ark-ec/parallel", "ark-ff/parallel", "ark-std/parallel", "bulletproofs/parallel", "dock_crypto_utils/parallel", "schnorr_pok/parallel"]
 bench_prover = []

@@ -12,7 +12,9 @@ pub use self::linear_combination::{constant, LinearCombination, Variable};
 pub use self::metrics::Metrics;
 pub use self::proof::R1CSProof;
 pub use self::prover::Prover;
-pub use self::verifier::{batch_verify, VerificationTuple, Verifier};
+#[cfg(feature = "std")]
+pub use self::verifier::batch_verify;
+pub use self::verifier::{batch_verify_with_rng, VerificationTuple, Verifier};
 
 pub use crate::errors::R1CSError;
 

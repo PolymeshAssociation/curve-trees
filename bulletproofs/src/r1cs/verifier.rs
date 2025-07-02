@@ -3,6 +3,7 @@
 use ark_ec::{AffineRepr, VariableBaseMSM};
 use ark_ff::Field;
 use ark_std::{One, UniformRand, Zero};
+use rand_core::{RngCore, CryptoRng};
 use core::borrow::BorrowMut;
 use core::mem;
 use dock_crypto_utils::transcript::MerlinTranscript;
@@ -422,13 +423,31 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
     /// [`BulletproofGens`] should have `gens_capacity` greater than
     /// the number of multiplication constraints that will eventually
     /// be added into the constraint system.
+    #[cfg(feature = "std")]
     pub fn verify(
         self,
         proof: &R1CSProof<C>,
         pc_gens: &PedersenGens<C>,
         bp_gens: &BulletproofGens<C>,
     ) -> Result<(), R1CSError> {
-        let verification_tuple = match self.verification_scalars_and_points(proof) {
+        let mut rng = rand::thread_rng();
+        self.verify_with_rng(proof, pc_gens, bp_gens, &mut rng)
+    }
+
+    /// Consume this `VerifierCS` and attempt to verify the supplied `proof`.
+    /// The `pc_gens` and `bp_gens` are generators for Pedersen commitments and
+    /// Bulletproofs vector commitments, respectively.  The
+    /// [`BulletproofGens`] should have `gens_capacity` greater than
+    /// the number of multiplication constraints that will eventually
+    /// be added into the constraint system.
+    pub fn verify_with_rng<R: RngCore + CryptoRng>(
+        self,
+        proof: &R1CSProof<C>,
+        pc_gens: &PedersenGens<C>,
+        bp_gens: &BulletproofGens<C>,
+        rng: &mut R,
+    ) -> Result<(), R1CSError> {
+        let verification_tuple = match self.verification_scalars_and_points_with_rng(proof, rng) {
             Err(e) => return Err(e),
             Ok(t) => t,
         };
@@ -472,9 +491,19 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
         Ok(())
     }
 
+    #[cfg(feature = "std")]
     pub fn verification_scalars_and_points(
+        self,
+        proof: &R1CSProof<C>,
+    ) -> Result<VerificationTuple<C>, R1CSError> {
+        let mut rng = rand::thread_rng();
+        self.verification_scalars_and_points_with_rng(proof, &mut rng)
+    }
+
+    pub fn verification_scalars_and_points_with_rng<R: RngCore + CryptoRng>(
         mut self,
         proof: &R1CSProof<C>,
+        rng: &mut R,
     ) -> Result<VerificationTuple<C>, R1CSError> {
         // pad
         while self.size() > self.num_vars {
@@ -561,8 +590,7 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
         // they are assigned the lowest powers and therefore the coefficients
         // in the combination are correspondingly assigned the highest powers
 
-        let mut rng = rand::thread_rng();
-        let r = C::ScalarField::rand(&mut rng);
+        let r = C::ScalarField::rand(rng);
 
         // precompute x powers
         let mut xs: Vec<C::ScalarField> = vec![C::ScalarField::zero(); t_poly_deg + 1];
@@ -736,12 +764,22 @@ pub struct VerificationTuple<C: AffineRepr> {
     pub proof_independent_scalars: Vec<C::ScalarField>,
 }
 
+#[cfg(feature = "std")]
 pub fn batch_verify<C: AffineRepr>(
     verification_tuples: Vec<VerificationTuple<C>>,
     pc_gens: &PedersenGens<C>,
     bp_gens: &BulletproofGens<C>,
 ) -> Result<(), R1CSError> {
     let mut rng = rand::thread_rng();
+    batch_verify_with_rng(verification_tuples, pc_gens, bp_gens, &mut rng)
+}
+
+pub fn batch_verify_with_rng<C: AffineRepr, R: RngCore + CryptoRng>(
+    verification_tuples: Vec<VerificationTuple<C>>,
+    pc_gens: &PedersenGens<C>,
+    bp_gens: &BulletproofGens<C>,
+    rng: &mut R,
+) -> Result<(), R1CSError> {
     let mut ver_iter = verification_tuples.into_iter();
     let vt = ver_iter.next().unwrap();
     let (mut proof_points, mut proof_point_scalars, mut linear_combination) = (
@@ -755,7 +793,7 @@ pub fn batch_verify<C: AffineRepr>(
         proof_points.append(&mut vt.proof_dependent_points);
 
         // Sample random scalar
-        let random_scalar = C::ScalarField::rand(&mut rng);
+        let random_scalar = C::ScalarField::rand(rng);
 
         // Multiply all scalars
         let ps = vt

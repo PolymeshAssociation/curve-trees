@@ -3,6 +3,7 @@
 use ark_ec::{AffineRepr, CurveGroup, VariableBaseMSM};
 use ark_ff::Field;
 use ark_std::{One, UniformRand, Zero};
+use rand_core::{CryptoRng, RngCore};
 use core::borrow::BorrowMut;
 use dock_crypto_utils::transcript::MerlinTranscript;
 use zeroize::{ZeroizeOnDrop, Zeroizing};
@@ -490,8 +491,14 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
     }
 
     /// Consume this `ConstraintSystem` to produce a proof.
+    #[cfg(feature = "std")]
     pub fn prove(self, bp_gens: &BulletproofGens<C>) -> Result<R1CSProof<C>, R1CSError> {
-        self.prove_and_return_transcript(bp_gens)
+        let mut rng = rand::thread_rng();
+        self.prove_with_rng(bp_gens, &mut rng)
+    }
+
+    pub fn prove_with_rng<R: RngCore + CryptoRng>(self, bp_gens: &BulletproofGens<C>, rng: &mut R) -> Result<R1CSProof<C>, R1CSError> {
+        self.prove_and_return_transcript_with_rng(bp_gens, rng)
             .map(|(proof, _transcript)| proof)
     }
 
@@ -508,9 +515,20 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
     }
 
     /// Consume this `ConstraintSystem` to produce a proof. Returns the proof and the transcript passed in `Prover::new`.
+    #[cfg(feature = "std")]
     pub fn prove_and_return_transcript(
+        self,
+        bp_gens: &BulletproofGens<C>,
+    ) -> Result<(R1CSProof<C>, T), R1CSError> {
+        let mut rng = rand::thread_rng();
+        self.prove_and_return_transcript_with_rng(bp_gens, &mut rng)
+    }
+
+    /// Consume this `ConstraintSystem` to produce a proof. Returns the proof and the transcript passed in `Prover::new`.
+    pub fn prove_and_return_transcript_with_rng<R: RngCore + CryptoRng>(
         mut self,
         bp_gens: &BulletproofGens<C>,
+        rng: &mut R,
     ) -> Result<(R1CSProof<C>, T), R1CSError> {
         // pad
         while self.size() > self.secrets.a_L.len() {
@@ -584,15 +602,14 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
         // We are performing a single-party circuit proof, so party index is 0.
         let gens = bp_gens.share(0);
 
-        let mut rng = rand::thread_rng();
-        let i_blinding1 = C::ScalarField::rand(&mut rng);
-        let o_blinding1 = C::ScalarField::rand(&mut rng);
-        let s_blinding1 = C::ScalarField::rand(&mut rng);
+        let i_blinding1 = C::ScalarField::rand(rng);
+        let o_blinding1 = C::ScalarField::rand(rng);
+        let s_blinding1 = C::ScalarField::rand(rng);
 
         let s_L1: Zeroizing<Vec<C::ScalarField>> =
-            Zeroizing::new((0..n1).map(|_| C::ScalarField::rand(&mut rng)).collect());
+            Zeroizing::new((0..n1).map(|_| C::ScalarField::rand(rng)).collect());
         let s_R1: Zeroizing<Vec<C::ScalarField>> =
-            Zeroizing::new((0..n1).map(|_| C::ScalarField::rand(&mut rng)).collect());
+            Zeroizing::new((0..n1).map(|_| C::ScalarField::rand(rng)).collect());
 
         #[cfg(feature = "parallel")]
         let (A_I1, A_O1, S1) = {
@@ -751,9 +768,9 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
 
         let (i_blinding2, o_blinding2, s_blinding2) = if has_2nd_phase_commitments {
             (
-                C::ScalarField::rand(&mut rng),
-                C::ScalarField::rand(&mut rng),
-                C::ScalarField::rand(&mut rng),
+                C::ScalarField::rand(rng),
+                C::ScalarField::rand(rng),
+                C::ScalarField::rand(rng),
             )
         } else {
             (
@@ -764,9 +781,9 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
         };
 
         let s_L2: Zeroizing<Vec<C::ScalarField>> =
-            Zeroizing::new((0..n2).map(|_| C::ScalarField::rand(&mut rng)).collect());
+            Zeroizing::new((0..n2).map(|_| C::ScalarField::rand(rng)).collect());
         let s_R2: Zeroizing<Vec<C::ScalarField>> =
-            Zeroizing::new((0..n2).map(|_| C::ScalarField::rand(&mut rng)).collect());
+            Zeroizing::new((0..n2).map(|_| C::ScalarField::rand(rng)).collect());
 
         // both not supported atm.
         assert!(!has_2nd_phase_commitments || self.secrets.vec_open.is_empty());
@@ -1017,7 +1034,7 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
             if d == op_degree {
                 continue;
             }
-            t_blinding_poly.coeff()[d] = C::ScalarField::rand(&mut rng);
+            t_blinding_poly.coeff()[d] = C::ScalarField::rand(rng);
             // log::debug!("T_{}", d);
         }
 
