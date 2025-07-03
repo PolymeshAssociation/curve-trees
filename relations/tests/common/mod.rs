@@ -105,16 +105,18 @@ pub fn check_proof<
 
         #[cfg(not(feature = "parallel"))]
         let (pallas_res, vesta_res) = {
-            (pallas_verifier.verify(
-                &pallas_proof,
-                &sr_params.even_parameters.pc_gens,
-                &sr_params.even_parameters.bp_gens,
-            ),
-            vesta_verifier.verify(
-                &vesta_proof,
-                &sr_params.odd_parameters.pc_gens,
-                &sr_params.odd_parameters.bp_gens,
-            ))
+            (
+                pallas_verifier.verify(
+                    &pallas_proof,
+                    &sr_params.even_parameters.pc_gens,
+                    &sr_params.even_parameters.bp_gens,
+                ),
+                vesta_verifier.verify(
+                    &vesta_proof,
+                    &sr_params.odd_parameters.pc_gens,
+                    &sr_params.odd_parameters.bp_gens,
+                ),
+            )
         };
 
         assert!(vesta_res.is_ok());

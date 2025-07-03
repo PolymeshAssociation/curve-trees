@@ -26,8 +26,8 @@ mod tests {
     use ark_ec::AffineRepr;
     use ark_std::UniformRand;
     use bulletproofs::{BulletproofGens, PedersenGens};
+    use core::iter;
     use dock_crypto_utils::transcript::MerlinTranscript;
-    use std::iter;
 
     type PallasA = ark_pallas::Affine;
     type PallasBase = <PallasA as AffineRepr>::BaseField;

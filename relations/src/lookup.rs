@@ -2,6 +2,7 @@ use bulletproofs::r1cs::*;
 
 use ark_ff::Field;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use ark_std::vec::Vec;
 
 const WINDOW_SIZE: usize = 3;
 pub const WINDOW_ELEMS: usize = 1 << WINDOW_SIZE;

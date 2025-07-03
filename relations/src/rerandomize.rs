@@ -7,8 +7,8 @@ use ark_ec::{
     models::short_weierstrass::SWCurveConfig, short_weierstrass::Affine, AffineRepr, CurveGroup,
 };
 use ark_ff::{BigInteger, Field, PrimeField};
-use ark_std::{One, Zero};
-use std::marker::PhantomData;
+use ark_std::{vec::Vec, One, Zero};
+use core::marker::PhantomData;
 
 pub fn build_tables<C: AffineRepr>(h: C) -> Vec<Lookup3Bit<2, C::BaseField>> {
     let lambda = <C::ScalarField as PrimeField>::MODULUS_BIT_SIZE as usize;

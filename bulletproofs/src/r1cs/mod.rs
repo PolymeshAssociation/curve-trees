@@ -1,3 +1,6 @@
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
+
 mod constraint_system;
 mod linear_combination;
 mod metrics;

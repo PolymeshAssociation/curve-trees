@@ -1,9 +1,12 @@
 //! Definition of linear combinations.
 
+#[cfg(not(feature = "std"))]
+use alloc::{vec, vec::Vec};
+
 use ark_ff::Field;
-use std::iter::FromIterator;
-use std::marker::PhantomData;
-use std::ops::{Add, Mul, Neg, Sub};
+use core::iter::FromIterator;
+use core::marker::PhantomData;
+use core::ops::{Add, Mul, Neg, Sub};
 
 /// Represents a variable in a constraint system.
 #[derive(Copy, Clone, Debug, PartialEq)]

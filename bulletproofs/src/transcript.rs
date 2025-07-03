@@ -1,5 +1,8 @@
 //! Defines a `TranscriptProtocol` trait for using a Merlin transcript.
 
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
+
 use ark_ec::AffineRepr;
 use ark_ff::Field;
 use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};

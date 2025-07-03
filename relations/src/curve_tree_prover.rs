@@ -9,12 +9,14 @@ use ark_ec::{
 };
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use ark_std::fmt::Debug;
-use ark_std::fmt::Formatter;
-use ark_std::Zero;
+use ark_std::{
+    fmt::{Debug, Formatter},
+    vec::Vec,
+    Zero,
+};
+use core::ops::Mul;
 use dock_crypto_utils::transcript::MerlinTranscript;
 use rand::Rng;
-use std::ops::Mul;
 
 impl<
         const L: usize,
@@ -37,7 +39,7 @@ impl<
         if let Self::InnerNode(inner_node) = &self {
             let child_node_index_to_rerandomize = self.child_index(leaf_index).unwrap();
             let child_node_to_rerandomize = inner_node.get_child(child_node_index_to_rerandomize);
-            
+
             current_level_witness_nodes.push(WitnessNode {
                 x_coord_children: inner_node.x_coord_children[tree_index],
                 child_node_to_randomize: child_node_to_rerandomize.commitment(tree_index),
@@ -132,7 +134,7 @@ impl<const L: usize, P0: SWCurveConfig + Copy, P1: SWCurveConfig + Copy> Debug
     for WitnessNode<L, P0, P1>
 {
     // This is a dummy implementation to allow unwrapping the result of converting a vector into an array of the same size.
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), core::fmt::Error> {
         write!(f, "CurveTreeWitness")
     }
 }

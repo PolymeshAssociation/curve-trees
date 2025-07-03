@@ -38,8 +38,8 @@ ark-vesta = "0.4"
 [features]
 default = ["std", "parallel", "asm"]
 
-no_std = ["rand/alloc"]
-std = ["rand", "rand/std", "thiserror/std"]
+no_std = []
+std = ["rand/std", "thiserror/std"]
 asm = ["ark-ff/asm"]
 parallel = ["ark-ec/parallel", "ark-ff/parallel", "ark-std/parallel", "rayon"]
 

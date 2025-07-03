@@ -6,6 +6,7 @@ use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::collections::BTreeMap;
+use ark_std::{vec, vec::Vec};
 
 #[derive(Clone, Default, CanonicalSerialize, CanonicalDeserialize)]
 pub struct DefaultNode<P0: SWCurveConfig, P1: SWCurveConfig> {

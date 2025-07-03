@@ -12,9 +12,10 @@ use ark_ec::{
     VariableBaseMSM,
 };
 use ark_ff::{Field, PrimeField, Zero};
+use ark_std::vec::Vec;
+use core::iter;
+use core::marker::PhantomData;
 use dock_crypto_utils::transcript::Transcript;
-use std::iter;
-use std::marker::PhantomData;
 
 #[derive(Clone, CanonicalSerialize, CanonicalDeserialize)]
 pub struct SingleLayerParameters<P: SWCurveConfig + Copy> {
@@ -111,7 +112,7 @@ pub fn single_level_select_and_rerandomize<
     parameters: &SingleLayerParameters<C2>,
     rerandomized_child: &Affine<C2>, // The public rerandomization of the selected child without Delta
     all_children_plus_delta: Vec<LinearCombination<Fs>>, // Variables representing members of the (parent) vector commitment
-    child_plus_delta: Option<Affine<C2>>,     // Witness of the selected child plus Delta
+    child_plus_delta: Option<Affine<C2>>,                // Witness of the selected child plus Delta
     child_rerandomization_scalar: Option<Fb>, // The scalar used for randomizing, i.e. child + Delta + child_rerandomization_scalar * H = rerandomized_child + Delta
 ) {
     // Add the re-randomised child to the transcript

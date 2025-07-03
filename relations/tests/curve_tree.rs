@@ -301,7 +301,10 @@ pub fn test_curve_tree_with_parameters_new<
 
     log::debug!(
         "For tree with {} leaves, {} proofs took {:?} prover time and {:?} verifier time",
-        num_leaves, num_proofs, prover_time, verifier_time
+        num_leaves,
+        num_proofs,
+        prover_time,
+        verifier_time
     );
 }
 

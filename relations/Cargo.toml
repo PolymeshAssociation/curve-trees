@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 sha3 = { version = "0.10.6", default-features = false }
 rand = { version = "0.8", default-features = false }
+rand_core = { version = "0.6", default-features = false }
 log = { version = "0.4.27", default-features = false }
 thiserror = { version = "2", default-features = false }
 bulletproofs = { path = "../bulletproofs", default-features = false }

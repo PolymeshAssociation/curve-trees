@@ -5,8 +5,7 @@ use ark_ff::PrimeField;
 use ark_serialize::{
     CanonicalDeserialize, CanonicalSerialize, Compress, SerializationError, Valid, Validate, Write,
 };
-use ark_std::Zero;
-use ark_std::io::Read;
+use ark_std::{boxed::Box, io::Read, vec, vec::Vec, Zero};
 
 /// Parameters for multi level select and rerandomize over a 2-cycle of curves
 #[derive(Clone, CanonicalSerialize, CanonicalDeserialize)]
@@ -34,10 +33,10 @@ pub enum CurveTree<
     Odd(CurveTreeNode<L, M, P1, P0>),
 }
 
-impl<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCurveConfig> std::fmt::Debug
+impl<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCurveConfig> core::fmt::Debug
     for CurveTree<L, M, P0, P1>
 {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, fmt: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
         match self {
             Self::Even(ct) => fmt.debug_tuple("Even").field(&ct).finish(),
             Self::Odd(ct) => fmt.debug_tuple("Odd").field(&ct).finish(),
@@ -363,10 +362,10 @@ pub enum Root<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCurveConf
     Odd(RootNode<L, M, P1, P0>),
 }
 
-impl<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCurveConfig> std::fmt::Debug
+impl<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCurveConfig> core::fmt::Debug
     for Root<L, M, P0, P1>
 {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, fmt: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
         match self {
             Self::Even(n) => fmt.debug_tuple("Even").field(&n).finish(),
             Self::Odd(n) => fmt.debug_tuple("Odd").field(&n).finish(),
@@ -382,10 +381,10 @@ pub struct RootNode<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCur
     pub x_coord_children: Vec<[P1::BaseField; L]>,
 }
 
-impl<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCurveConfig> std::fmt::Debug
+impl<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCurveConfig> core::fmt::Debug
     for RootNode<L, M, P0, P1>
 {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, fmt: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
         fmt.debug_struct("RootNode")
             .field("commitments", &self.commitments)
             .field("x_coord_children", &self.x_coord_children)
@@ -434,10 +433,10 @@ pub struct InnerNode<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCu
     pub elements: usize,
 }
 
-impl<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCurveConfig> std::fmt::Debug
+impl<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCurveConfig> core::fmt::Debug
     for InnerNode<L, M, P0, P1>
 {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, fmt: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
         fmt.debug_struct("InnerNode")
             .field("commitments_to_children", &self.commitments_to_children)
             .field("children", &self.children)
@@ -496,10 +495,10 @@ impl<
     }
 }
 
-impl<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCurveConfig> std::fmt::Debug
+impl<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCurveConfig> core::fmt::Debug
     for CurveTreeNode<L, M, P0, P1>
 {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, fmt: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
         match self {
             Self::InnerNode(inner_node) => fmt.debug_tuple("InnerNode").field(&inner_node).finish(),
             Self::Leaf(c) => fmt.debug_tuple("Leaf").field(&c).finish(),

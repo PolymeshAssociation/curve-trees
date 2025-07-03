@@ -7,8 +7,8 @@ use crate::curve_tree::{
 };
 use ark_ec::{models::short_weierstrass::SWCurveConfig, short_weierstrass::Affine};
 use ark_ff::PrimeField;
+use core::borrow::BorrowMut;
 use dock_crypto_utils::transcript::MerlinTranscript;
-use std::borrow::BorrowMut;
 
 impl<
         const L: usize,

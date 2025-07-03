@@ -6,11 +6,11 @@
 
 extern crate alloc;
 
+use crate::util;
 use alloc::vec::Vec;
 use ark_ec::{AffineRepr, VariableBaseMSM};
-use std::marker::PhantomData;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use crate::util;
+use core::marker::PhantomData;
 use digest::{ExtendableOutputDirty, Update, XofReader};
 use sha3::{Sha3XofReader, Shake256};
 

@@ -1,12 +1,15 @@
 #![allow(non_snake_case)]
 
+#[cfg(not(feature = "std"))]
+use alloc::{boxed::Box, vec, vec::Vec};
+
 use ark_ec::{AffineRepr, VariableBaseMSM};
 use ark_ff::Field;
 use ark_std::{One, UniformRand, Zero};
-use rand_core::{RngCore, CryptoRng};
 use core::borrow::BorrowMut;
 use core::mem;
 use dock_crypto_utils::transcript::MerlinTranscript;
+use rand_core::{CryptoRng, RngCore};
 
 use super::constraint_system::{
     ConstraintSystem, RandomizableConstraintSystem, RandomizedConstraintSystem,
@@ -276,7 +279,7 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
     pub fn size(&self) -> usize {
         let mut n = self.num_vars;
         for (_, dim) in self.vec_comms.iter() {
-            n = std::cmp::max(*dim, n)
+            n = core::cmp::max(*dim, n)
         }
         n
     }
@@ -463,7 +466,7 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
             ));
         }
 
-        use std::iter;
+        use core::iter;
         let fixed_points = iter::once(pc_gens.B)
             .chain(iter::once(pc_gens.B_blinding))
             .chain(gens.G(padded_n).copied())
@@ -559,9 +562,9 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
 
         // log::debug!("padded_n = {}", padded_n);
 
-        use dock_crypto_utils::ff::inner_product;
         use crate::util;
-        use std::iter;
+        use core::iter;
+        use dock_crypto_utils::ff::inner_product;
 
         // These points are the identity in the 1-phase unrandomized case.
         TranscriptProtocol::append_point(transcript, b"A_I2", &proof.A_I2);
@@ -823,7 +826,7 @@ pub fn batch_verify_with_rng<C: AffineRepr, R: RngCore + CryptoRng>(
         ));
     }
 
-    use std::iter;
+    use core::iter;
     let fixed_points = iter::once(pc_gens.B)
         .chain(iter::once(pc_gens.B_blinding))
         .chain(gens.G(padded_n).copied())

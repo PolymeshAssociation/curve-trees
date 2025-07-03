@@ -9,7 +9,7 @@ use ark_std::UniformRand;
 use ark_vesta::VestaConfig;
 use bulletproofs::r1cs::{Prover, Verifier};
 use common::prove;
-use dock_crypto_utils::transcript::{MerlinTranscript};
+use dock_crypto_utils::transcript::MerlinTranscript;
 use rand::prelude::SliceRandom;
 use relations::curve_tree::{CurveTree, SelRerandParameters};
 use relations::ped_comm_group_elems::{prove_naive, verify_naive};

@@ -1,6 +1,9 @@
 #![allow(non_snake_case)]
 //! Definition of the proof struct.
 
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
+
 use ark_ec::AffineRepr;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress};
 

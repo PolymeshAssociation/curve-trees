@@ -1,11 +1,14 @@
 #![allow(non_snake_case)]
 
+#[cfg(not(feature = "std"))]
+use alloc::{borrow::ToOwned, boxed::Box, vec, vec::Vec};
+
 use ark_ec::{AffineRepr, CurveGroup, VariableBaseMSM};
 use ark_ff::Field;
 use ark_std::{One, UniformRand, Zero};
-use rand_core::{CryptoRng, RngCore};
 use core::borrow::BorrowMut;
 use dock_crypto_utils::transcript::MerlinTranscript;
+use rand_core::{CryptoRng, RngCore};
 use zeroize::{ZeroizeOnDrop, Zeroizing};
 
 use super::constraint_system::{
@@ -338,7 +341,7 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
         v_blinding: C::ScalarField,
         bp_gens: &BulletproofGens<C>, // same as used during proving, uses the "G" generators to commit like for a_O
     ) -> (C, Vec<Variable<C::ScalarField>>) {
-        use std::iter;
+        use core::iter;
 
         // compute the commitment:
         // comm = <v, G> + v_blinding * B_blinding
@@ -481,7 +484,7 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
             // Note: the wrapper could've used &mut instead of ownership,
             // but specifying lifetimes for boxed closures is not going to be nice,
             // so we move the self into wrapper and then move it back out afterwards.
-            let mut callbacks = std::mem::take(&mut self.deferred_constraints);
+            let mut callbacks = core::mem::take(&mut self.deferred_constraints);
             let mut wrapped_self = RandomizingProver { prover: self };
             for callback in callbacks.drain(..) {
                 callback(&mut wrapped_self)?;
@@ -497,7 +500,11 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
         self.prove_with_rng(bp_gens, &mut rng)
     }
 
-    pub fn prove_with_rng<R: RngCore + CryptoRng>(self, bp_gens: &BulletproofGens<C>, rng: &mut R) -> Result<R1CSProof<C>, R1CSError> {
+    pub fn prove_with_rng<R: RngCore + CryptoRng>(
+        self,
+        bp_gens: &BulletproofGens<C>,
+        rng: &mut R,
+    ) -> Result<R1CSProof<C>, R1CSError> {
         self.prove_and_return_transcript_with_rng(bp_gens, rng)
             .map(|(proof, _transcript)| proof)
     }
@@ -505,7 +512,7 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
     pub fn size(&self) -> usize {
         let mut n = self.secrets.a_L.len();
         for (_, v) in self.secrets.vec_open.iter() {
-            n = std::cmp::max(n, v.len());
+            n = core::cmp::max(n, v.len());
         }
         n
     }
@@ -536,7 +543,7 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
         }
 
         use crate::util;
-        use std::iter;
+        use core::iter;
 
         // number of commitments
         let ncomm = self.secrets.vec_open.len();

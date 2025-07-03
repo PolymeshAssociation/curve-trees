@@ -17,7 +17,7 @@ use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Read, SerializationError, Write};
 use ark_std::UniformRand;
 use blake2::Blake2s256 as Blake2s;
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 
 pub struct Coin<P0: SWCurveConfig + Clone, C: CurveGroup> {
     pub value: u64,

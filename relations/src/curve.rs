@@ -1,7 +1,7 @@
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::Field;
 use bulletproofs::r1cs::*;
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 
 /// Enforce (x, y) form a valid curve point
 pub fn curve_check<F: Field, Cs: ConstraintSystem<F>>(

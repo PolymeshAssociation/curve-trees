@@ -18,11 +18,12 @@ use crate::single_level_select_and_rerandomize::SingleLayerParameters;
 use ark_ec::short_weierstrass::{Affine, Projective, SWCurveConfig};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{Field, PrimeField};
-use ark_std::cfg_iter;
+use ark_std::{cfg_iter, vec::Vec};
 use bulletproofs::r1cs::{constant, ConstraintSystem, Prover, Variable, Verifier};
 use dock_crypto_utils::msm::WindowTable;
 use dock_crypto_utils::transcript::MerlinTranscript;
-use rand::RngCore;
+use rand_core::RngCore;
+#[cfg(feature = "std")]
 use std::time::{Duration, Instant};
 
 #[cfg(feature = "parallel")]
@@ -140,11 +141,15 @@ pub fn naive_gadget<
         (0..size).map(|_| None).collect::<Vec<_>>()
     };
 
+    #[cfg(feature = "std")]
     let clock1 = Instant::now();
+    #[cfg(feature = "std")]
     let mut add_duration = Duration::default();
+    #[cfg(feature = "std")]
     let mut re_rand_duration = Duration::default();
     for i in 0..size {
         // For each "point", check its x and y lie on the curve
+        #[cfg(feature = "std")]
         let clock2 = Instant::now();
         let x_var = x_coord_vars[i];
         let y_var = cs.allocate(points_plus_delta_xy[i].1).unwrap();
@@ -156,9 +161,13 @@ pub fn naive_gadget<
             parameters.coeff_a,
             parameters.coeff_b,
         );
-        add_duration += clock2.elapsed();
+        #[cfg(feature = "std")]
+        {
+            add_duration += clock2.elapsed();
+        }
 
         // Check that rerandomized_point_plus_delta = point_plus_delta + B_blinding * blindings[i]
+        #[cfg(feature = "std")]
         let clock2 = Instant::now();
         re_randomize(
             cs,
@@ -172,9 +181,13 @@ pub fn naive_gadget<
             constant(re_randomized_points_plus_delta[i].y),
             blindings[i],
         );
-        re_rand_duration += clock2.elapsed();
+        #[cfg(feature = "std")]
+        {
+            re_rand_duration += clock2.elapsed();
+        }
     }
 
+    #[cfg(feature = "std")]
     log::debug!(
         "size = {size}, {size} runs took={:?}, add={:?}, re-rand={:?}",
         clock1.elapsed(),

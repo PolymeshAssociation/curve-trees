@@ -6,8 +6,8 @@ use crate::single_level_select_and_rerandomize::SingleLayerParameters;
 use ark_ec::short_weierstrass::{Affine, SWCurveConfig};
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use ark_std::collections::BTreeMap;
-use std::collections::BTreeSet;
+use ark_std::collections::{BTreeMap, BTreeSet};
+use ark_std::{vec, vec::Vec};
 
 type InnerNodeIndex = u64;
 
@@ -15,7 +15,7 @@ type InnerNodeIndex = u64;
 
 // TODO: Add persistence
 
-/// Append only curve tree which allows tracking certain leaves and providing their most recent path 
+/// Append only curve tree which allows tracking certain leaves and providing their most recent path
 #[derive(Clone, Default, CanonicalSerialize, CanonicalDeserialize)]
 pub struct PartialCurveTree<const L: usize, P0: SWCurveConfig, P1: SWCurveConfig> {
     pub height: u8,

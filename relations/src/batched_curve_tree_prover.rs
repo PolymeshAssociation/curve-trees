@@ -11,11 +11,10 @@ use ark_ec::{
     CurveGroup,
 };
 use ark_ff::PrimeField;
-use ark_std::Zero;
+use ark_std::{vec::Vec, Zero};
+use core::ops::Mul;
 use dock_crypto_utils::transcript::MerlinTranscript;
 use rand::Rng;
-use std::ops::Mul;
-use std::time::Instant;
 
 // Implements prover operations on the Curve Tree
 impl<
@@ -268,8 +267,10 @@ impl<
                     // The selected leaves are rerandomized individually, as we allow these commitments to use the same generators.
                     // Split the variables of the vector commitments into chunks corresponding to the M parents.
                     let chunks = children_vars.chunks_exact(children_vars.len() / M);
+                    #[cfg(feature = "std")]
                     let mut j = 0;
-                    let clock = Instant::now();
+                    #[cfg(feature = "std")]
+                    let clock = std::time::Instant::now();
                     for (inclusion_index, chunk) in chunks.enumerate() {
                         single_level_select_and_rerandomize(
                             prover,
@@ -284,8 +285,12 @@ impl<
                             ),
                             Some(rerandomization_scalars_of_selected[inclusion_index]),
                         );
-                        j += 1;
+                        #[cfg(feature = "std")]
+                        {
+                            j += 1;
+                        }
                     }
+                    #[cfg(feature = "std")]
                     log::debug!("For L = {L}, M = {M}, {j} runs took: {:?}", clock.elapsed());
                 }
             }
