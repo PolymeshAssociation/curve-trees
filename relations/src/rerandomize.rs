@@ -1,6 +1,7 @@
 use bulletproofs::r1cs::*;
 
 use crate::curve::*;
+use crate::error::Error;
 use crate::lookup::*;
 
 use ark_ec::{
@@ -10,7 +11,7 @@ use ark_ff::{BigInteger, Field, PrimeField};
 use ark_std::{vec::Vec, One, Zero};
 use core::marker::PhantomData;
 
-pub fn build_tables<C: AffineRepr>(h: C) -> Vec<Lookup3Bit<2, C::BaseField>> {
+pub fn build_tables<C: AffineRepr>(h: C) -> Result<Vec<Lookup3Bit<2, C::BaseField>>, Error> {
     let lambda = <C::ScalarField as PrimeField>::MODULUS_BIT_SIZE as usize;
     let m = lambda / 3 + 1;
 
@@ -39,12 +40,16 @@ pub fn build_tables<C: AffineRepr>(h: C) -> Vec<Lookup3Bit<2, C::BaseField>> {
             // Multiply blinding by s
             let hs = h.mul(s).into_affine();
             // todo account for hs = 0 or make sure that it can never happen.
-            table.elems[0][j] = *hs.x().unwrap();
-            table.elems[1][j] = *hs.y().unwrap();
+            table.elems[0][j] = *hs
+                .x()
+                .ok_or_else(|| Error::GenerationError("Failed to get x coordinate".into()))?;
+            table.elems[1][j] = *hs
+                .y()
+                .ok_or_else(|| Error::GenerationError("Failed to get y coordinate".into()))?;
         }
         tables.push(table);
     }
-    tables
+    Ok(tables)
 }
 
 /// For proving that randomization the point inside `commitment` is same as point represented by x and y coordinates
@@ -61,7 +66,7 @@ pub fn re_randomize<
     re_randomized_commitment_x_coord: LinearCombination<F>,
     re_randomized_commitment_y_coord: LinearCombination<F>,
     randomness: Option<S>, // Witness provided by the prover
-) {
+) -> Result<(), Error> {
     let lambda = S::MODULUS_BIT_SIZE as usize;
     let m = lambda / 3 + 1;
 
@@ -101,7 +106,9 @@ pub fn re_randomize<
                 let y_left = if i == 1 {
                     F::zero()
                 } else {
-                    *blinding_accumulator.y().unwrap()
+                    *blinding_accumulator.y().ok_or_else(|| {
+                        Error::GenerationError("Failed to get y coordinate".into())
+                    })?
                 }; // read before updating blinding accumulator
                 let x_right = x_i_lookup;
                 let y_right = y_i_lookup;
@@ -130,11 +137,11 @@ pub fn re_randomize<
             }
         };
 
-        let [x_table, y_table] = lookup(cs, &table, index).unwrap();
+        let [x_table, y_table] = lookup(cs, &table, index)?;
 
         // Allocate coordinates for the accumulated witness
-        let acc_i_x_lc: LinearCombination<F> = cs.allocate(acc_i_x).unwrap().into();
-        let acc_i_y_lc: LinearCombination<F> = cs.allocate(acc_i_y).unwrap().into();
+        let acc_i_x_lc: LinearCombination<F> = cs.allocate(acc_i_x)?.into();
+        let acc_i_y_lc: LinearCombination<F> = cs.allocate(acc_i_y)?.into();
         if i > 1 {
             // Enforce addition constraint:
             // R_i = R_i-1 + (x_i, y_i)
@@ -181,6 +188,8 @@ pub fn re_randomize<
         delta,
     };
     checked_curve_addition(cs, &prms, x_l_minus_x_r_inv);
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -198,7 +207,7 @@ mod tests {
     type PallasScalar = <PallasA as AffineRepr>::ScalarField;
 
     #[test]
-    fn test_re_randomize() {
+    fn test_re_randomize() -> Result<(), Error> {
         let mut rng = rand::thread_rng();
         let h = PallasA::rand(&mut rng);
         let c = PallasA::rand(&mut rng);
@@ -206,7 +215,7 @@ mod tests {
         let blinding = h * r;
         let c_tilde = (c + blinding).into_affine();
 
-        let tables = build_tables(h);
+        let tables = build_tables(h).expect("Failed to build tables");
 
         let pc_gens = PedersenGens::<VestaA>::default();
         let bp_gens = BulletproofGens::<VestaA>::new(1024, 1);
@@ -214,10 +223,10 @@ mod tests {
         let proof = {
             let mut transcript = MerlinTranscript::new(b"RerandGadget");
             let mut prover = Prover::new(&pc_gens, &mut transcript);
-            let c_x_var = prover.allocate(Some(c.x)).unwrap();
-            let c_y_var = prover.allocate(Some(c.y)).unwrap();
-            let c_x_tilde_var = prover.allocate(Some(c_tilde.x)).unwrap();
-            let c_y_tilde_var = prover.allocate(Some(c_tilde.y)).unwrap();
+            let c_x_var = prover.allocate(Some(c.x))?;
+            let c_y_var = prover.allocate(Some(c.y))?;
+            let c_x_tilde_var = prover.allocate(Some(c_tilde.x))?;
+            let c_y_tilde_var = prover.allocate(Some(c_tilde.y))?;
 
             re_randomize(
                 &mut prover,
@@ -230,18 +239,19 @@ mod tests {
                 c_x_tilde_var.into(),
                 c_y_tilde_var.into(),
                 Some(r),
-            );
+            )
+            .expect("Failed to re-randomize");
 
-            let proof = prover.prove(&bp_gens).unwrap();
+            let proof = prover.prove(&bp_gens)?;
             proof
         };
 
         let mut transcript = MerlinTranscript::new(b"RerandGadget");
         let mut verifier: Verifier<_, VestaA> = Verifier::new(&mut transcript);
-        let c_x_var = verifier.allocate(None).unwrap();
-        let c_y_var = verifier.allocate(None).unwrap();
-        let c_x_tilde_var = verifier.allocate(None).unwrap();
-        let c_y_tilde_var = verifier.allocate(None).unwrap();
+        let c_x_var = verifier.allocate(None)?;
+        let c_y_var = verifier.allocate(None)?;
+        let c_x_tilde_var = verifier.allocate(None)?;
+        let c_y_tilde_var = verifier.allocate(None)?;
 
         re_randomize::<_, _, PallasConfig, _>(
             &mut verifier,
@@ -254,9 +264,12 @@ mod tests {
             c_x_tilde_var.into(),
             c_y_tilde_var.into(),
             None,
-        );
+        )
+        .expect("Failed to re-randomize");
 
-        verifier.verify(&proof, &pc_gens, &bp_gens).unwrap();
+        verifier.verify(&proof, &pc_gens, &bp_gens)?;
+
+        Ok(())
     }
 
     #[test]
@@ -266,7 +279,7 @@ mod tests {
         let r: PallasScalar = <PallasA as AffineRepr>::ScalarField::rand(&mut rng);
         let h_r = h * r;
 
-        let tables = build_tables(h);
+        let tables = build_tables(h).expect("Failed to build tables");
         let lambda = <PallasScalar as PrimeField>::MODULUS_BIT_SIZE as usize;
         let m = lambda / 3 + 1;
         let r_bigint: <PallasScalar as PrimeField>::BigInt = r.into();

@@ -813,7 +813,8 @@ mod tests {
         let sr_params = SelRerandParameters::<PallasParameters, VestaParameters>::new(
             generators_length,
             generators_length,
-        );
+        )
+        .expect("Failed to create SelRerandParameters");
 
         let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
         let mut pallas_prover: Prover<_, Affine<PallasParameters>> =
@@ -907,7 +908,8 @@ mod tests {
         let sr_params = SelRerandParameters::<PallasParameters, VestaParameters>::new(
             generators_length,
             generators_length,
-        );
+        )
+        .expect("Failed to create SelRerandParameters");
 
         let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
         let mut pallas_prover: Prover<_, Affine<PallasParameters>> =
@@ -999,7 +1001,8 @@ mod tests {
         let sr_params = SelRerandParameters::<PallasParameters, VestaParameters>::new(
             generators_length,
             generators_length,
-        );
+        )
+        .expect("Failed to create SelRerandParameters");
 
         let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
         let pallas_prover: Prover<_, Affine<PallasParameters>> =

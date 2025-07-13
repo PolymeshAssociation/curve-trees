@@ -692,7 +692,7 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
                 (Some(A_I1), Some(A_O1), Some(S1)) => (A_I1, A_O1, S1),
                 _ => {
                     return Err(R1CSError::GadgetError {
-                        description: "Failed to compute commitments".to_string(),
+                        description: "Failed to compute commitments".into(),
                     })
                 }
             }
@@ -889,7 +889,7 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
         let mut r_poly = util::VecPoly::<C::ScalarField>::zero(n, op_degree + 1);
 
         let y_inv = y.inverse().ok_or_else(|| R1CSError::GadgetError {
-            description: "y must be non-zero".to_string(),
+            description: "y must be non-zero".into(),
         })?;
 
         let exp_y_inv = util::exp_iter(y_inv).take(padded_n).collect::<Vec<_>>();
@@ -1113,7 +1113,7 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
             use dock_crypto_utils::ff::inner_product;
 
             let y_inv = y.inverse().ok_or_else(|| R1CSError::GadgetError {
-                description: "y must be non-zero".to_string(),
+                description: "y must be non-zero".into(),
             })?;
             let y_inv_vec = util::exp_iter(y_inv)
                 .take(padded_n)

@@ -129,7 +129,8 @@ pub fn check_updates<
     let mut rng = rand::thread_rng();
     let generators_length = 1 << generators_length_log_2;
 
-    let sr_params = SelRerandParameters::<P0, P1>::new(generators_length, generators_length);
+    let sr_params = SelRerandParameters::<P0, P1>::new(generators_length, generators_length)
+        .expect("Failed to create SelRerandParameters");
 
     leaf_indices_to_track.sort();
 

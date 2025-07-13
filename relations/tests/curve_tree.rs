@@ -144,7 +144,8 @@ pub fn test_curve_tree_with_parameters<
     let mut rng = rand::thread_rng();
     let generators_length = 1 << generators_length_log_2;
 
-    let sr_params = SelRerandParameters::<P0, P1>::new(generators_length, generators_length);
+    let sr_params = SelRerandParameters::<P0, P1>::new(generators_length, generators_length)
+        .expect("Failed to create SelRerandParameters");
 
     let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
     let mut pallas_prover: Prover<_, Affine<P0>> =
@@ -219,7 +220,8 @@ pub fn test_curve_tree_with_parameters_new<
     let mut rng = rand::thread_rng();
     let generators_length = 1 << generators_length_log_2;
 
-    let sr_params = SelRerandParameters::<P0, P1>::new(generators_length, generators_length);
+    let sr_params = SelRerandParameters::<P0, P1>::new(generators_length, generators_length)
+        .expect("Failed to create SelRerandParameters");
 
     let set = (0..num_leaves)
         .map(|_| Affine::<P0>::rand(&mut rng))
@@ -322,7 +324,8 @@ pub fn test_curve_tree_get_update<
     let mut rng = rand::thread_rng();
     let generators_length = 1 << generators_length_log_2;
 
-    let sr_params = SelRerandParameters::<P0, P1>::new(generators_length, generators_length);
+    let sr_params = SelRerandParameters::<P0, P1>::new(generators_length, generators_length)
+        .expect("Failed to create SelRerandParameters");
 
     let leaves = (0..num_leaves)
         .map(|_| Affine::<P0>::rand(&mut rng))
@@ -429,7 +432,8 @@ pub fn test_curve_tree_batch_verification() {
     let sr_params = SelRerandParameters::<PallasParameters, VestaParameters>::new(
         generators_length,
         generators_length,
-    );
+    )
+    .expect("Failed to create SelRerandParameters");
 
     let some_point = PallasP::rand(&mut rng).into_affine();
     let set = vec![some_point];

@@ -13,6 +13,7 @@
 //! The implementation adds a public element `delta` to each `P_i` as mentioned in the curve tree paper
 
 use crate::curve::{curve_check, PointRepresentation};
+use crate::error::Error;
 use crate::rerandomize::re_randomize;
 use crate::single_level_select_and_rerandomize::SingleLayerParameters;
 use ark_ec::short_weierstrass::{Affine, Projective, SWCurveConfig};
@@ -42,7 +43,7 @@ pub fn prove_naive<
     re_randomized_comm: &Affine<P0>,
     blinding_of_comm: P0::ScalarField,
     parameters: &SingleLayerParameters<P1>,
-) -> Vec<Affine<P1>> {
+) -> Result<Vec<Affine<P1>>, Error> {
     let size = points.len();
 
     // This could be stored once and reused.
@@ -76,8 +77,8 @@ pub fn prove_naive<
         re_randomized_points.clone(),
         Some(blindings),
         parameters,
-    );
-    re_randomized_points
+    )?;
+    Ok(re_randomized_points)
 }
 
 pub fn verify_naive<
@@ -90,7 +91,7 @@ pub fn verify_naive<
     re_randomized_comm: Affine<P0>,
     re_randomized_points: Vec<Affine<P1>>,
     parameters: &SingleLayerParameters<P1>,
-) {
+) -> Result<(), Error> {
     let size = re_randomized_points.len();
     // Commit to all x-coordinates
     let x_coord_vars = verifier.commit_vec(size, re_randomized_comm);
@@ -103,7 +104,7 @@ pub fn verify_naive<
         re_randomized_points.clone(),
         None,
         parameters,
-    );
+    )
 }
 
 pub fn naive_gadget<
@@ -120,7 +121,7 @@ pub fn naive_gadget<
     re_randomized_points: Vec<Affine<P1>>,
     blindings: Option<Vec<P1::ScalarField>>,
     parameters: &SingleLayerParameters<P1>,
-) {
+) -> Result<(), Error> {
     let points_plus_delta_xy = if let Some(n) = points_plus_delta {
         n.into_iter()
             .map(|n| (Some(n), Some(n.y)))
@@ -180,7 +181,7 @@ pub fn naive_gadget<
             constant(re_randomized_points_plus_delta[i].x),
             constant(re_randomized_points_plus_delta[i].y),
             blindings[i],
-        );
+        )?;
         #[cfg(feature = "std")]
         {
             re_rand_duration += clock2.elapsed();
@@ -194,4 +195,6 @@ pub fn naive_gadget<
         add_duration,
         re_rand_duration
     );
+
+    Ok(())
 }

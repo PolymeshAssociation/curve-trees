@@ -2,6 +2,7 @@ use ark_ec::short_weierstrass::Projective;
 use ark_ec::CurveGroup;
 use bulletproofs::r1cs::*;
 
+use crate::error::Error;
 use crate::single_level_select_and_rerandomize::*;
 
 use crate::curve_tree::{
@@ -73,7 +74,7 @@ impl<
         odd_verifier: &mut Verifier<T, Affine<P1>>,
         mut randomized_path: SelectAndRerandomizeMultiPath<L, M, P0, P1>,
         parameters: &SelRerandParameters<P0, P1>,
-    ) -> [Affine<P0>; M] {
+    ) -> Result<[Affine<P0>; M], Error> {
         self.batched_select_and_rerandomize_verification_commitments(&mut randomized_path);
         // The even and odd commitments do not include the selected leaves, their sum should equal the height of the tree.
         debug_assert_eq!(
@@ -81,10 +82,10 @@ impl<
             randomized_path.even_commitments.len() + randomized_path.odd_commitments.len()
         );
 
-        randomized_path.even_verifier_gadget(even_verifier, parameters, self);
-        randomized_path.odd_verifier_gadget(odd_verifier, parameters, self);
+        randomized_path.even_verifier_gadget(even_verifier, parameters, self)?;
+        randomized_path.odd_verifier_gadget(odd_verifier, parameters, self)?;
 
-        randomized_path.get_rerandomized_leaves()
+        Ok(randomized_path.get_rerandomized_leaves())
     }
 }
 
@@ -106,7 +107,7 @@ impl<
         even_verifier: &mut Verifier<T, Affine<P0>>,
         parameters: &SelRerandParameters<P0, P1>,
         ct: &CurveTree<L, M, P0, P1>,
-    ) {
+    ) -> Result<(), Error> {
         // Determine the parity of the root:
         let root_is_odd = self.even_commitments.len() + 1 == self.odd_commitments.len();
         if !root_is_odd {
@@ -153,8 +154,9 @@ impl<
                 variables,
                 None::<&[Affine<P1>; M]>,
                 None,
-            );
+            )?;
         }
+        Ok(())
     }
 
     pub fn odd_verifier_gadget<T: BorrowMut<MerlinTranscript>>(
@@ -162,7 +164,7 @@ impl<
         odd_verifier: &mut Verifier<T, Affine<P1>>,
         parameters: &SelRerandParameters<P0, P1>,
         ct: &CurveTree<L, M, P0, P1>,
-    ) {
+    ) -> Result<(), Error> {
         // Determine the parity of the root:
         let root_is_odd = self.even_commitments.len() + 1 == self.odd_commitments.len();
         if !root_is_odd {
@@ -210,7 +212,7 @@ impl<
                     variables,
                     None::<&[Affine<P0>; M]>,
                     None,
-                );
+                )?;
             } else {
                 // Split the variables of the vector commitments into chunks corresponding to the M parents.
                 let chunks = variables.chunks_exact(variables.len() / M);
@@ -226,5 +228,6 @@ impl<
                 }
             };
         }
+        Ok(())
     }
 }

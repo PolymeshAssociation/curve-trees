@@ -157,7 +157,8 @@ fn bench_naive_batch_select_and_rerandomize_with_parameters<
     let mut rng = rand::thread_rng();
     let generators_length = 1 << generators_length_log_2;
 
-    let sr_params = SelRerandParameters::<P0, P1>::new(generators_length, generators_length);
+    let sr_params = SelRerandParameters::<P0, P1>::new(generators_length, generators_length)
+        .expect("Failed to create SelRerandParameters");
 
     let commitments_to_select: Vec<_> = (0..M).map(|_| Affine::<P0>::rand(&mut rng)).collect();
     let indices: [usize; M] = (0..M).collect::<Vec<usize>>().try_into().unwrap();
@@ -528,7 +529,8 @@ fn bench_grafted_batch_select_and_rerandomize_with_parameters<
     let odd_generators_length = 1 << odd_generators_length_log_2;
 
     let sr_params =
-        SelRerandParameters::<P0, P1>::new(even_generators_length, odd_generators_length);
+        SelRerandParameters::<P0, P1>::new(even_generators_length, odd_generators_length)
+            .expect("Failed to create SelRerandParameters");
 
     let commitments_to_select: Vec<_> = (0..M).map(|_| Affine::<P0>::rand(&mut rng)).collect();
     let indices: [usize; M] = (0..M).collect::<Vec<usize>>().try_into().unwrap();
@@ -544,13 +546,15 @@ fn bench_grafted_batch_select_and_rerandomize_with_parameters<
         let mut odd_prover: Prover<_, Affine<P1>> =
             Prover::new(&sr_params.odd_parameters.pc_gens, odd_transcript);
 
-        let (multi_path, _) = curve_tree.batched_select_and_rerandomize_prover_gadget(
-            indices,
-            &mut even_prover,
-            &mut odd_prover,
-            &sr_params,
-            &mut rand::thread_rng(),
-        );
+        let (multi_path, _) = curve_tree
+            .batched_select_and_rerandomize_prover_gadget(
+                indices,
+                &mut even_prover,
+                &mut odd_prover,
+                &sr_params,
+                &mut rand::thread_rng(),
+            )
+            .expect("Failed to prove batched select and rerandomize");
         if print {
             log::debug!(
                 "{}_Constraints: {}",
@@ -771,7 +775,8 @@ fn bench_grafted_batch_select_and_rerandomize_with_parameters<
                                             &mut even_verifier,
                                             &sr_params,
                                             &curve_tree,
-                                        );
+                                        )
+                                        .expect("Failed to run even verifier gadget");
 
                                         let even_vt = even_verifier
                                             .verification_scalars_and_points(&even_proof)
@@ -797,7 +802,8 @@ fn bench_grafted_batch_select_and_rerandomize_with_parameters<
                                             &mut odd_verifier,
                                             &sr_params,
                                             &curve_tree,
-                                        );
+                                        )
+                                        .expect("Failed to run odd verifier gadget");
 
                                         let odd_vt = odd_verifier
                                             .verification_scalars_and_points(&odd_proof)

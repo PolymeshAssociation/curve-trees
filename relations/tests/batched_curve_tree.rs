@@ -43,7 +43,8 @@ pub fn test_batched_curve_tree_with_parameters<
     let mut rng = rand::thread_rng();
     let generators_length = 1 << generators_length_log_2;
 
-    let sr_params = SelRerandParameters::<P0, P1>::new(generators_length, generators_length);
+    let sr_params = SelRerandParameters::<P0, P1>::new(generators_length, generators_length)
+        .expect("Failed to create SelRerandParameters");
 
     let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
     let mut pallas_prover: Prover<_, Affine<P0>> =
@@ -64,13 +65,15 @@ pub fn test_batched_curve_tree_with_parameters<
 
     log::debug!("For batch size {M}, width {L} and height {depth}");
     let clock = Instant::now();
-    let (path_commitments, _) = curve_tree.batched_select_and_rerandomize_prover_gadget(
-        indices,
-        &mut pallas_prover,
-        &mut vesta_prover,
-        &sr_params,
-        &mut rng,
-    );
+    let (path_commitments, _) = curve_tree
+        .batched_select_and_rerandomize_prover_gadget(
+            indices,
+            &mut pallas_prover,
+            &mut vesta_prover,
+            &sr_params,
+            &mut rng,
+        )
+        .expect("Failed to prove batched select and rerandomize");
 
     let pallas_proof = pallas_prover
         .prove(&sr_params.even_parameters.bp_gens)

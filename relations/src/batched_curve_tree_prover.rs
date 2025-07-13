@@ -1,6 +1,7 @@
 use bulletproofs::r1cs::*;
 
 use crate::curve_tree_prover::{CurveTreeWitnessPath, WitnessNode};
+use crate::error::Error;
 use crate::single_level_select_and_rerandomize::*;
 
 use crate::curve_tree::{CurveTree, SelRerandParameters, SelectAndRerandomizeMultiPath};
@@ -37,10 +38,13 @@ impl<
         odd_prover: &mut Prover<MerlinTranscript, Affine<P1>>,
         parameters: &SelRerandParameters<P0, P1>,
         rng: &mut R,
-    ) -> (
-        SelectAndRerandomizeMultiPath<L, M, P0, P1>,
-        [P0::ScalarField; M],
-    ) {
+    ) -> Result<
+        (
+            SelectAndRerandomizeMultiPath<L, M, P0, P1>,
+            [P0::ScalarField; M],
+        ),
+        Error,
+    > {
         let witness = self.select_and_rerandomize_prover_multi_witness(indices);
 
         witness.batched_select_and_rerandomize_prover_gadget(
@@ -133,10 +137,13 @@ impl<
         odd_prover: &mut Prover<MerlinTranscript, Affine<P1>>,
         parameters: &SelRerandParameters<P0, P1>,
         rng: &mut R,
-    ) -> (
-        SelectAndRerandomizeMultiPath<L, M, P0, P1>,
-        [P0::ScalarField; M],
-    ) {
+    ) -> Result<
+        (
+            SelectAndRerandomizeMultiPath<L, M, P0, P1>,
+            [P0::ScalarField; M],
+        ),
+        Error,
+    > {
         // for each even internal node, there must be a rerandomization of a commitment in the odd curve
         let even_length = self.even_internal_nodes.len();
         let mut odd_rerandomization_scalars: Vec<P1::ScalarField> = Vec::with_capacity(even_length);
@@ -223,7 +230,8 @@ impl<
                     &parent_node,
                     parent_rerandomization,
                     odd_rerandomization_scalars[i],
-                );
+                )
+                .expect("Failed to prove even gadget");
             }
         };
         #[cfg(not(feature = "parallel"))]
@@ -254,7 +262,8 @@ impl<
                         &parent_node,
                         parent_rerandomization,
                         even_rerandomization_scalars[i],
-                    );
+                    )
+                    .expect("Failed to prove odd gadget");
                 } else {
                     // Commit to the last internal node to obtain variables for its children.
                     let children_vars = WitnessNode::allocate_multi_node_variables(
@@ -301,14 +310,14 @@ impl<
         #[cfg(feature = "parallel")]
         rayon::join(|| prove_even(even_prover), || prove_odd(odd_prover));
 
-        (
+        Ok((
             SelectAndRerandomizeMultiPath {
                 even_commitments: even_rerandomized_commitments,
                 odd_commitments: odd_rerandomized_commitments,
                 selected_commitments: rerandomizations_of_selected,
             },
             rerandomization_scalars_of_selected,
-        )
+        ))
     }
 }
 
@@ -327,7 +336,7 @@ impl<
         parent_node: &Affine<P0>,
         parent_rerandomization_scalar: P0::ScalarField,
         child_rerandomization_scalar: P1::ScalarField,
-    ) {
+    ) -> Result<(), Error> {
         // `children_vars` is a vector of x-coordinates of all the `nodes`
         let children_vars = Self::allocate_multi_node_variables(
             nodes,
@@ -357,7 +366,9 @@ impl<
             children_vars,
             Some(&selected_children_plus_delta),
             Some(child_rerandomization_scalar),
-        );
+        )?;
+
+        Ok(())
     }
 
     /// Allocate variable for the children of a node in a multi path by committing to an internal node or using the children of the root as public input.

@@ -3,6 +3,7 @@ use bulletproofs::r1cs::*;
 use bulletproofs::{affine_from_bytes_tai, BulletproofGens, PedersenGens};
 
 use crate::curve::{checked_curve_addition_helper, curve_check, PointRepresentation};
+use crate::error::Error;
 use crate::lookup::*;
 use crate::rerandomize::*;
 use crate::select::*;
@@ -28,18 +29,21 @@ pub struct SingleLayerParameters<P: SWCurveConfig + Copy> {
 }
 
 impl<P: SWCurveConfig + Copy> SingleLayerParameters<P> {
-    pub fn new<P1: SWCurveConfig>(generators_length: usize) -> Self {
-        let pc_gens = PedersenGens::<Affine<P>>::default();
-        let tables = build_tables(pc_gens.B_blinding);
+    pub fn new<P1: SWCurveConfig>(generators_length: usize) -> Result<Self, Error> {
+        let pc_gens = PedersenGens::<Affine<P>>::new().ok_or_else(|| {
+            Error::GenerationError("Failed to generate Pedersen generators".into())
+        })?;
+        let tables = build_tables(pc_gens.B_blinding)?;
 
-        SingleLayerParameters {
+        Ok(SingleLayerParameters {
             bp_gens: BulletproofGens::<Affine<P>>::new(generators_length, 1),
             pc_gens,
-            delta: affine_from_bytes_tai(b"curve_trees_delta"),
+            delta: affine_from_bytes_tai(b"curve_trees_delta")
+                .ok_or_else(|| Error::GenerationError("Failed to generate delta".into()))?,
             coeff_a: P::COEFF_A,
             coeff_b: P::COEFF_B,
             tables,
-        }
+        })
     }
 
     pub fn commit(
@@ -156,7 +160,8 @@ pub fn single_level_select_and_rerandomize<
         constant(rerandomized_child_plus_delta.x),
         constant(rerandomized_child_plus_delta.y),
         child_rerandomization_scalar,
-    );
+    )
+    .expect("Failed to re-randomize");
 }
 
 /// Circuit for the single level version of the batched select and rerandomize relation.
@@ -174,7 +179,7 @@ pub fn single_level_batched_select_and_rerandomize<
     children: Vec<LinearCombination<Fs>>, // Variables representing members of the combined and rerandomized parent vector commitment (i.e. the rerandomized sum of M parents)
     children_plus_delta: Option<&[Affine<C2>; M]>, // Witnesses of the commitments being selected and rerandomized
     randomness_offset: Option<Fb>, // The scalar used for randomizing, i.e. \sum selected_witnesses + randomness_offset * H = sum_of_rerandomized + M * Delta
-) {
+) -> Result<(), Error> {
     // Initialize the accumulated sum of the selected children to dummy values.
     let mut sum_of_selected = PointRepresentation {
         x: Variable::One(PhantomData).into(),
@@ -225,7 +230,9 @@ pub fn single_level_batched_select_and_rerandomize<
         constant(shifted_rerandomized.x),
         constant(shifted_rerandomized.y),
         randomness_offset,
-    );
+    )?;
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -252,7 +259,8 @@ mod tests {
             SelRerandParameters::<ark_pallas::PallasConfig, ark_vesta::VestaConfig>::new(
                 generators_length,
                 generators_length,
-            );
+            )
+            .expect("Failed to create SelRerandParameters");
 
         // Test of selecting and rerandomizing a dummy commitment `child'
         let child = ark_pallas::Affine::rand(&mut rng);
@@ -319,7 +327,8 @@ mod tests {
             SelRerandParameters::<ark_pallas::PallasConfig, ark_vesta::VestaConfig>::new(
                 generators_length,
                 generators_length,
-            );
+            )
+            .expect("Failed to create SelRerandParameters");
 
         const M: usize = 2;
         let arity = 32;
@@ -374,7 +383,8 @@ mod tests {
                     children_plus_delta[child_index_2],
                 ]),
                 Some(rerandomization_1 + rerandomization_2),
-            );
+            )
+            .expect("Failed to run single_level_batched_select_and_rerandomize");
             let proof = prover.prove(&sr_params.odd_parameters.bp_gens).unwrap();
             proof
         };
@@ -389,7 +399,8 @@ mod tests {
             xs_vars.into_iter().map(|x| x.into()).collect(),
             None::<&[PallasA; M]>,
             None,
-        );
+        )
+        .expect("Failed to run single_level_batched_select_and_rerandomize");
 
         let res = verifier.verify(
             &proof,

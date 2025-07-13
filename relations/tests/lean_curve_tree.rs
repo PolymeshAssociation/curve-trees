@@ -57,7 +57,8 @@ pub fn check_inserts<
     // let mut rng = StdRng::seed_from_u64(0);
     let generators_length = 1 << generators_length_log_2;
 
-    let sr_params = SelRerandParameters::<P0, P1>::new(generators_length, generators_length);
+    let sr_params = SelRerandParameters::<P0, P1>::new(generators_length, generators_length)
+        .expect("Failed to create SelRerandParameters");
 
     let leaves = (0..num_leaves)
         .map(|_| Affine::<P0>::rand(&mut rng))

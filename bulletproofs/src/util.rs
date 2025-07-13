@@ -297,7 +297,7 @@ pub fn read32(data: &[u8]) -> [u8; 32] {
 }
 
 /// Hash a byte string to a curve point using try and increment
-pub fn affine_from_bytes_tai<C: AffineRepr>(bytes: &[u8]) -> C {
+pub fn affine_from_bytes_tai<C: AffineRepr>(bytes: &[u8]) -> Option<C> {
     use sha3::{Digest, Sha3_256};
 
     for i in 0..=u8::MAX {
@@ -307,10 +307,10 @@ pub fn affine_from_bytes_tai<C: AffineRepr>(bytes: &[u8]) -> C {
         let result = sha.finalize();
         let res = C::from_random_bytes(result.as_slice());
         if let Some(point) = res {
-            return point;
+            return Some(point);
         }
     }
-    panic!()
+    None
 }
 
 pub fn field_as_bytes<F: PrimeField>(field: &F) -> Vec<u8> {

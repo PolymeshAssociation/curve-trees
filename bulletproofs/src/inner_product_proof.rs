@@ -415,7 +415,8 @@ mod tests {
         let H: Vec<_> = bp_gens.share(0).H(n).copied().collect();
 
         // Q would be determined upstream in the protocol, so we pick a random one.
-        let Q = util::affine_from_bytes_tai::<Affine>(b"test point");
+        let Q =
+            util::affine_from_bytes_tai::<Affine>(b"test point").expect("Q point should be valid");
 
         // a and b are the vectors for which we want to prove c = <a,b>
         let a: Vec<_> = (0..n).map(|_| F::rand(&mut rng)).collect();

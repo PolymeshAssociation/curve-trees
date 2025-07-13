@@ -1,4 +1,6 @@
+use crate::error::Error;
 use crate::single_level_select_and_rerandomize::*;
+
 use ark_ec::AffineRepr;
 use ark_ec::{models::short_weierstrass::SWCurveConfig, short_weierstrass::Affine, CurveGroup};
 use ark_ff::PrimeField;
@@ -15,11 +17,11 @@ pub struct SelRerandParameters<P0: SWCurveConfig + Copy, P1: SWCurveConfig + Cop
 }
 
 impl<P0: SWCurveConfig + Copy, P1: SWCurveConfig + Copy> SelRerandParameters<P0, P1> {
-    pub fn new(even_generators_length: usize, odd_generators_length: usize) -> Self {
-        SelRerandParameters {
-            even_parameters: SingleLayerParameters::<P0>::new::<P1>(even_generators_length),
-            odd_parameters: SingleLayerParameters::<P1>::new::<P0>(odd_generators_length),
-        }
+    pub fn new(even_generators_length: usize, odd_generators_length: usize) -> Result<Self, Error> {
+        Ok(SelRerandParameters {
+            even_parameters: SingleLayerParameters::<P0>::new::<P1>(even_generators_length)?,
+            odd_parameters: SingleLayerParameters::<P1>::new::<P0>(odd_generators_length)?,
+        })
     }
 }
 

@@ -1,4 +1,5 @@
 use ark_serialize::SerializationError;
+use ark_std::string::String;
 use schnorr_pok::error::SchnorrError;
 use thiserror::Error;
 
@@ -33,6 +34,18 @@ pub enum Error {
     /// Schnorr proof error
     #[error("Schnorr proof error: {0:?}")]
     SchnorrError(SchnorrError),
+
+    /// Failed to generate point or scalar.
+    #[error("Failed to generate point or scalar: {0}")]
+    GenerationError(String),
+
+    /// Bulletprof R1CS error
+    #[error("Bulletproof R1CS error: {0}")]
+    BulletproofR1CSError(#[from] bulletproofs::r1cs::R1CSError),
+
+    /// Mismatched size.
+    #[error("Mismatched size: difference {0}")]
+    MismatchedSize(usize),
 }
 
 impl From<ark_serialize::SerializationError> for Error {

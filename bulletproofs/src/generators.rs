@@ -35,6 +35,17 @@ pub struct PedersenGens<C: AffineRepr> {
 }
 
 impl<C: AffineRepr> PedersenGens<C> {
+    /// Creates a new `PedersenGens` object with the default base points.
+    pub fn new() -> Option<Self> {
+        let basepoint = C::generator();
+        let mut buffer: Vec<u8> = Vec::new();
+        basepoint.serialize_compressed(&mut buffer).ok()?;
+        Some(PedersenGens {
+            B: C::generator(),
+            B_blinding: util::affine_from_bytes_tai(&buffer)?,
+        })
+    }
+
     /// Creates a Pedersen commitment using the value scalar and a blinding factor.
     pub fn commit(&self, value: C::ScalarField, blinding: C::ScalarField) -> C {
         C::Group::msm_unchecked(&[self.B, self.B_blinding], &[value, blinding]).into()
@@ -43,13 +54,7 @@ impl<C: AffineRepr> PedersenGens<C> {
 
 impl<C: AffineRepr> Default for PedersenGens<C> {
     fn default() -> Self {
-        let basepoint = C::generator();
-        let mut buffer: Vec<u8> = Vec::new();
-        basepoint.serialize_compressed(&mut buffer).unwrap(); // todo use hash trait?
-        PedersenGens {
-            B: C::generator(),
-            B_blinding: util::affine_from_bytes_tai(&buffer),
-        }
+        Self::new().expect("Default PedersenGens should always succeed")
     }
 }
 
@@ -98,7 +103,7 @@ impl<C: AffineRepr> Iterator for GeneratorsChain<C> {
         let mut uniform_bytes = [0u8; 64];
         self.reader.read(&mut uniform_bytes);
 
-        Some(util::affine_from_bytes_tai(&uniform_bytes))
+        util::affine_from_bytes_tai(&uniform_bytes)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {

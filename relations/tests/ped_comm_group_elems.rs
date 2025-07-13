@@ -44,7 +44,8 @@ pub fn check_naive<
     let mut rng = rand::thread_rng();
     let generators_length = 1 << generators_length_log_2;
 
-    let sr_params = SelRerandParameters::<P0, P1>::new(generators_length, generators_length);
+    let sr_params = SelRerandParameters::<P0, P1>::new(generators_length, generators_length)
+        .expect("Failed to create SelRerandParameters");
 
     let possible_proof_indices = (0..num_leaves).map(|i| i).collect::<Vec<_>>();
     let mut proof_indices = BTreeMap::new();
@@ -109,7 +110,8 @@ pub fn check_naive<
             &path_commitments.re_randomized_leaf,
             re_randomization_of_leaf,
             &sr_params.odd_parameters,
-        );
+        )
+        .expect("Failed to prove naive");
 
         let (pallas_proof, vesta_proof) = prove(pallas_prover, vesta_prover, &sr_params).unwrap();
 
@@ -149,7 +151,8 @@ pub fn check_naive<
                 rerandomized_leaf,
                 re_randomized_nested,
                 &sr_params.odd_parameters,
-            );
+            )
+            .expect("Failed to verify naive");
 
             let vesta_res = vesta_verifier.verify(
                 &vesta_proof,
@@ -191,7 +194,8 @@ pub fn check<
     let mut rng = rand::thread_rng();
     let generators_length = 1 << generators_length_log_2;
 
-    let sr_params = SelRerandParameters::<P0, P1>::new(generators_length, generators_length);
+    let sr_params = SelRerandParameters::<P0, P1>::new(generators_length, generators_length)
+        .expect("Failed to create SelRerandParameters");
 
     let possible_proof_indices = (0..num_leaves).map(|i| i).collect::<Vec<_>>();
     let mut proof_indices = BTreeMap::new();
