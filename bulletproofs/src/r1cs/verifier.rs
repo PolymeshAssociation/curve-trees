@@ -625,7 +625,7 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
         let a = proof.ipp_proof.a;
         let b = proof.ipp_proof.b;
 
-        let y_inv = y.inverse().unwrap();
+        let y_inv = y.inverse().ok_or(R1CSError::VerificationError)?;
         let y_inv_vec = util::exp_iter(y_inv)
             .take(padded_n)
             .collect::<Vec<C::ScalarField>>();
@@ -663,10 +663,10 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
             let mut y_inv_vec = y_inv_vec.into_iter();
 
             for i in 0..padded_n {
-                let y_inv = y_inv_vec.next().unwrap();
-                let u_or_1 = u_for_h.next().unwrap();
+                let y_inv = y_inv_vec.next().ok_or(R1CSError::VerificationError)?;
+                let u_or_1 = u_for_h.next().ok_or(R1CSError::VerificationError)?;
 
-                let si = s.next().unwrap();
+                let si = s.next().ok_or(R1CSError::VerificationError)?;
                 let wLi = wL.next().unwrap_or_default();
                 let wOi = wO.next().unwrap_or_default();
 
@@ -784,7 +784,7 @@ pub fn batch_verify_with_rng<C: AffineRepr, R: RngCore + CryptoRng>(
     rng: &mut R,
 ) -> Result<(), R1CSError> {
     let mut ver_iter = verification_tuples.into_iter();
-    let vt = ver_iter.next().unwrap();
+    let vt = ver_iter.next().ok_or(R1CSError::VerificationError)?;
     let (mut proof_points, mut proof_point_scalars, mut linear_combination) = (
         vt.proof_dependent_points,
         vt.proof_dependent_scalars,

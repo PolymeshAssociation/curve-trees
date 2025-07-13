@@ -129,11 +129,7 @@ impl<C: AffineRepr> InnerProductProof<C> {
             transcript.append_point(b"R", &R);
 
             let u = TranscriptProtocol::challenge_scalar::<C>(transcript, b"u");
-            let u_inv = if let Some(res) = u.inverse() {
-                res
-            } else {
-                panic!("u challenge is zero");
-            };
+            let u_inv = u.inverse().expect("u challenge is zero");
 
             for i in 0..n {
                 a_L[i] = a_L[i] * u + u_inv * a_R[i];
@@ -205,11 +201,7 @@ impl<C: AffineRepr> InnerProductProof<C> {
             transcript.append_point(b"R", &R);
 
             let u = TranscriptProtocol::challenge_scalar::<C>(transcript, b"u");
-            let u_inv = if let Some(res) = u.inverse() {
-                res
-            } else {
-                panic!("u challenge is zero");
-            };
+            let u_inv = u.inverse().expect("u challenge is zero");
 
             for i in 0..n {
                 a_L[i] = a_L[i] * u + u_inv * a_R[i];
@@ -409,7 +401,7 @@ mod tests {
 
     use crate::util;
 
-    fn test_helper_create(n: usize) {
+    fn test_helper_create(n: usize) -> Result<(), ProofError> {
         use ark_std::rand::{prelude::StdRng, Rng, SeedableRng};
         let seed = [
             1, 0, 0, 0, 23, 0, 0, 0, 200, 1, 0, 0, 210, 30, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -476,60 +468,61 @@ mod tests {
         );
 
         let mut verifier = MerlinTranscript::new(b"innerproducttest");
-        assert!(proof
-            .verify(
-                n,
-                &mut verifier,
-                iter::repeat(F::one()).take(n),
-                util::exp_iter(y_inv).take(n),
-                &P,
-                &Q,
-                &G,
-                &H
-            )
-            .is_ok());
+        proof.verify(
+            n,
+            &mut verifier,
+            iter::repeat(F::one()).take(n),
+            util::exp_iter(y_inv).take(n),
+            &P,
+            &Q,
+            &G,
+            &H,
+        )?;
 
         let mut buf = Vec::with_capacity(proof.serialized_size(Compress::Yes));
-        proof.serialize_compressed(&mut buf).unwrap();
-        let proof = InnerProductProof::deserialize_compressed(&buf[..]).unwrap();
+        proof
+            .serialize_compressed(&mut buf)
+            .expect("serialization failed");
+        let proof =
+            InnerProductProof::deserialize_compressed(&buf[..]).expect("deserialization failed");
         let mut verifier = MerlinTranscript::new(b"innerproducttest");
-        assert!(proof
-            .verify(
-                n,
-                &mut verifier,
-                iter::repeat(F::one()).take(n),
-                util::exp_iter(y_inv).take(n),
-                &P,
-                &Q,
-                &G,
-                &H
-            )
-            .is_ok());
+        proof.verify(
+            n,
+            &mut verifier,
+            iter::repeat(F::one()).take(n),
+            util::exp_iter(y_inv).take(n),
+            &P,
+            &Q,
+            &G,
+            &H,
+        )?;
+
+        Ok(())
     }
 
     #[test]
-    fn make_ipp_1() {
-        test_helper_create(1);
+    fn make_ipp_1() -> Result<(), ProofError> {
+        test_helper_create(1)
     }
 
     #[test]
-    fn make_ipp_2() {
-        test_helper_create(2);
+    fn make_ipp_2() -> Result<(), ProofError> {
+        test_helper_create(2)
     }
 
     #[test]
-    fn make_ipp_4() {
-        test_helper_create(4);
+    fn make_ipp_4() -> Result<(), ProofError> {
+        test_helper_create(4)
     }
 
     #[test]
-    fn make_ipp_32() {
-        test_helper_create(32);
+    fn make_ipp_32() -> Result<(), ProofError> {
+        test_helper_create(32)
     }
 
     #[test]
-    fn make_ipp_64() {
-        test_helper_create(64);
+    fn make_ipp_64() -> Result<(), ProofError> {
+        test_helper_create(64)
     }
 
     #[test]

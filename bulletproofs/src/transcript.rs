@@ -90,9 +90,9 @@ impl TranscriptProtocol for MerlinTranscript {
             Err(ProofError::VerificationError)
         } else {
             let mut bytes = Vec::new();
-            if let Err(e) = point.serialize_compressed(&mut bytes) {
-                panic!("{}", e)
-            }
+            point
+                .serialize_compressed(&mut bytes)
+                .map_err(|_| ProofError::VerificationError)?;
             self.append_message(label, &bytes);
             Ok(())
         }
