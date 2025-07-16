@@ -182,6 +182,7 @@ impl<
         parameters: &SelRerandParameters<P0, P1>,
         rng: &mut R,
     ) -> (SelectAndRerandomizePath<L, P0, P1>, P0::ScalarField) {
+        let root_is_even = self.root_is_even();
         // for each even internal node, there must be a rerandomization of a commitment in the odd curve
         let even_length = self.even_internal_nodes.len();
         let mut odd_rerandomization_scalars: Vec<P1::ScalarField> = Vec::with_capacity(even_length);
@@ -234,7 +235,7 @@ impl<
 
         let prove_even = |prover: &mut Prover<MerlinTranscript, Affine<P0>>| {
             for i in 0..even_length {
-                let (current_node_rerandomization, current_node) = if self.root_is_even() {
+                let (current_node_rerandomization, current_node) = if root_is_even {
                     if i == 0 {
                         // the parent is the root and thus not rerandomized
                         (F0::zero(), Affine::<P0>::zero())
@@ -262,7 +263,7 @@ impl<
 
         let prove_odd = |prover: &mut Prover<MerlinTranscript, Affine<P1>>| {
             for i in 0..odd_length {
-                let (current_node_rerandomization, current_node) = if !self.root_is_even() {
+                let (current_node_rerandomization, current_node) = if !root_is_even {
                     if i == 0 {
                         // the parent is the root and thus not rerandomized
                         (F1::zero(), Affine::<P1>::zero())
