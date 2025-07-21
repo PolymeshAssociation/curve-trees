@@ -62,8 +62,8 @@ impl<
         const M: usize,
         F0: PrimeField,
         F1: PrimeField,
-        P0: SWCurveConfig<BaseField = F1, ScalarField = F0> + Copy + Send,
-        P1: SWCurveConfig<BaseField = F0, ScalarField = F1> + Copy + Send,
+        P0: SWCurveConfig<BaseField = F1, ScalarField = F0> + Copy,
+        P1: SWCurveConfig<BaseField = F0, ScalarField = F1> + Copy,
     > CurveTree<L, M, P0, P1>
 {
     /// Produce a witness of the path (root to leaf) to the commitment at `index` including siblings.
@@ -93,7 +93,7 @@ impl<
             ),
         }
 
-        assert_eq!(
+        debug_assert_eq!(
             self.height(),
             even_internal_nodes.len() + odd_internal_nodes.len()
         );
@@ -166,7 +166,7 @@ impl<
         let even = self.even_internal_nodes.len() == self.odd_internal_nodes.len();
         // Otherwise there must be an additional even node which has the odd root as parent.
         if !even {
-            assert!(self.even_internal_nodes.len() + 1 == self.odd_internal_nodes.len())
+            debug_assert_eq!(self.even_internal_nodes.len() + 1, self.odd_internal_nodes.len())
         };
         even
     }
@@ -186,15 +186,15 @@ impl<
         // for each even internal node, there must be a rerandomization of a commitment in the odd curve
         let even_length = self.even_internal_nodes.len();
         let mut odd_rerandomization_scalars: Vec<P1::ScalarField> = Vec::with_capacity(even_length);
-        let mut odd_rerandomized_commitments: Vec<Affine<P1>> = Vec::with_capacity(even_length);
+        let mut odd_rerandomized_nodes: Vec<Affine<P1>> = Vec::with_capacity(even_length);
         // and vice versa
         let odd_length = self.odd_internal_nodes.len();
         let mut even_rerandomization_scalars: Vec<P0::ScalarField> = Vec::with_capacity(odd_length);
-        let mut even_rerandomized_commitments: Vec<Affine<P0>> = Vec::with_capacity(odd_length);
+        let mut even_rerandomized_nodes: Vec<Affine<P0>> = Vec::with_capacity(odd_length);
 
         // TODO: A small (since height is small) optimization is to compute the all blindings at once.
 
-        // For each node on even levels in the witness path, randomize its child (on the path to leaf) by adding `B_blinding * r_1`
+        // For each node on even levels in the witness path, randomize its child (odd level node) by adding `B_blinding * r_1`
         for even in &self.even_internal_nodes {
             let rerandomization = F1::rand(rng);
             let blinding = parameters
@@ -204,7 +204,7 @@ impl<
                 .mul(rerandomization)
                 .into_affine();
             odd_rerandomization_scalars.push(rerandomization);
-            odd_rerandomized_commitments.push((even.child_node_to_randomize + blinding).into());
+            odd_rerandomized_nodes.push((even.child_node_to_randomize + blinding).into());
         }
 
         let mut re_randomization_of_leaf = F0::default();
@@ -218,16 +218,15 @@ impl<
                 .mul(rerandomization)
                 .into_affine();
             let rerandomized = (odd.child_node_to_randomize + blinding).into();
+            even_rerandomization_scalars.push(rerandomization);
             // Since leaf is always at even level, the parent of leaf is always at odd level. If
             // current node is the last (lowest) odd level node, then its `child_node_to_randomize` is the
             // leaf node whose proof if being created.
             if i < self.odd_internal_nodes.len() - 1 {
                 // Not the lowest odd level node
-                even_rerandomization_scalars.push(rerandomization);
-                even_rerandomized_commitments.push(rerandomized);
+                even_rerandomized_nodes.push(rerandomized);
             } else {
                 // The lowest odd level node
-                even_rerandomization_scalars.push(rerandomization);
                 re_randomization_of_leaf = rerandomization;
                 re_randomized_leaf = rerandomized;
             }
@@ -242,13 +241,13 @@ impl<
                     } else {
                         (
                             even_rerandomization_scalars[i - 1],
-                            even_rerandomized_commitments[i - 1],
+                            even_rerandomized_nodes[i - 1],
                         )
                     }
                 } else {
                     (
                         even_rerandomization_scalars[i],
-                        even_rerandomized_commitments[i],
+                        even_rerandomized_nodes[i],
                     )
                 };
                 self.even_internal_nodes[i].single_level_select_and_rerandomize_prover_gadget(
@@ -270,13 +269,13 @@ impl<
                     } else {
                         (
                             odd_rerandomization_scalars[i - 1],
-                            odd_rerandomized_commitments[i - 1],
+                            odd_rerandomized_nodes[i - 1],
                         )
                     }
                 } else {
                     (
                         odd_rerandomization_scalars[i],
-                        odd_rerandomized_commitments[i],
+                        odd_rerandomized_nodes[i],
                     )
                 };
                 self.odd_internal_nodes[i].single_level_select_and_rerandomize_prover_gadget(
@@ -301,8 +300,8 @@ impl<
         (
             SelectAndRerandomizePath {
                 re_randomized_leaf,
-                odd_commitments: odd_rerandomized_commitments,
-                even_commitments: even_rerandomized_commitments,
+                odd_commitments: odd_rerandomized_nodes,
+                even_commitments: even_rerandomized_nodes,
             },
             re_randomization_of_leaf, // This is the scalar applied to the selected leaf for rerandomization
         )

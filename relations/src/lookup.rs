@@ -7,6 +7,7 @@ use ark_std::vec::Vec;
 const WINDOW_SIZE: usize = 3;
 pub const WINDOW_ELEMS: usize = 1 << WINDOW_SIZE;
 
+/// This is a 3-bit lookup table with `N` columns and `WINDOW_ELEMS` rows
 #[derive(Copy, Clone, Debug, CanonicalSerialize, CanonicalDeserialize)]
 pub struct Lookup3Bit<const N: usize, F: Field> {
     pub elems: [[F; WINDOW_ELEMS]; N],
@@ -58,6 +59,7 @@ fn single_membership<F: Field, Cs: ConstraintSystem<F>>(
     s1: LinearCombination<F>, // bit 1
     s2: LinearCombination<F>, // bit 2
 ) -> LinearCombination<F> {
+    // As per appendix B.6 in the paper. u -> T, sa -> b_&, s0 -> b_0, s1 -> b_1, s2 -> b_2 in the paper.
     // left side
     let (_, _, left): (Variable<F>, Variable<F>, Variable<F>) = cs.multiply(s0, {
         let f = -(sa.clone() * u[0]) + (s2.clone() * u[0]) + (s1.clone() * u[0]) - u[0]
@@ -88,7 +90,8 @@ impl<const N: usize, F: Field> Lookup3Bit<N, F> {
     }
 }
 
-// The witness (provided when proving/None when verifying) is the secret index
+/// Looks up `index` in each column of the table and returns 1 LC per column in the row corresponding to `index`
+/// The witness (provided when proving/None when verifying) is the secret index
 pub fn lookup<const N: usize, F: Field, Cs: ConstraintSystem<F>>(
     cs: &mut Cs,
     table: &Lookup3Bit<N, F>,

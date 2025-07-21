@@ -33,8 +33,8 @@ impl<
         const L: usize,
         F0: PrimeField,
         F1: PrimeField,
-        P0: SWCurveConfig<BaseField = F1, ScalarField = F0> + Copy + Send,
-        P1: SWCurveConfig<BaseField = F0, ScalarField = F1> + Copy + Send,
+        P0: SWCurveConfig<BaseField = F1, ScalarField = F0> + Copy,
+        P1: SWCurveConfig<BaseField = F0, ScalarField = F1> + Copy,
     > PartialCurveTree<L, P0, P1>
 {
     pub fn new(height: u8, parameters: &SelRerandParameters<P0, P1>) -> Result<Self, Error> {

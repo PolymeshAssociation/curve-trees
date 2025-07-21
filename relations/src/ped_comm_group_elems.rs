@@ -176,7 +176,7 @@ pub fn naive_gadget<
             PointRepresentation {
                 x: x_var.into(),
                 y: y_var.into(),
-                witness: points_plus_delta_xy[i].0,
+                point: points_plus_delta_xy[i].0,
             },
             constant(re_randomized_points_plus_delta[i].x),
             constant(re_randomized_points_plus_delta[i].y),

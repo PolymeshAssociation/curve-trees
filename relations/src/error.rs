@@ -11,6 +11,10 @@ pub enum Error {
     #[error("Curve Tree height cannot be 0")]
     HeightCantBe0,
 
+    /// Child doesn't exist at the given index
+    #[error("Child doesn't exist at index {0}")]
+    ChildDoesntExistAtIndex(u64),
+
     /// Leaf doesn't exist at the given index
     #[error("Leaf doesn't exist at index {0}")]
     LeafDoesntExistAtIndex(u64),
@@ -46,6 +50,10 @@ pub enum Error {
     /// Mismatched size.
     #[error("Mismatched size: difference {0}")]
     MismatchedSize(usize),
+
+    /// The curve point cannot be 0.
+    #[error("The curve point cannot be 0")]
+    PointCantBeZero,
 }
 
 impl From<ark_serialize::SerializationError> for Error {

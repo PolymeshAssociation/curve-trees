@@ -15,8 +15,8 @@ impl<
         const M: usize,
         F0: PrimeField,
         F1: PrimeField,
-        P0: SWCurveConfig<BaseField = F1, ScalarField = F0> + Copy + Send,
-        P1: SWCurveConfig<BaseField = F0, ScalarField = F1> + Copy + Send,
+        P0: SWCurveConfig<BaseField = F1, ScalarField = F0> + Copy,
+        P1: SWCurveConfig<BaseField = F0, ScalarField = F1> + Copy,
     > CurveTree<L, M, P0, P1>
 {
     /// Adds the root to a randomized path provided by the prover. The "root" here is the commitment to the x-coordinates
@@ -49,8 +49,8 @@ impl<
         const M: usize,
         F0: PrimeField,
         F1: PrimeField,
-        P0: SWCurveConfig<BaseField = F1, ScalarField = F0> + Copy + Send,
-        P1: SWCurveConfig<BaseField = F0, ScalarField = F1> + Copy + Send,
+        P0: SWCurveConfig<BaseField = F1, ScalarField = F0> + Copy,
+        P1: SWCurveConfig<BaseField = F0, ScalarField = F1> + Copy,
     > CurveTree<L, M, P0, P1>
 {
     pub fn select_and_rerandomize_verifier_gadget<T: BorrowMut<MerlinTranscript>>(
@@ -77,8 +77,8 @@ impl<
 impl<
         const L: usize,
         F: PrimeField,
-        P0: SWCurveConfig<BaseField = F> + Copy + Send,
-        P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = F> + Copy + Send,
+        P0: SWCurveConfig<BaseField = F> + Copy,
+        P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = F> + Copy,
     > SelectAndRerandomizePath<L, P0, P1>
 {
     /// Get the public rerandomization of the selected (leaf) commitment
@@ -95,7 +95,7 @@ impl<
         // Determine the parity of the root:
         let root_is_odd = self.even_commitments.len() + 1 == self.odd_commitments.len();
         if !root_is_odd {
-            assert!(self.even_commitments.len() == self.odd_commitments.len());
+            assert_eq!(self.even_commitments.len(), self.odd_commitments.len());
         }
 
         for parent_index in 0..self.even_commitments.len() {
@@ -144,7 +144,7 @@ impl<
         // Determine the parity of the root:
         let root_is_odd = self.even_commitments.len() + 1 == self.odd_commitments.len();
         if !root_is_odd {
-            assert!(self.even_commitments.len() == self.odd_commitments.len());
+            assert_eq!(self.even_commitments.len(), self.odd_commitments.len());
         }
         for parent_index in 0..self.odd_commitments.len() {
             let even_index = if root_is_odd {
@@ -192,8 +192,8 @@ impl<
 impl<
         const L: usize,
         F: PrimeField,
-        P0: SWCurveConfig<BaseField = F> + Copy + Send,
-        P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = F> + Copy + Send,
+        P0: SWCurveConfig<BaseField = F> + Copy,
+        P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = F> + Copy,
     > SelectAndRerandomizePath<L, P0, P1>
 {
     pub fn select_and_rerandomize_verifier_gadget<T: BorrowMut<MerlinTranscript>>(

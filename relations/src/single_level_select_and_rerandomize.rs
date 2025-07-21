@@ -145,8 +145,6 @@ pub fn single_level_select_and_rerandomize<
         parameters.coeff_b,
     );
 
-    // TODO: x_var and y_var are allocated as as left and right of a multiplier but `MultiplierOutput` is not allocated. Is it fine?
-
     // Show that `rerandomized_child` is a rerandomization of the selected child
     let rerandomized_child_plus_delta = (*rerandomized_child + parameters.delta).into_affine();
     re_randomize(
@@ -155,7 +153,7 @@ pub fn single_level_select_and_rerandomize<
         PointRepresentation {
             x: x_var.into(),
             y: y_var.into(),
-            witness: child_plus_delta,
+            point: child_plus_delta,
         },
         constant(rerandomized_child_plus_delta.x),
         constant(rerandomized_child_plus_delta.y),
@@ -184,7 +182,7 @@ pub fn single_level_batched_select_and_rerandomize<
     let mut sum_of_selected = PointRepresentation {
         x: Variable::One(PhantomData).into(),
         y: Variable::One(PhantomData).into(),
-        witness: children_plus_delta.map(|_| Affine::<C2>::zero()),
+        point: children_plus_delta.map(|_| Affine::<C2>::zero()),
     };
     // Split the variables of the vector commitments into chunks corresponding to the M parents.
     let chunks = children.chunks_exact(children.len() / M);
@@ -195,7 +193,7 @@ pub fn single_level_batched_select_and_rerandomize<
         let ith_selected = PointRepresentation {
             x: x_var.into(),
             y: y_var.into(),
-            witness: ith_selected_witness,
+            point: ith_selected_witness,
         };
         // Show that the parent is committed to the ith child's x-coordinate
         select(cs, x_var.into(), chunk.iter().cloned());

@@ -41,3 +41,5 @@ pub mod error;
 pub mod lean_curve_tree;
 pub mod partial_curve_tree;
 pub mod ped_comm_group_elems;
+
+// TODO: Rename generics types to be more descriptive

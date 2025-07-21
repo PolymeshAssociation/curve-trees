@@ -52,12 +52,10 @@ impl<
         const M: usize,
         F0: PrimeField,
         F1: PrimeField,
-        P0: SWCurveConfig<BaseField = F1, ScalarField = F0> + Copy + Send,
-        P1: SWCurveConfig<BaseField = F0, ScalarField = F1> + Copy + Send,
+        P0: SWCurveConfig<BaseField = F1, ScalarField = F0> + Copy,
+        P1: SWCurveConfig<BaseField = F0, ScalarField = F1> + Copy,
     > CurveTree<L, M, P0, P1>
 {
-    // TODO: This isn't practical to initialize with large sets that don't fit in memory.
-    // We need to have Tornado cash like default leaves. Will also save with the un-necessary computation
     /// Build a curve tree from a set of commitments
     pub fn from_leaves(
         set: &[Affine<P0>],
@@ -248,21 +246,12 @@ impl<
     ) {
         let child_node_index_to_update = node.child_index(leaf_index);
         match node {
-            CurveTreeNode::Leaf(ref mut l) => {
+            CurveTreeNode::Leaf(l) => {
                 *l = new_leaf_value;
             }
             CurveTreeNode::InnerNode(inner_node) => {
                 let child_node_index_to_update = child_node_index_to_update.unwrap();
-                let mut child_node_to_update =
-                    match &mut inner_node.children[child_node_index_to_update] {
-                        None => panic!(
-                            "Child index out of bounds. Height: {}, Index: {}, Local index: {}",
-                            node.height(),
-                            leaf_index,
-                            child_node_index_to_update
-                        ),
-                        Some(child) => child,
-                    };
+                let mut child_node_to_update = inner_node.get_child_mut(child_node_index_to_update);
                 Self::update_odd_node(
                     &mut child_node_to_update,
                     leaf_index,
@@ -294,17 +283,7 @@ impl<
         match node {
             CurveTreeNode::InnerNode(inner_node) => {
                 let child_node_index_to_update = child_node_index_to_update.unwrap();
-
-                let mut child_node_to_update =
-                    match &mut inner_node.children[child_node_index_to_update] {
-                        None => panic!(
-                            "Child index out of bounds. Height: {}, Index: {}, Local index: {}",
-                            node.height(),
-                            leaf_index,
-                            child_node_index_to_update
-                        ),
-                        Some(child) => child,
-                    };
+                let mut child_node_to_update = inner_node.get_child_mut(child_node_index_to_update);
                 Self::update_even_node(
                     &mut child_node_to_update,
                     leaf_index,
@@ -335,7 +314,9 @@ pub struct SelectAndRerandomizePath<const L: usize, P0: SWCurveConfig, P1: SWCur
     /// Randomized leaf, i.e. if leaf is a group element `C` then this is `C + (B_blinding * r)`. This could be part of `even_commitments`
     pub re_randomized_leaf: Affine<P0>,
     // TODO: Why not add re_randomized_leaf to even_commitments as the last element?
+    /// Randomized nodes at the odd level
     pub odd_commitments: Vec<Affine<P1>>,
+    /// Randomized nodes at the even level
     pub even_commitments: Vec<Affine<P0>>,
 }
 
@@ -427,7 +408,7 @@ pub struct InnerNode<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCu
     /// the ith `commitments_to_children` is the commitment to the `children` when using the ith set of generators.
     pub commitments_to_children: [Affine<P0>; M],
     pub children: Box<Children<L, M, P0, P1>>,
-    // Storing as vector as this is causing stack overflow in some tests
+    // Storing as vector as this is causing stack overflow in some tests. Try "Box"ing the array
     // x_coord_children: [[P1::BaseField; L]; M],
     pub x_coord_children: Vec<[P1::BaseField; L]>,
     pub height: usize,
@@ -455,7 +436,14 @@ impl<
         P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = P0::BaseField> + Copy,
     > InnerNode<L, M, P0, P1>
 {
+    // TODO: Get rid of panics
+
     pub fn get_child(&self, index: usize) -> &CurveTreeNode<L, M, P1, P0> {
+        // if let Some(child) = &self.children[index] {
+        //     Ok(child)
+        // } else {
+        //     Err(Error::ChildDoesntExistAtIndex(index as u64))
+        // }
         let child = match &self.children[index] {
             None => panic!("Child index out of bounds. Local index: {}", index),
             Some(child) => child,
@@ -464,6 +452,11 @@ impl<
     }
 
     pub fn get_child_mut(&mut self, index: usize) -> &mut CurveTreeNode<L, M, P1, P0> {
+        // if let Some(child) = &mut self.children[index] {
+        //     Ok(child)
+        // } else {
+        //     Err(Error::ChildDoesntExistAtIndex(index as u64))
+        // }
         let child = match &mut self.children[index] {
             None => panic!("Child index out of bounds. Local index: {}", index),
             Some(child) => child,

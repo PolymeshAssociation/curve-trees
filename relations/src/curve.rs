@@ -30,7 +30,8 @@ pub fn curve_check<F: Field, Cs: ConstraintSystem<F>>(
 pub struct PointRepresentation<F: Field, C: AffineRepr<BaseField = F>> {
     pub x: LinearCombination<F>,
     pub y: LinearCombination<F>,
-    pub witness: Option<C>, // Some(x,y) for the prover, otherwise None
+    /// Some(x,y) for the prover, otherwise None
+    pub point: Option<C>,
 }
 
 /// Given variables representing the coordinates of two points returns two variables representing the sum.
@@ -44,7 +45,7 @@ pub fn incomplete_curve_addition_helper<
     left: PointRepresentation<F, P>,
     right: PointRepresentation<F, P>,
 ) -> PointRepresentation<F, P> {
-    let (out_witness, delta) = match (left.witness, right.witness) {
+    let (out_witness, delta) = match (left.point, right.point) {
         (Some(left), Some(right)) => {
             let out = (left + right).into_affine();
             let delta = (*right.y().unwrap() - *left.y().unwrap())
@@ -70,7 +71,7 @@ pub fn incomplete_curve_addition_helper<
     PointRepresentation {
         x: x_out.into(),
         y: y_out.into(),
-        witness: out_witness,
+        point: out_witness,
     }
 }
 
@@ -86,7 +87,7 @@ pub fn checked_curve_addition_helper<
     left: PointRepresentation<F, P>,
     right: PointRepresentation<F, P>,
 ) -> PointRepresentation<F, P> {
-    let (out_witness, delta, x_l_minus_x_r_inv) = match (left.witness, right.witness) {
+    let (out_witness, delta, x_l_minus_x_r_inv) = match (left.point, right.point) {
         (Some(left), Some(right)) => {
             let out = (left + right).into_affine();
             let delta = (*right.y().unwrap() - left.y().unwrap())
@@ -115,10 +116,11 @@ pub fn checked_curve_addition_helper<
     PointRepresentation {
         x: x_out.into(),
         y: y_out.into(),
-        witness: out_witness,
+        point: out_witness,
     }
 }
 
+/// For enforcing addition of points `(x_o, y_o) = (x_l, y_l) + (x_r, y_r)`
 #[derive(Clone, Debug)]
 pub struct CurveAddition<F: Field> {
     pub x_l: LinearCombination<F>,
@@ -127,11 +129,11 @@ pub struct CurveAddition<F: Field> {
     pub y_r: LinearCombination<F>,
     pub x_o: LinearCombination<F>,
     pub y_o: LinearCombination<F>,
+    /// Slope `(y_r - y_l) / (x_r - x_l)`
     pub delta: Option<F>,
 }
 
-/// Enforce points over C::ScalarField: (x_o, y_o) = (x_l, y_l) + (x_r, y_r)
-/// Takes the slope (delta) as input from the prover
+/// Enforce points over C::ScalarField: `(x_o, y_o) = (x_l, y_l) + (x_r, y_r)` but assumes `x_l != x_r`
 pub fn incomplete_curve_addition<F: Field, Cs: ConstraintSystem<F>>(
     cs: &mut Cs,
     prms: &CurveAddition<F>,
@@ -157,7 +159,7 @@ pub fn incomplete_curve_addition<F: Field, Cs: ConstraintSystem<F>>(
     );
 }
 
-/// Enforce ()
+/// Similar to `incomplete_curve_addition` but enforces `x_l != x_r`
 pub fn checked_curve_addition<F: Field, Cs: ConstraintSystem<F>>(
     cs: &mut Cs,
     prms: &CurveAddition<F>,
@@ -298,16 +300,16 @@ mod tests {
             PointRepresentation {
                 x: x_l_var.into(),
                 y: y_l_var.into(),
-                witness: Some(p),
+                point: Some(p),
             },
             PointRepresentation {
                 x: x_r_var.into(),
                 y: y_r_var.into(),
-                witness: Some(q),
+                point: Some(q),
             },
         );
         assert_eq!(
-            addition_result.witness.map(|out| out == (p + q)),
+            addition_result.point.map(|out| out == (p + q)),
             Some(true)
         );
 
@@ -325,12 +327,12 @@ mod tests {
             PointRepresentation {
                 x: x_l_var.into(),
                 y: y_l_var.into(),
-                witness: None,
+                point: None,
             },
             PointRepresentation {
                 x: x_r_var.into(),
                 y: y_r_var.into(),
-                witness: None,
+                point: None,
             },
         );
 
@@ -363,17 +365,17 @@ mod tests {
             PointRepresentation {
                 x: x_l_var.into(),
                 y: y_l_var.into(),
-                witness: Some(p),
+                point: Some(p),
             },
             PointRepresentation {
                 x: x_r_var.into(),
                 y: y_r_var.into(),
-                witness: Some(q),
+                point: Some(q),
             },
         );
         assert_eq!(
             addition_result
-                .witness
+                .point
                 .map(|out| out == (p + q) && out != PallasA::zero()),
             Some(true)
         );
@@ -392,12 +394,12 @@ mod tests {
             PointRepresentation {
                 x: x_l_var.into(),
                 y: y_l_var.into(),
-                witness: None,
+                point: None,
             },
             PointRepresentation {
                 x: x_r_var.into(),
                 y: y_r_var.into(),
-                witness: None,
+                point: None,
             },
         );
 

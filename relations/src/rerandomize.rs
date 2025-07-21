@@ -11,22 +11,37 @@ use ark_ff::{BigInteger, Field, PrimeField};
 use ark_std::{vec::Vec, One, Zero};
 use core::marker::PhantomData;
 
+/// Return 1 lookup table per window for the windowed scalar multiplication
+/// Each table has 2 columns, for x and y coordinates for the corresponding point of the table.
+/// Implemented as per appendix B.7
 pub fn build_tables<C: AffineRepr>(h: C) -> Result<Vec<Lookup3Bit<2, C::BaseField>>, Error> {
-    let lambda = <C::ScalarField as PrimeField>::MODULUS_BIT_SIZE as usize;
-    let m = lambda / 3 + 1;
+    if h.is_zero() {
+        return Err(Error::PointCantBeZero);
+    }
+    let m = get_num_windows::<C::ScalarField>();
+
+    /// Return `x * 8`
+    fn times_8<C: AffineRepr>(x: &C::ScalarField) -> C::ScalarField {
+        let mut x = x.double();
+        x.double_in_place();
+        x.double_in_place();
+        x
+    }
 
     // Define tables T_1 .. T_m, and witnesses
     let mut tables = Vec::with_capacity(m);
     let mut m_th_right_term = C::ScalarField::zero();
+    // 2^(3*(i - 1))
+    let mut j_term = C::ScalarField::one();
     for i in 1..m + 1 {
         let mut table = Lookup3Bit::<2, C::BaseField> {
             elems: [[C::BaseField::one(); WINDOW_ELEMS]; 2],
         };
-        // 2^(3*(i - 1))
-        let j_term = C::ScalarField::from(2u64).pow([3u64 * (i - 1) as u64]);
+        // `right_term` is added to each of the m-1 windows to ensure that none of the multiplications result
+        // in "0" point since the coordinates can't be taken then.
         let right_term = if i < m {
             // 2^(3*i)
-            let right_term = C::ScalarField::from(2u64).pow([3u64 * i as u64]);
+            let right_term = times_8::<C>(&j_term);
             // add right term to the sum in the mth iteration right term
             m_th_right_term += right_term;
             right_term
@@ -39,7 +54,6 @@ pub fn build_tables<C: AffineRepr>(h: C) -> Result<Vec<Lookup3Bit<2, C::BaseFiel
             let s = (C::ScalarField::from(j as u64) * j_term) + right_term;
             // Multiply blinding by s
             let hs = h.mul(s).into_affine();
-            // todo account for hs = 0 or make sure that it can never happen.
             table.elems[0][j] = *hs
                 .x()
                 .ok_or_else(|| Error::GenerationError("Failed to get x coordinate".into()))?;
@@ -48,12 +62,140 @@ pub fn build_tables<C: AffineRepr>(h: C) -> Result<Vec<Lookup3Bit<2, C::BaseFiel
                 .ok_or_else(|| Error::GenerationError("Failed to get y coordinate".into()))?;
         }
         tables.push(table);
+        // Last iteration doesn't matter
+        j_term = right_term;
     }
     Ok(tables)
 }
 
+/// Scalar multiplication of point with given lookup table `tables` and scalar `randomness`.
+/// Returns the point, and linear combinations for its x and y coordinates. The resulting point is 0 for verifier
+pub fn scalar_mult<
+    F: Field,
+    S: PrimeField,
+    P: SWCurveConfig<BaseField = F, ScalarField = S>,
+    Cs: ConstraintSystem<F>,
+>(
+    cs: &mut Cs,
+    tables: &[Lookup3Bit<2, F>],
+    randomness: Option<S>,
+) -> Result<(Affine<P>, LinearCombination<F>, LinearCombination<F>), Error> {
+    let lambda = S::MODULUS_BIT_SIZE as usize;
+    let num_windows = get_num_windows::<S>();
+    assert_eq!(num_windows, tables.len());
+    let r_bits = match randomness {
+        None => None,
+        Some(r) => {
+            let r: S::BigInt = r.into();
+            Some(r.to_bits_le())
+        }
+    };
+
+    // This will finally be set to the blinding point, i.e. `H * randomness`
+    let mut res = Affine::<P>::zero();
+
+    // These correspond to x and y coordinates of the previous iteration's `res`
+    let mut res_prev_x_lc: LinearCombination<F> = Variable::One(PhantomData).into();
+    let mut res_prev_y_lc: LinearCombination<F> = Variable::One(PhantomData).into();
+
+    // Define tables T_1 .. T_m, and witnesses
+    for i in 1..num_windows + 1 {
+        let table = tables[i - 1];
+
+        // Add the point in `table` corresponding to `index` to `res`
+        let (index, x_l_minus_x_r_inv, delta, res_x, res_y) = match &r_bits {
+            None => (None, None, None, None, None),
+            Some(bits) => {
+                // bi is the starting bit index of this window
+                let bi = (i - 1) * 3;
+
+                // Value of index is the 3-bit value [bi + 2, bi + 1, bi] with bi being the LSB
+                let mut index: usize = usize::from(bi < lambda && bits[bi]);
+                if bi + 1 < lambda && bits[bi + 1] {
+                    index += 2;
+                };
+                if bi + 2 < lambda && bits[bi + 2] {
+                    index += 4;
+                };
+
+                let x_i_lookup = table.elems[0][index];
+                let y_i_lookup = table.elems[1][index];
+
+                // At infinity, both x and y are 0
+                let (x_left, y_left) = (res.x, res.y);
+
+                let x_right = x_i_lookup;
+                let y_right = y_i_lookup;
+
+                // y_l - y_r / x_l - x_r, 1 / x_l - x_r
+                let (delta, x_left_minus_x_right_inv) = if i != 1 {
+                    // x_left - x_right can't be 0 since the smallest point in this window is bigger than
+                    // the sum of the largest points of all previous windows for the first m-1 windows and for
+                    // the m-th window calculating sum of "right term" using geometric progression formula shows
+                    // that "left term" + "right term" can't be 0
+                    let (delta, x_left_minus_x_right_inv) = delta::<F>(x_left, y_left, x_right, y_right);
+                    (
+                        Some(delta),
+                        // Only needed for checked curve addition done in the last iteration
+                        if i == num_windows { Some(x_left_minus_x_right_inv) } else { None },
+                    )
+                } else {
+                    (None, None)
+                };
+
+                res = (res + Affine::<P>::new(x_i_lookup, y_i_lookup)).into();
+
+                (
+                    Some(index),
+                    x_left_minus_x_right_inv,
+                    delta,
+                    Some(res.x),
+                    Some(res.y),
+                )
+            }
+        };
+
+        let [x_table, y_table] = lookup(cs, &table, index)?;
+
+        // Ensure that this table's correct element was added to `res` to get its new value
+        // Allocate coordinates for the accumulated witness
+        let res_x_lc: LinearCombination<F> = cs.allocate(res_x)?.into();
+        let res_y_lc: LinearCombination<F> = cs.allocate(res_y)?.into();
+        if i > 1 {
+            // Enforce addition constraint:
+            // R_i = R_{i-1} + (x_i, y_i)
+            let prms = CurveAddition {
+                x_l: res_prev_x_lc.clone(),
+                y_l: res_prev_y_lc.clone(),
+                x_r: x_table,
+                y_r: y_table,
+                x_o: res_x_lc.clone(),
+                y_o: res_y_lc.clone(),
+                delta,
+            };
+            if i == num_windows {
+                // enforce checked curve addition
+                checked_curve_addition(cs, &prms, x_l_minus_x_r_inv);
+            } else {
+                // enforce incomplete curve addition
+                incomplete_curve_addition(cs, &prms);
+            }
+        }
+        res_prev_x_lc = res_x_lc;
+        res_prev_y_lc = res_y_lc;
+    }
+
+    Ok((
+        res,
+        res_prev_x_lc,
+        res_prev_y_lc,
+    ))
+}
+
 /// For proving that randomization the point inside `commitment` is same as point represented by x and y coordinates
-/// in re_randomized_commitment_x_coord and re_randomized_commitment_y_coord respectively
+/// in `re_randomized_commitment_x_coord` and `re_randomized_commitment_y_coord` respectively.
+/// Enforces `commitment.point + H * randomness = (re_randomized_commitment_x_coord, re_randomized_commitment_y_coord)`
+/// where `tables` correspond to the lookup tables for `H`
 pub fn re_randomize<
     F: Field,
     S: PrimeField,
@@ -65,124 +207,26 @@ pub fn re_randomize<
     commitment: PointRepresentation<F, Affine<P>>,
     re_randomized_commitment_x_coord: LinearCombination<F>,
     re_randomized_commitment_y_coord: LinearCombination<F>,
-    randomness: Option<S>, // Witness provided by the prover
+    randomness: Option<S>,
 ) -> Result<(), Error> {
-    let lambda = S::MODULUS_BIT_SIZE as usize;
-    let m = lambda / 3 + 1;
+    let (res, res_x_lc, res_y_lc) =
+        scalar_mult::<F, S, P, Cs>(cs, tables, randomness)?;
 
-    let r_bits = match randomness {
-        None => None,
-        Some(r) => {
-            let r: S::BigInt = r.into();
-            Some(r.to_bits_le())
-        }
-    };
-
-    let mut blinding_accumulator = Affine::<P>::zero();
-    let mut acc_i_minus_1_x_lc: LinearCombination<F> = Variable::One(PhantomData).into();
-    let mut acc_i_minus_1_y_lc: LinearCombination<F> = Variable::One(PhantomData).into();
-    // Define tables T_1 .. T_m, and witnesses
-    for i in 1..m + 1 {
-        let table = tables[i - 1];
-
-        let (index, x_l_minus_x_r_inv, delta, acc_i_x, acc_i_y) = match &r_bits {
-            None => (None, None, None, None, None),
-            Some(random_bits) => {
-                let bi = (i - 1) * 3;
-                let mut index: usize = usize::from(bi < lambda && random_bits[bi]);
-                if bi + 1 < lambda && random_bits[bi + 1] {
-                    index += 2;
-                };
-                if bi + 2 < lambda && random_bits[bi + 2] {
-                    index += 4;
-                };
-                let x_i_lookup = table.elems[0][index];
-                let y_i_lookup = table.elems[1][index];
-                let x_left = if i == 1 {
-                    F::zero()
-                } else {
-                    blinding_accumulator.x
-                }; // read before updating blinding accumulator
-                let y_left = if i == 1 {
-                    F::zero()
-                } else {
-                    *blinding_accumulator.y().ok_or_else(|| {
-                        Error::GenerationError("Failed to get y coordinate".into())
-                    })?
-                }; // read before updating blinding accumulator
-                let x_right = x_i_lookup;
-                let y_right = y_i_lookup;
-                // compute slope delta
-                let delta = if i != 1 {
-                    Some((y_right - y_left) / (x_right - x_left))
-                } else {
-                    None
-                };
-                let x_left_minus_x_right_inv = if i == m {
-                    // compute x_l-x_r inverse for checked addition
-                    Some(F::one() / (x_left - x_right))
-                } else {
-                    None
-                };
-                blinding_accumulator =
-                    (blinding_accumulator + Affine::<P>::new(x_i_lookup, y_i_lookup)).into();
-
-                (
-                    Some(index),
-                    x_left_minus_x_right_inv,
-                    delta,
-                    Some(blinding_accumulator.x),
-                    Some(blinding_accumulator.y),
-                )
-            }
-        };
-
-        let [x_table, y_table] = lookup(cs, &table, index)?;
-
-        // Allocate coordinates for the accumulated witness
-        let acc_i_x_lc: LinearCombination<F> = cs.allocate(acc_i_x)?.into();
-        let acc_i_y_lc: LinearCombination<F> = cs.allocate(acc_i_y)?.into();
-        if i > 1 {
-            // Enforce addition constraint:
-            // R_i = R_i-1 + (x_i, y_i)
-            let prms = CurveAddition {
-                x_l: acc_i_minus_1_x_lc.clone(),
-                y_l: acc_i_minus_1_y_lc.clone(),
-                x_r: x_table,
-                y_r: y_table,
-                x_o: acc_i_x_lc.clone(),
-                y_o: acc_i_y_lc.clone(),
-                delta,
-            };
-            if i == m {
-                // enforce checked curve addition
-                checked_curve_addition(cs, &prms, x_l_minus_x_r_inv);
-            } else {
-                // enforce incomplete curve addition
-                incomplete_curve_addition(cs, &prms);
-            }
-        }
-        acc_i_minus_1_x_lc = acc_i_x_lc;
-        acc_i_minus_1_y_lc = acc_i_y_lc;
-    }
-
+    // Now `(res_x_lc, res_y_lc)` correspond to x and y coordinates of the blinding point, i.e. `H * randomness`
+    // Enforce that sum of point in `commitment` + `(res_x_lc, res_y_lc)` equals `(re_randomized_commitment_x_coord, re_randomized_commitment_y_coord)`
     // constrain (x_tilde, y_tilde) = (x, y) + (R_m) - with checked addition
-    let (delta, x_l_minus_x_r_inv) = match commitment.witness {
+    let (delta, x_l_minus_x_r_inv) = match commitment.point {
         Some(commitment) => {
-            let x_left = commitment.x;
-            let y_left = commitment.y;
-            let x_right = blinding_accumulator.x;
-            let y_right = blinding_accumulator.y;
-            let delta = (y_right - y_left) / (x_right - x_left);
-            (Some(delta), Some(F::one() / (x_left - x_right)))
+            let (delta, x_left_minus_x_right_inv) = delta::<F>(commitment.x, commitment.y, res.x, res.y);
+            (Some(delta), Some(x_left_minus_x_right_inv))
         }
         _ => (None, None),
     };
     let prms = CurveAddition {
         x_l: commitment.x,
         y_l: commitment.y,
-        x_r: acc_i_minus_1_x_lc,
-        y_r: acc_i_minus_1_y_lc,
+        x_r: res_x_lc,
+        y_r: res_y_lc,
         x_o: re_randomized_commitment_x_coord,
         y_o: re_randomized_commitment_y_coord,
         delta,
@@ -190,6 +234,20 @@ pub fn re_randomize<
     checked_curve_addition(cs, &prms, x_l_minus_x_r_inv);
 
     Ok(())
+}
+
+/// compute slope delta as y_l - y_r / x_l - x_r. Return delta and 1 / x_l - x_r
+fn delta<F: Field>(x_l: F, y_l: F, x_r: F, y_r: F) -> (F, F) {
+    let x_l_minus_x_r_inv = F::one() / (x_l - x_r);
+    let delta = (y_l - y_r) * x_l_minus_x_r_inv;
+    (delta, x_l_minus_x_r_inv)
+}
+
+/// number of windows for 3-bit windows
+fn get_num_windows<F: PrimeField>() -> usize {
+    let lambda = F::MODULUS_BIT_SIZE as usize;
+    // Need floor(lambda/3) + 1 rather than ceil(lambda/3) windows to adjust for the "right term" added to each window
+    (lambda / 3) + 1
 }
 
 #[cfg(test)]
@@ -207,67 +265,142 @@ mod tests {
     type PallasScalar = <PallasA as AffineRepr>::ScalarField;
 
     #[test]
-    fn test_re_randomize() -> Result<(), Error> {
+    fn test_scalar_mult() {
         let mut rng = rand::thread_rng();
-        let h = PallasA::rand(&mut rng);
-        let c = PallasA::rand(&mut rng);
-        let r: PallasScalar = <PallasA as AffineRepr>::ScalarField::rand(&mut rng);
-        let blinding = h * r;
-        let c_tilde = (c + blinding).into_affine();
-
-        let tables = build_tables(h).expect("Failed to build tables");
 
         let pc_gens = PedersenGens::<VestaA>::default();
         let bp_gens = BulletproofGens::<VestaA>::new(1024, 1);
 
-        let proof = {
-            let mut transcript = MerlinTranscript::new(b"RerandGadget");
-            let mut prover = Prover::new(&pc_gens, &mut transcript);
-            let c_x_var = prover.allocate(Some(c.x))?;
-            let c_y_var = prover.allocate(Some(c.y))?;
-            let c_x_tilde_var = prover.allocate(Some(c_tilde.x))?;
-            let c_y_tilde_var = prover.allocate(Some(c_tilde.y))?;
+        let h = PallasA::rand(&mut rng);
+        let tables = build_tables(h).expect("Failed to build tables");
 
-            re_randomize(
-                &mut prover,
+        let mut modulus = <<PallasA as AffineRepr>::ScalarField as PrimeField>::MODULUS;
+        modulus.sub_with_borrow(&<PallasScalar as PrimeField>::BigInt::from(1u64));
+        let p_minus_1 = PallasScalar::from_bigint(modulus).unwrap();
+
+        const LABEL: &[u8; 11] = b"scalar-mult";
+
+        for r in [
+            PallasScalar::one(), // lowest value
+            p_minus_1, // highest value
+            // Some random values
+            PallasScalar::rand(&mut rng),
+            PallasScalar::rand(&mut rng),
+        ] {
+            let proof = {
+                let mut transcript = MerlinTranscript::new(LABEL);
+                let mut prover = Prover::new(&pc_gens, &mut transcript);
+
+                let (res, x_lc, y_lc): (PallasA, _, _) =
+                    scalar_mult(&mut prover, &tables, Some(r)).unwrap();
+
+                assert_eq!(res, (h * r).into_affine());
+
+                curve_check(
+                    &mut prover,
+                    x_lc,
+                    y_lc,
+                    PallasConfig::COEFF_A,
+                    PallasConfig::COEFF_B,
+                );
+
+                let proof = prover.prove(&bp_gens).unwrap();
+                proof
+            };
+
+            let mut transcript = MerlinTranscript::new(LABEL);
+            let mut verifier: Verifier<_, VestaA> = Verifier::new(&mut transcript);
+
+            let (_, x_lc, y_lc): (PallasA, _, _) = scalar_mult(&mut verifier, &tables, None).unwrap();
+
+            curve_check(
+                &mut verifier,
+                x_lc,
+                y_lc,
+                PallasConfig::COEFF_A,
+                PallasConfig::COEFF_B,
+            );
+
+            verifier.verify(&proof, &pc_gens, &bp_gens).unwrap();
+        }
+    }
+
+    #[test]
+    fn test_re_randomize() -> Result<(), Error> {
+        let pc_gens = PedersenGens::<VestaA>::default();
+        let bp_gens = BulletproofGens::<VestaA>::new(1024, 1);
+
+        let mut rng = rand::thread_rng();
+        let h = PallasA::rand(&mut rng);
+
+        let tables = build_tables(h).expect("Failed to build tables");
+
+        let mut modulus = <<PallasA as AffineRepr>::ScalarField as PrimeField>::MODULUS;
+        modulus.sub_with_borrow(&<PallasScalar as PrimeField>::BigInt::from(1u64));
+        let p_minus_1 = PallasScalar::from_bigint(modulus).unwrap();
+
+        const LABEL: &'static [u8; 12] = b"RerandGadget";
+
+        for r in [
+            PallasScalar::one(), // lowest value
+            p_minus_1, // highest value
+            // Some random values
+            PallasScalar::rand(&mut rng),
+            PallasScalar::rand(&mut rng),
+        ] {
+            let c = PallasA::rand(&mut rng);
+            let blinding = h * r;
+            let c_tilde = (c + blinding).into_affine();
+
+            let proof = {
+                let mut transcript = MerlinTranscript::new(LABEL);
+                let mut prover = Prover::new(&pc_gens, &mut transcript);
+                let c_x_var = prover.allocate(Some(c.x))?;
+                let c_y_var = prover.allocate(Some(c.y))?;
+                let c_x_tilde_var = prover.allocate(Some(c_tilde.x))?;
+                let c_y_tilde_var = prover.allocate(Some(c_tilde.y))?;
+
+                re_randomize(
+                    &mut prover,
+                    &tables,
+                    PointRepresentation {
+                        x: c_x_var.into(),
+                        y: c_y_var.into(),
+                        point: Some(c),
+                    },
+                    c_x_tilde_var.into(),
+                    c_y_tilde_var.into(),
+                    Some(r),
+                )
+                    .expect("Failed to re-randomize");
+
+                let proof = prover.prove(&bp_gens)?;
+                proof
+            };
+
+            let mut transcript = MerlinTranscript::new(LABEL);
+            let mut verifier: Verifier<_, VestaA> = Verifier::new(&mut transcript);
+            let c_x_var = verifier.allocate(None)?;
+            let c_y_var = verifier.allocate(None)?;
+            let c_x_tilde_var = verifier.allocate(None)?;
+            let c_y_tilde_var = verifier.allocate(None)?;
+
+            re_randomize::<_, _, PallasConfig, _>(
+                &mut verifier,
                 &tables,
                 PointRepresentation {
                     x: c_x_var.into(),
                     y: c_y_var.into(),
-                    witness: Some(c),
+                    point: None,
                 },
                 c_x_tilde_var.into(),
                 c_y_tilde_var.into(),
-                Some(r),
+                None,
             )
-            .expect("Failed to re-randomize");
+                .expect("Failed to re-randomize");
 
-            let proof = prover.prove(&bp_gens)?;
-            proof
-        };
-
-        let mut transcript = MerlinTranscript::new(b"RerandGadget");
-        let mut verifier: Verifier<_, VestaA> = Verifier::new(&mut transcript);
-        let c_x_var = verifier.allocate(None)?;
-        let c_y_var = verifier.allocate(None)?;
-        let c_x_tilde_var = verifier.allocate(None)?;
-        let c_y_tilde_var = verifier.allocate(None)?;
-
-        re_randomize::<_, _, PallasConfig, _>(
-            &mut verifier,
-            &tables,
-            PointRepresentation {
-                x: c_x_var.into(),
-                y: c_y_var.into(),
-                witness: None,
-            },
-            c_x_tilde_var.into(),
-            c_y_tilde_var.into(),
-            None,
-        )
-        .expect("Failed to re-randomize");
-
-        verifier.verify(&proof, &pc_gens, &bp_gens)?;
+            verifier.verify(&proof, &pc_gens, &bp_gens)?;
+        }
 
         Ok(())
     }
@@ -281,7 +414,7 @@ mod tests {
 
         let tables = build_tables(h).expect("Failed to build tables");
         let lambda = <PallasScalar as PrimeField>::MODULUS_BIT_SIZE as usize;
-        let m = lambda / 3 + 1;
+        let m = get_num_windows::<PallasScalar>();
         let r_bigint: <PallasScalar as PrimeField>::BigInt = r.into();
         let random_bits = r_bigint.to_bits_le();
         let mut h_r_acc = PallasA::zero();
