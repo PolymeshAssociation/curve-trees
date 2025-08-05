@@ -31,35 +31,33 @@ use std::time::{Duration, Instant};
 use rayon::prelude::*;
 
 pub fn prove_naive<
-    R: RngCore,
     Fb: PrimeField,
     Fs: Field,
     P0: SWCurveConfig<BaseField = Fb, ScalarField = Fs> + Copy,
     P1: SWCurveConfig<BaseField = Fs, ScalarField = Fb> + Copy,
 >(
-    rng: &mut R,
     prover: &mut Prover<MerlinTranscript, Affine<P0>>,
     points: Vec<Affine<P1>>,
     re_randomized_comm: &Affine<P0>,
     blinding_of_comm: P0::ScalarField,
+    blindings_for_points: Vec<P1::ScalarField>,
     parameters: &SingleLayerParameters<P1>,
 ) -> Result<Vec<Affine<P1>>, Error> {
     let size = points.len();
-
+    if blindings_for_points.len() != size {
+        return Err(Error::MismatchedSize(blindings_for_points.len(), size))
+    }
+    
     // This could be stored once and reused.
     let points_plus_delta = cfg_iter!(points)
         .map(|n| *n + parameters.delta)
         .collect::<Vec<_>>();
     let points_plus_delta = Projective::normalize_batch(&points_plus_delta);
     let x_coords = points_plus_delta.iter().map(|n| n.x).collect::<Vec<_>>();
-
-    let blindings = (0..size)
-        .map(|_| <P1::ScalarField>::rand(rng))
-        .collect::<Vec<_>>();
-
+    
     // For each nested, re-randomization nested_r[i] = nested[i] + B_blinding * blindings[i]
     let window_table = WindowTable::new(size, parameters.pc_gens.B_blinding.into_group());
-    let blinders = window_table.multiply_many(&blindings);
+    let blinders = window_table.multiply_many(&blindings_for_points);
     let re_randomized_points = (0..size)
         .map(|i| points[i] + blinders[i])
         .collect::<Vec<_>>();
@@ -75,7 +73,7 @@ pub fn prove_naive<
         x_coord_vars,
         Some(points_plus_delta),
         re_randomized_points.clone(),
-        Some(blindings),
+        Some(blindings_for_points),
         parameters,
     )?;
     Ok(re_randomized_points)

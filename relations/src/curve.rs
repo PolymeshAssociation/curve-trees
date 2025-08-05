@@ -177,7 +177,7 @@ pub fn checked_curve_addition<F: Field, Cs: ConstraintSystem<F>>(
 
 /// Enforce v != 0
 /// Takes v and its modular inverse (v_inv) as input
-fn not_zero<F: Field, Cs: ConstraintSystem<F>>(
+pub fn not_zero<F: Field, Cs: ConstraintSystem<F>>(
     cs: &mut Cs,
     v: LinearCombination<F>,
     v_inv: LinearCombination<F>,

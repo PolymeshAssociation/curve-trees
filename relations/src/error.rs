@@ -48,8 +48,8 @@ pub enum Error {
     BulletproofR1CSError(#[from] bulletproofs::r1cs::R1CSError),
 
     /// Mismatched size.
-    #[error("Mismatched size: difference {0}")]
-    MismatchedSize(usize),
+    #[error("Mismatched size: {0} {1}")]
+    MismatchedSize(usize, usize),
 
     /// The curve point cannot be 0.
     #[error("The curve point cannot be 0")]

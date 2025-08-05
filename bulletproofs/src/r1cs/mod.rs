@@ -1,8 +1,8 @@
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
-mod constraint_system;
-mod linear_combination;
+pub mod constraint_system;
+pub mod linear_combination;
 mod metrics;
 mod proof;
 mod prover;

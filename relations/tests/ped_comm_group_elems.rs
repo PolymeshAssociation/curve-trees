@@ -1,7 +1,7 @@
 mod common;
 
-use ark_ec::short_weierstrass::{Affine, SWCurveConfig};
-use ark_ec::{AffineRepr, CurveGroup};
+use ark_ec::short_weierstrass::{Affine, SWCurveConfig, Projective};
+use ark_ec::{AffineRepr, CurveGroup, VariableBaseMSM};
 use ark_ff::{PrimeField, Zero};
 use ark_pallas::{Fq as PallasBase, PallasConfig};
 use ark_serialize::CanonicalSerialize;
@@ -103,12 +103,15 @@ pub fn check_naive<
                 &mut rng,
             );
 
+        let blindings_for_points = (0..nested.len())
+            .map(|_| <P1::ScalarField>::rand(&mut rng))
+            .collect::<Vec<_>>();
         let re_randomized_nested = prove_naive(
-            &mut rng,
             &mut pallas_prover,
             nested,
             &path_commitments.re_randomized_leaf,
             re_randomization_of_leaf,
+            blindings_for_points,
             &sr_params.odd_parameters,
         )
         .expect("Failed to prove naive");
