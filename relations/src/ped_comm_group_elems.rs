@@ -23,7 +23,6 @@ use ark_std::{cfg_iter, vec::Vec};
 use bulletproofs::r1cs::{constant, ConstraintSystem, Prover, Variable, Verifier};
 use dock_crypto_utils::msm::WindowTable;
 use dock_crypto_utils::transcript::MerlinTranscript;
-use rand_core::RngCore;
 #[cfg(feature = "std")]
 use std::time::{Duration, Instant};
 

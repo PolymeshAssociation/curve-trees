@@ -9,7 +9,6 @@ use core::marker::PhantomData;
 use core::ops::{Add, Mul, Neg, Sub};
 use core::cmp::Ordering;
 use ark_std::collections::BTreeMap;
-use crate::r1cs::ConstraintSystem;
 
 /// Represents a variable in a constraint system.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
