@@ -308,10 +308,7 @@ mod tests {
                 point: Some(q),
             },
         );
-        assert_eq!(
-            addition_result.point.map(|out| out == (p + q)),
-            Some(true)
-        );
+        assert_eq!(addition_result.point.map(|out| out == (p + q)), Some(true));
 
         let proof = prover.prove(&bp_gens).unwrap();
 

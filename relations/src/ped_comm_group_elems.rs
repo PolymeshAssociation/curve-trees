@@ -44,16 +44,16 @@ pub fn prove_naive<
 ) -> Result<Vec<Affine<P1>>, Error> {
     let size = points.len();
     if blindings_for_points.len() != size {
-        return Err(Error::MismatchedSize(blindings_for_points.len(), size))
+        return Err(Error::MismatchedSize(blindings_for_points.len(), size));
     }
-    
+
     // This could be stored once and reused.
     let points_plus_delta = cfg_iter!(points)
         .map(|n| *n + parameters.delta)
         .collect::<Vec<_>>();
     let points_plus_delta = Projective::normalize_batch(&points_plus_delta);
     let x_coords = points_plus_delta.iter().map(|n| n.x).collect::<Vec<_>>();
-    
+
     // For each nested, re-randomization nested_r[i] = nested[i] + B_blinding * blindings[i]
     let window_table = WindowTable::new(size, parameters.pc_gens.B_blinding.into_group());
     let blinders = window_table.multiply_many(&blindings_for_points);

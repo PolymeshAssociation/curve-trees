@@ -4,11 +4,11 @@
 use alloc::{vec, vec::Vec};
 
 use ark_ff::Field;
+use ark_std::collections::BTreeMap;
+use core::cmp::Ordering;
 use core::iter::FromIterator;
 use core::marker::PhantomData;
 use core::ops::{Add, Mul, Neg, Sub};
-use core::cmp::Ordering;
-use ark_std::collections::BTreeMap;
 
 /// Represents a variable in a constraint system.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -300,6 +300,5 @@ pub struct AllocatedScalar<F: Field> {
     /// Variable for the value
     pub variable: Variable<F>,
     /// The value itself
-    pub assignment: Option<F>
+    pub assignment: Option<F>,
 }
-

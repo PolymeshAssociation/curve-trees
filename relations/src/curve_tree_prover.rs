@@ -166,7 +166,10 @@ impl<
         let even = self.even_internal_nodes.len() == self.odd_internal_nodes.len();
         // Otherwise there must be an additional even node which has the odd root as parent.
         if !even {
-            debug_assert_eq!(self.even_internal_nodes.len() + 1, self.odd_internal_nodes.len())
+            debug_assert_eq!(
+                self.even_internal_nodes.len() + 1,
+                self.odd_internal_nodes.len()
+            )
         };
         even
     }
@@ -245,10 +248,7 @@ impl<
                         )
                     }
                 } else {
-                    (
-                        even_rerandomization_scalars[i],
-                        even_rerandomized_nodes[i],
-                    )
+                    (even_rerandomization_scalars[i], even_rerandomized_nodes[i])
                 };
                 self.even_internal_nodes[i].single_level_select_and_rerandomize_prover_gadget(
                     prover,
@@ -273,10 +273,7 @@ impl<
                         )
                     }
                 } else {
-                    (
-                        odd_rerandomization_scalars[i],
-                        odd_rerandomized_nodes[i],
-                    )
+                    (odd_rerandomization_scalars[i], odd_rerandomized_nodes[i])
                 };
                 self.odd_internal_nodes[i].single_level_select_and_rerandomize_prover_gadget(
                     prover,

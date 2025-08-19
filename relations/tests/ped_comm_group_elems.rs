@@ -1,6 +1,6 @@
 mod common;
 
-use ark_ec::short_weierstrass::{Affine, SWCurveConfig, Projective};
+use ark_ec::short_weierstrass::{Affine, Projective, SWCurveConfig};
 use ark_ec::{AffineRepr, CurveGroup, VariableBaseMSM};
 use ark_ff::{PrimeField, Zero};
 use ark_pallas::{Fq as PallasBase, PallasConfig};

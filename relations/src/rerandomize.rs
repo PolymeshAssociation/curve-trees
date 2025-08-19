@@ -133,11 +133,16 @@ pub fn scalar_mult<
                     // the sum of the largest points of all previous windows for the first m-1 windows and for
                     // the m-th window calculating sum of "right term" using geometric progression formula shows
                     // that "left term" + "right term" can't be 0
-                    let (delta, x_left_minus_x_right_inv) = delta::<F>(x_left, y_left, x_right, y_right);
+                    let (delta, x_left_minus_x_right_inv) =
+                        delta::<F>(x_left, y_left, x_right, y_right);
                     (
                         Some(delta),
                         // Only needed for checked curve addition done in the last iteration
-                        if i == num_windows { Some(x_left_minus_x_right_inv) } else { None },
+                        if i == num_windows {
+                            Some(x_left_minus_x_right_inv)
+                        } else {
+                            None
+                        },
                     )
                 } else {
                     (None, None)
@@ -185,11 +190,7 @@ pub fn scalar_mult<
         res_prev_y_lc = res_y_lc;
     }
 
-    Ok((
-        res,
-        res_prev_x_lc,
-        res_prev_y_lc,
-    ))
+    Ok((res, res_prev_x_lc, res_prev_y_lc))
 }
 
 /// For proving that randomization the point inside `commitment` is same as point represented by x and y coordinates
@@ -209,15 +210,15 @@ pub fn re_randomize<
     re_randomized_commitment_y_coord: LinearCombination<F>,
     randomness: Option<S>,
 ) -> Result<(), Error> {
-    let (res, res_x_lc, res_y_lc) =
-        scalar_mult::<F, S, P, Cs>(cs, tables, randomness)?;
+    let (res, res_x_lc, res_y_lc) = scalar_mult::<F, S, P, Cs>(cs, tables, randomness)?;
 
     // Now `(res_x_lc, res_y_lc)` correspond to x and y coordinates of the blinding point, i.e. `H * randomness`
     // Enforce that sum of point in `commitment` + `(res_x_lc, res_y_lc)` equals `(re_randomized_commitment_x_coord, re_randomized_commitment_y_coord)`
     // constrain (x_tilde, y_tilde) = (x, y) + (R_m) - with checked addition
     let (delta, x_l_minus_x_r_inv) = match commitment.point {
         Some(commitment) => {
-            let (delta, x_left_minus_x_right_inv) = delta::<F>(commitment.x, commitment.y, res.x, res.y);
+            let (delta, x_left_minus_x_right_inv) =
+                delta::<F>(commitment.x, commitment.y, res.x, res.y);
             (Some(delta), Some(x_left_minus_x_right_inv))
         }
         _ => (None, None),
@@ -282,7 +283,7 @@ mod tests {
 
         for r in [
             PallasScalar::one(), // lowest value
-            p_minus_1, // highest value
+            p_minus_1,           // highest value
             // Some random values
             PallasScalar::rand(&mut rng),
             PallasScalar::rand(&mut rng),
@@ -311,7 +312,8 @@ mod tests {
             let mut transcript = MerlinTranscript::new(LABEL);
             let mut verifier: Verifier<_, VestaA> = Verifier::new(&mut transcript);
 
-            let (_, x_lc, y_lc): (PallasA, _, _) = scalar_mult(&mut verifier, &tables, None).unwrap();
+            let (_, x_lc, y_lc): (PallasA, _, _) =
+                scalar_mult(&mut verifier, &tables, None).unwrap();
 
             curve_check(
                 &mut verifier,
@@ -343,7 +345,7 @@ mod tests {
 
         for r in [
             PallasScalar::one(), // lowest value
-            p_minus_1, // highest value
+            p_minus_1,           // highest value
             // Some random values
             PallasScalar::rand(&mut rng),
             PallasScalar::rand(&mut rng),
@@ -372,7 +374,7 @@ mod tests {
                     c_y_tilde_var.into(),
                     Some(r),
                 )
-                    .expect("Failed to re-randomize");
+                .expect("Failed to re-randomize");
 
                 let proof = prover.prove(&bp_gens)?;
                 proof
@@ -397,7 +399,7 @@ mod tests {
                 c_y_tilde_var.into(),
                 None,
             )
-                .expect("Failed to re-randomize");
+            .expect("Failed to re-randomize");
 
             verifier.verify(&proof, &pc_gens, &bp_gens)?;
         }

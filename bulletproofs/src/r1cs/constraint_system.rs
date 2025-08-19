@@ -138,6 +138,10 @@ pub trait RandomizedConstraintSystem<F: Field>: ConstraintSystem<F> {
 }
 
 /// Constrain a linear combination to be equal to a scalar
-pub fn constrain_lc_with_scalar<F: Field, CS: ConstraintSystem<F>>(cs: &mut CS, lc: LinearCombination<F>, scalar: F) {
+pub fn constrain_lc_with_scalar<F: Field, CS: ConstraintSystem<F>>(
+    cs: &mut CS,
+    lc: LinearCombination<F>,
+    scalar: F,
+) {
     cs.constrain(lc - LinearCombination::from(scalar));
 }
