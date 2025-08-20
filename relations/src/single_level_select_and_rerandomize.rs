@@ -29,7 +29,7 @@ pub struct SingleLayerParameters<P: SWCurveConfig + Copy> {
 }
 
 impl<P: SWCurveConfig + Copy> SingleLayerParameters<P> {
-    pub fn new<P1: SWCurveConfig>(generators_length: usize) -> Result<Self, Error> {
+    pub fn new(generators_length: usize) -> Result<Self, Error> {
         let pc_gens = PedersenGens::<Affine<P>>::new().ok_or_else(|| {
             Error::GenerationError("Failed to generate Pedersen generators".into())
         })?;

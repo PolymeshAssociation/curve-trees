@@ -19,8 +19,8 @@ pub struct SelRerandParameters<P0: SWCurveConfig + Copy, P1: SWCurveConfig + Cop
 impl<P0: SWCurveConfig + Copy, P1: SWCurveConfig + Copy> SelRerandParameters<P0, P1> {
     pub fn new(even_generators_length: usize, odd_generators_length: usize) -> Result<Self, Error> {
         Ok(SelRerandParameters {
-            even_parameters: SingleLayerParameters::<P0>::new::<P1>(even_generators_length)?,
-            odd_parameters: SingleLayerParameters::<P1>::new::<P0>(odd_generators_length)?,
+            even_parameters: SingleLayerParameters::<P0>::new(even_generators_length)?,
+            odd_parameters: SingleLayerParameters::<P1>::new(odd_generators_length)?,
         })
     }
 }
