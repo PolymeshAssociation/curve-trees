@@ -57,13 +57,12 @@ pub fn check_proof<
     let mut vesta_prover: Prover<_, Affine<P1>> =
         Prover::new(&sr_params.odd_parameters.pc_gens, vesta_transcript);
 
-    let (mut path_commitments, re_randomization_of_leaf) = path
-        .select_and_rerandomize_prover_gadget(
-            &mut pallas_prover,
-            &mut vesta_prover,
-            &sr_params,
-            rng,
-        );
+    let (path_commitments, re_randomization_of_leaf) = path.select_and_rerandomize_prover_gadget(
+        &mut pallas_prover,
+        &mut vesta_prover,
+        &sr_params,
+        rng,
+    );
 
     let pallas_proof = pallas_prover
         .prove(&sr_params.even_parameters.bp_gens)

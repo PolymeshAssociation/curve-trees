@@ -311,12 +311,10 @@ impl<
 /// The last element in `even_commitments` is the rerandomized parent of the last element in `odd_commitments`, etc.
 #[derive(Clone, PartialEq, Eq, Debug, CanonicalSerialize, CanonicalDeserialize)]
 pub struct SelectAndRerandomizePath<const L: usize, P0: SWCurveConfig, P1: SWCurveConfig> {
-    /// Randomized leaf, i.e. if leaf is a group element `C` then this is `C + (B_blinding * r)`. This could be part of `even_commitments`
-    pub re_randomized_leaf: Affine<P0>,
-    // TODO: Why not add re_randomized_leaf to even_commitments as the last element?
-    /// Randomized nodes at the odd level
+    /// Randomized nodes at the odd level, starting from the root.
     pub odd_commitments: Vec<Affine<P1>>,
-    /// Randomized nodes at the even level
+    /// Randomized nodes at the even level, starting from the root.
+    /// The last item of this is the randomized leaf, i.e. if leaf is a group element `C` then this is `C + (B_blinding * r)`.
     pub even_commitments: Vec<Affine<P0>>,
 }
 
@@ -590,24 +588,6 @@ impl<
             height,
             elements,
         })
-    }
-}
-
-impl<const L: usize, P0: SWCurveConfig, P1: SWCurveConfig> SelectAndRerandomizePath<L, P0, P1> {
-    /// Add the root node to this path and returns true if root is even, else false
-    pub fn add_root(&mut self, root: &Root<L, 1, P0, P1>) -> bool {
-        match root {
-            Root::Odd(ct) => {
-                assert_eq!(self.even_commitments.len(), self.odd_commitments.len());
-                self.odd_commitments.insert(0, ct.commitments[0].clone());
-                false
-            }
-            Root::Even(ct) => {
-                assert_eq!(self.even_commitments.len() + 1, self.odd_commitments.len());
-                self.even_commitments.insert(0, ct.commitments[0].clone());
-                true
-            }
-        }
     }
 }
 

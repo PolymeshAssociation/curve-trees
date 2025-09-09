@@ -68,7 +68,7 @@ pub fn build_tables<C: AffineRepr>(h: C) -> Result<Vec<Lookup3Bit<2, C::BaseFiel
     Ok(tables)
 }
 
-/// Scalar multiplication of point with given lookup table `tables` and scalar `randomness`.
+/// Scalar multiplication of point with its lookup table `base_tables` and the scalar `scalar`.
 /// Returns the point, and linear combinations for its x and y coordinates. The resulting point is 0 for verifier
 pub fn scalar_mult<
     F: Field,
@@ -77,13 +77,13 @@ pub fn scalar_mult<
     Cs: ConstraintSystem<F>,
 >(
     cs: &mut Cs,
-    tables: &[Lookup3Bit<2, F>],
-    randomness: Option<S>,
+    base_tables: &[Lookup3Bit<2, F>],
+    scalar: Option<S>,
 ) -> Result<(Affine<P>, LinearCombination<F>, LinearCombination<F>), Error> {
     let lambda = S::MODULUS_BIT_SIZE as usize;
     let num_windows = get_num_windows::<S>();
-    assert_eq!(num_windows, tables.len());
-    let r_bits = match randomness {
+    assert_eq!(num_windows, base_tables.len());
+    let s_bits = match scalar {
         None => None,
         Some(r) => {
             let r: S::BigInt = r.into();
@@ -100,10 +100,10 @@ pub fn scalar_mult<
 
     // Define tables T_1 .. T_m, and witnesses
     for i in 1..num_windows + 1 {
-        let table = tables[i - 1];
+        let table = base_tables[i - 1];
 
         // Add the point in `table` corresponding to `index` to `res`
-        let (index, x_l_minus_x_r_inv, delta, res_x, res_y) = match &r_bits {
+        let (index, x_l_minus_x_r_inv, delta, res_x, res_y) = match &s_bits {
             None => (None, None, None, None, None),
             Some(bits) => {
                 // bi is the starting bit index of this window
@@ -193,7 +193,7 @@ pub fn scalar_mult<
     Ok((res, res_prev_x_lc, res_prev_y_lc))
 }
 
-/// For proving that randomization the point inside `commitment` is same as point represented by x and y coordinates
+/// For proving that randomization of the point inside `commitment` is same as point represented by x and y coordinates
 /// in `re_randomized_commitment_x_coord` and `re_randomized_commitment_y_coord` respectively.
 /// Enforces `commitment.point + H * randomness = (re_randomized_commitment_x_coord, re_randomized_commitment_y_coord)`
 /// where `tables` correspond to the lookup tables for `H`
@@ -256,6 +256,7 @@ mod tests {
     use super::*;
     use ark_pallas::PallasConfig;
     use bulletproofs::{BulletproofGens, PedersenGens};
+    use std::time::{Duration, Instant};
 
     use ark_ec::CurveGroup;
     use ark_pallas::Affine as PallasA;
@@ -281,6 +282,9 @@ mod tests {
 
         const LABEL: &[u8; 11] = b"scalar-mult";
 
+        let mut proving_time = Duration::default();
+        let mut verifiying_time = Duration::default();
+
         for r in [
             PallasScalar::one(), // lowest value
             p_minus_1,           // highest value
@@ -288,6 +292,7 @@ mod tests {
             PallasScalar::rand(&mut rng),
             PallasScalar::rand(&mut rng),
         ] {
+            let start = Instant::now();
             let proof = {
                 let mut transcript = MerlinTranscript::new(LABEL);
                 let mut prover = Prover::new(&pc_gens, &mut transcript);
@@ -306,9 +311,11 @@ mod tests {
                 );
 
                 let proof = prover.prove(&bp_gens).unwrap();
+                proving_time += start.elapsed();
                 proof
             };
 
+            let start = Instant::now();
             let mut transcript = MerlinTranscript::new(LABEL);
             let mut verifier: Verifier<_, VestaA> = Verifier::new(&mut transcript);
 
@@ -324,7 +331,12 @@ mod tests {
             );
 
             verifier.verify(&proof, &pc_gens, &bp_gens).unwrap();
+            verifiying_time += start.elapsed();
         }
+        println!(
+            "For 4 iterations, proving time: {:?} and verifying time {:?}",
+            proving_time, verifiying_time
+        );
     }
 
     #[test]

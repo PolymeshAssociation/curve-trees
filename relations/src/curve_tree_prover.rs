@@ -211,7 +211,6 @@ impl<
         }
 
         let mut re_randomization_of_leaf = F0::default();
-        let mut re_randomized_leaf = Affine::<P0>::default();
         for (i, odd) in self.odd_internal_nodes.iter().enumerate() {
             let rerandomization = F0::rand(rng);
             let blinding = parameters
@@ -225,13 +224,10 @@ impl<
             // Since leaf is always at even level, the parent of leaf is always at odd level. If
             // current node is the last (lowest) odd level node, then its `child_node_to_randomize` is the
             // leaf node whose proof if being created.
-            if i < self.odd_internal_nodes.len() - 1 {
-                // Not the lowest odd level node
-                even_rerandomized_nodes.push(rerandomized);
-            } else {
+            even_rerandomized_nodes.push(rerandomized);
+            if i == self.odd_internal_nodes.len() - 1 {
                 // The lowest odd level node
                 re_randomization_of_leaf = rerandomization;
-                re_randomized_leaf = rerandomized;
             }
         }
 
@@ -296,7 +292,6 @@ impl<
 
         (
             SelectAndRerandomizePath {
-                re_randomized_leaf,
                 odd_commitments: odd_rerandomized_nodes,
                 even_commitments: even_rerandomized_nodes,
             },
@@ -328,12 +323,12 @@ impl<
     > WitnessNode<L, P0, P1>
 {
     /// Allocates variables for the children and proves select and rerandomize for one.
-    /// If the parent is the root, the variables are allocated directly, otherwise by committing to the parent.
+    /// If the parent is the root, the variables are allocated directly, otherwise by allocating commitment to the parent.
     pub fn single_level_select_and_rerandomize_prover_gadget(
         &self,
         prover: &mut Prover<MerlinTranscript, Affine<P0>>,
         child_level_parameters: &SingleLayerParameters<P1>,
-        self_node: &Affine<P0>,
+        self_node_rerandomized: &Affine<P0>,
         self_rerandomization_scalar: P0::ScalarField,
         child_rerandomization_scalar: P1::ScalarField,
     ) {
@@ -342,9 +337,9 @@ impl<
             self.x_coord_children.map(constant).to_vec()
         } else {
             // In this case this (`self`) is a non-root inner node and the children (and the scalar used for rerandomizing) are part of the witness.
-            // Allocate variables for x-coordinates (which are committed in `self_node`) of child nodes with `self_rerandomization_scalar` as the blinding
+            // Allocate variables for x-coordinates (which are committed in `self_node_rerandomized`) of child nodes with `self_rerandomization_scalar` as the blinding
             let children_vars = prover.vars_for_committed_vec(
-                self_node,
+                self_node_rerandomized,
                 &self.x_coord_children,
                 self_rerandomization_scalar,
             );

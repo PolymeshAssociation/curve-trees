@@ -138,7 +138,7 @@ impl<
             self.blinding + rerandomization,
             &parameters.even_parameters.bp_gens,
         );
-        assert_eq!(path.re_randomized_leaf, rerandomized_point);
+        assert_eq!(path.get_rerandomized_leaf(), rerandomized_point);
 
         even_prover.constrain(variables[1] - self.tag);
 

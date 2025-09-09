@@ -1,7 +1,7 @@
 mod common;
 
-use ark_ec::short_weierstrass::{Affine, Projective, SWCurveConfig};
-use ark_ec::{AffineRepr, CurveGroup, VariableBaseMSM};
+use ark_ec::short_weierstrass::{Affine, SWCurveConfig};
+use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{PrimeField, Zero};
 use ark_pallas::{Fq as PallasBase, PallasConfig};
 use ark_serialize::CanonicalSerialize;
@@ -95,7 +95,7 @@ pub fn check_naive<
 
         let clock = Instant::now();
         let path = curve_tree.get_path_to_leaf_for_proof(*leaf_index, 0);
-        let (mut path_commitments, re_randomization_of_leaf) = path
+        let (path_commitments, re_randomization_of_leaf) = path
             .select_and_rerandomize_prover_gadget(
                 &mut pallas_prover,
                 &mut vesta_prover,
@@ -109,7 +109,7 @@ pub fn check_naive<
         let re_randomized_nested = prove_naive(
             &mut pallas_prover,
             nested,
-            &path_commitments.re_randomized_leaf,
+            &path_commitments.get_rerandomized_leaf(),
             re_randomization_of_leaf,
             blindings_for_points,
             &sr_params.odd_parameters,
@@ -121,7 +121,7 @@ pub fn check_naive<
         prover_time += clock.elapsed();
 
         assert_eq!(
-            path_commitments.re_randomized_leaf,
+            path_commitments.get_rerandomized_leaf(),
             comm + (sr_params.even_parameters.pc_gens.B_blinding * re_randomization_of_leaf)
                 .into_affine()
         );
@@ -247,7 +247,7 @@ pub fn check<
             Prover::new(&sr_params.odd_parameters.pc_gens, vesta_transcript);
 
         let clock = Instant::now();
-        let (mut path_commitments, re_randomization_of_leaf) = curve_tree
+        let (path_commitments, re_randomization_of_leaf) = curve_tree
             .select_and_rerandomize_prover_gadget(
                 *leaf_index,
                 0,
@@ -258,7 +258,7 @@ pub fn check<
             );
 
         assert_eq!(
-            path_commitments.re_randomized_leaf,
+            path_commitments.get_rerandomized_leaf(),
             comm + (sr_params.even_parameters.pc_gens.B_blinding * re_randomization_of_leaf)
                 .into_affine()
         );
