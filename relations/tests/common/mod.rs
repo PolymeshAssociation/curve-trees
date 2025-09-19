@@ -1,3 +1,4 @@
+use std::time::{Duration, Instant};
 use ark_ec::short_weierstrass::{Affine, SWCurveConfig};
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
@@ -49,7 +50,8 @@ pub fn check_proof<
     path: CurveTreeWitnessPath<L, P0, P1>,
     root: &Root<L, 1, P0, P1>,
     sr_params: &SelRerandParameters<P0, P1>,
-) {
+) -> (Duration, Duration) {
+    let start = Instant::now();
     let pallas_transcript = MerlinTranscript::new(PROOF_LABEL);
     let mut pallas_prover: Prover<_, Affine<P0>> =
         Prover::new(&sr_params.even_parameters.pc_gens, pallas_transcript);
@@ -71,7 +73,10 @@ pub fn check_proof<
         .prove(&sr_params.odd_parameters.bp_gens)
         .unwrap();
 
-    {
+    let proving_time = start.elapsed();
+
+    let verifying_time = {
+        let start = Instant::now();
         let pallas_transcript = MerlinTranscript::new(PROOF_LABEL);
         let mut pallas_verifier = Verifier::new(pallas_transcript);
         let vesta_transcript = MerlinTranscript::new(PROOF_LABEL);
@@ -117,12 +122,16 @@ pub fn check_proof<
                 ),
             )
         };
+        let verifying_time = start.elapsed();
 
         assert!(vesta_res.is_ok());
         assert!(pallas_res.is_ok());
         assert_eq!(
             rerandomized_leaf.into_group(),
             leaf + (sr_params.even_parameters.pc_gens.B_blinding * re_randomization_of_leaf)
-        )
-    }
+        );
+        verifying_time
+    };
+
+    (proving_time, verifying_time)
 }

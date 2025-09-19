@@ -29,6 +29,7 @@ ark-pallas = "0.4"
 ark-vesta = "0.4"
 ark-secp256k1 = "0.4"
 ark-secq256k1 = "0.4"
+lazy_static = "1.5.0"
 
 [features]
 default = ["std", "asm", "parallel"]
@@ -60,6 +61,14 @@ harness = false
 
 [[bench]]
 name = "accumulator"
+harness = false
+
+[[bench]]
+name = "range_proof"
+harness = false
+
+[[bench]]
+name = "curve_tree"
 harness = false
 
 # TODO: Uncomment

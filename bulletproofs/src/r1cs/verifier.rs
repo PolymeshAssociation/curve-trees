@@ -454,44 +454,7 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
             Err(e) => return Err(e),
             Ok(t) => t,
         };
-        let padded_n = (verification_tuple.proof_independent_scalars.len() - 2) / 2;
-
-        // We are performing a single-party circuit proof, so party index is 0.
-        let gens = bp_gens.share(0);
-
-        if bp_gens.gens_capacity < padded_n {
-            return Err(R1CSError::InvalidGeneratorsLength(
-                bp_gens.gens_capacity,
-                padded_n,
-            ));
-        }
-
-        use core::iter;
-        let fixed_points = iter::once(pc_gens.B)
-            .chain(iter::once(pc_gens.B_blinding))
-            .chain(gens.G(padded_n).copied())
-            .chain(gens.H(padded_n).copied());
-
-        let mega_check: C::Group = C::Group::msm_unchecked(
-            verification_tuple
-                .proof_dependent_points
-                .into_iter()
-                .chain(fixed_points)
-                .collect::<Vec<_>>()
-                .as_slice(),
-            verification_tuple
-                .proof_dependent_scalars
-                .into_iter()
-                .chain(verification_tuple.proof_independent_scalars)
-                .collect::<Vec<_>>()
-                .as_slice(),
-        );
-
-        if !mega_check.is_zero() {
-            return Err(R1CSError::VerificationError);
-        }
-
-        Ok(())
+        Self::verify_given_verification_tuple(verification_tuple, pc_gens, bp_gens)
     }
 
     #[cfg(feature = "std")]
@@ -759,6 +722,23 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
             proof_independent_scalars: fixed_point_scalars,
         })
     }
+
+    pub fn verify_given_verification_tuple(
+        verification_tuple: VerificationTuple<C>,
+        pc_gens: &PedersenGens<C>,
+        bp_gens: &BulletproofGens<C>,
+    ) -> Result<(), R1CSError> {
+        let padded_n = (verification_tuple.proof_independent_scalars.len() - 2) / 2;
+
+        msm_check(
+            verification_tuple.proof_dependent_points,
+            verification_tuple.proof_dependent_scalars,
+            verification_tuple.proof_independent_scalars,
+            padded_n,
+            pc_gens,
+            bp_gens,
+        )
+    }
 }
 
 pub struct VerificationTuple<C: AffineRepr> {
@@ -816,31 +796,49 @@ pub fn batch_verify_with_rng<C: AffineRepr, R: RngCore + CryptoRng>(
             .collect()
     }
 
+    msm_check(
+        proof_points,
+        proof_point_scalars,
+        linear_combination,
+        padded_n,
+        pc_gens,
+        bp_gens,
+    )
+}
+
+pub fn msm_check<C: AffineRepr>(
+    proof_dependent_points: Vec<C>,
+    proof_dependent_scalars: Vec<C::ScalarField>,
+    proof_independent_scalars: Vec<C::ScalarField>,
+    msm_size: usize,
+    pc_gens: &PedersenGens<C>,
+    bp_gens: &BulletproofGens<C>,
+) -> Result<(), R1CSError> {
     // We are performing a single-party circuit proof, so party index is 0.
     let gens = bp_gens.share(0);
 
-    if bp_gens.gens_capacity < padded_n {
+    if bp_gens.gens_capacity < msm_size {
         return Err(R1CSError::InvalidGeneratorsLength(
             bp_gens.gens_capacity,
-            padded_n,
+            msm_size,
         ));
     }
 
     use core::iter;
     let fixed_points = iter::once(pc_gens.B)
         .chain(iter::once(pc_gens.B_blinding))
-        .chain(gens.G(padded_n).copied())
-        .chain(gens.H(padded_n).copied());
+        .chain(gens.G(msm_size).copied())
+        .chain(gens.H(msm_size).copied());
 
     let mega_check: C::Group = C::Group::msm_unchecked(
-        proof_points
+        proof_dependent_points
             .into_iter()
             .chain(fixed_points)
             .collect::<Vec<_>>()
             .as_slice(),
-        proof_point_scalars
+        proof_dependent_scalars
             .into_iter()
-            .chain(linear_combination)
+            .chain(proof_independent_scalars)
             .collect::<Vec<_>>()
             .as_slice(),
     );

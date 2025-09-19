@@ -9,6 +9,7 @@ use rand::prelude::SliceRandom;
 use relations::curve_tree::{CurveTree, Root, SelRerandParameters};
 use relations::lean_curve_tree::LeanCurveTree;
 use std::collections::BTreeSet;
+use std::time::Duration;
 
 mod common;
 use common::check_proof;
@@ -70,6 +71,9 @@ pub fn check_inserts<
         proof_indices.insert(possible_proof_indices.choose(&mut rng).unwrap());
     }
 
+    let mut total_prover_time = Duration::default();
+    let mut total_verifier_time = Duration::default();
+
     let vanilla_curve_tree = compare_with_vanilla_curve_tree
         .then(|| CurveTree::<L, 1, P0, P1>::from_leaves(&leaves, &sr_params, None));
 
@@ -116,7 +120,9 @@ pub fn check_inserts<
         if proof_indices.contains(&i) {
             let root = lean_curve_tree.root_node();
 
-            check_proof(&mut rng, leaves[i], path, &root, &sr_params)
+            let (prover_time, verifier_time) = check_proof(&mut rng, leaves[i], path, &root, &sr_params);
+            total_prover_time += prover_time;
+            total_verifier_time += verifier_time;
         }
     }
 
@@ -140,4 +146,10 @@ pub fn check_inserts<
             }
         }
     }
+
+    log::debug!(
+        "For lean curve tree with {num_leaves} leaves, {num_proofs} proofs took {:?} prover time and {:?} verifier time",
+        total_prover_time,
+        total_verifier_time
+    );
 }

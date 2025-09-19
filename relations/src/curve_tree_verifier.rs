@@ -254,8 +254,7 @@ impl<
             };
 
             let child = &self.odd_commitments[child_index];
-            let variables = even_verifier
-                .commit_vec(L, self.even_commitments[parent_index])
+            let variables = even_verifier.commit_vec(L, self.even_commitments[parent_index])
                 .iter()
                 .map(|v| LinearCombination::<P0::ScalarField>::from(*v))
                 .collect();
@@ -303,8 +302,7 @@ impl<
             };
 
             let child = self.even_commitments[child_index];
-            let variables = odd_verifier
-                .commit_vec(L, self.odd_commitments[parent_index])
+            let variables = odd_verifier.commit_vec(L, self.odd_commitments[parent_index])
                 .iter()
                 .map(|v| LinearCombination::<P1::ScalarField>::from(*v))
                 .collect();

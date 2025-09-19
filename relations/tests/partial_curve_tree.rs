@@ -9,6 +9,7 @@ use ark_vesta::VestaConfig;
 use relations::curve_tree::SelRerandParameters;
 use relations::lean_curve_tree::LeanCurveTree;
 use relations::partial_curve_tree::PartialCurveTree;
+use std::time::Duration;
 mod common;
 use common::check_proof;
 
@@ -140,6 +141,10 @@ pub fn check_updates<
         .map(|_| Affine::<P0>::rand(&mut rng))
         .collect::<Vec<_>>();
 
+    let mut total_prover_time = Duration::default();
+    let mut total_verifier_time = Duration::default();
+    let mut num_proofs = 0;
+
     let mut lean_curve_tree = LeanCurveTree::<L, P0, P1>::new(height, &sr_params);
 
     let mut partial_curve_tree = PartialCurveTree::<L, P0, P1>::new(height, &sr_params).unwrap();
@@ -169,13 +174,16 @@ pub fn check_updates<
 
                 // Create and verify proof for the previous leaf
                 let root = partial_curve_tree.root_node();
-                check_proof(
+                let (prover_time, verifier_time) = check_proof(
                     &mut rng,
                     leaves[leaf_index_to_prove as usize],
                     path,
                     &root,
                     &sr_params,
-                )
+                );
+                total_prover_time += prover_time;
+                total_verifier_time += verifier_time;
+                num_proofs += 1;
             }
             partial_curve_tree
                 .insert_leaf(
@@ -201,13 +209,16 @@ pub fn check_updates<
         .get_path_to_leaf(leaf_index_to_prove)
         .unwrap();
     let root = partial_curve_tree.root_node();
-    check_proof(
+    let (prover_time, verifier_time) = check_proof(
         &mut rng,
         leaves[leaf_index_to_prove as usize],
         path,
         &root,
         &sr_params,
     );
+    total_prover_time += prover_time;
+    total_verifier_time += verifier_time;
+    num_proofs += 1;
 
     if let Some(expected) = nodes_removed_during_clear {
         assert_eq!(partial_curve_tree.clear_full_nodes(), expected);
@@ -216,7 +227,16 @@ pub fn check_updates<
         let root = partial_curve_tree.root_node();
         for i in leaf_indices_to_track {
             let path = partial_curve_tree.get_path_to_leaf(i).unwrap();
-            check_proof(&mut rng, leaves[i as usize], path, &root, &sr_params)
+            let (prover_time, verifier_time) = check_proof(&mut rng, leaves[i as usize], path, &root, &sr_params);
+            total_prover_time += prover_time;
+            total_verifier_time += verifier_time;
+            num_proofs += 1;
         }
     }
+
+    log::debug!(
+        "For partial curve tree with {num_leaves} leaves, {num_proofs} proofs took {:?} prover time and {:?} verifier time",
+        total_prover_time,
+        total_verifier_time
+    );
 }

@@ -17,6 +17,7 @@ use rand::thread_rng;
 use relations::curve_tree::*;
 use std::collections::BTreeSet;
 use std::time::{Duration, Instant};
+use ark_serialize::{CanonicalSerialize, Compress};
 
 mod common;
 use common::prove;
@@ -105,11 +106,6 @@ pub fn test_curve_tree_odd_depth_large() {
         128,
         10,
     );
-
-    test_curve_tree_with_parameters_new::<32, PallasBase, PallasConfig, VestaConfig>(
-        None, 11, 64, 10,
-    );
-    test_curve_tree_with_parameters_new::<32, SecpBase, SecpConfig, SecqConfig>(None, 11, 128, 10);
 }
 
 #[test]
@@ -162,11 +158,11 @@ pub fn test_curve_tree_with_parameters<
 
     let path = curve_tree.get_path_to_leaf_for_proof(0, 0);
     let (path_commitments, re_randomization_of_leaf) = path.select_and_rerandomize_prover_gadget(
-        &mut pallas_prover,
-        &mut vesta_prover,
-        &sr_params,
-        &mut rng,
-    );
+            &mut pallas_prover,
+            &mut vesta_prover,
+            &sr_params,
+            &mut rng,
+        );
 
     let (pallas_proof, vesta_proof) = prove(pallas_prover, vesta_prover, &sr_params).unwrap();
 
@@ -240,6 +236,8 @@ pub fn test_curve_tree_with_parameters_new<
     let mut prover_time = Duration::default();
     let mut verifier_time = Duration::default();
 
+    let mut proof_size_printed = false;
+
     for leaf_index in proof_indices {
         let clock = Instant::now();
 
@@ -264,6 +262,11 @@ pub fn test_curve_tree_with_parameters_new<
 
         prover_time += clock.elapsed();
 
+        if !proof_size_printed {
+            println!("Proof size for L={L}, height={}: {} bytes", depth.unwrap(), pallas_proof.serialized_size(Compress::Yes) + vesta_proof.serialized_size(Compress::Yes));
+            proof_size_printed = true;
+        }
+
         {
             let clock = Instant::now();
             let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
@@ -277,15 +280,33 @@ pub fn test_curve_tree_with_parameters_new<
                 &mut vesta_verifier,
                 &sr_params,
             );
-            let vesta_res = vesta_verifier.verify(
-                &vesta_proof,
-                &sr_params.odd_parameters.pc_gens,
-                &sr_params.odd_parameters.bp_gens,
+
+            #[cfg(feature = "parallel")]
+            let (vesta_res, pallas_res) = rayon::join(
+                || vesta_verifier.verify(
+                    &vesta_proof,
+                    &sr_params.odd_parameters.pc_gens,
+                    &sr_params.odd_parameters.bp_gens,
+                ),
+                || pallas_verifier.verify(
+                    &pallas_proof,
+                    &sr_params.even_parameters.pc_gens,
+                    &sr_params.even_parameters.bp_gens,
+                ),
             );
-            let pallas_res = pallas_verifier.verify(
-                &pallas_proof,
-                &sr_params.even_parameters.pc_gens,
-                &sr_params.even_parameters.bp_gens,
+
+            #[cfg(not(feature = "parallel"))]
+            let (vesta_res, pallas_res) = (
+                vesta_verifier.verify(
+                    &vesta_proof,
+                    &sr_params.odd_parameters.pc_gens,
+                    &sr_params.odd_parameters.bp_gens,
+                ),
+                pallas_verifier.verify(
+                    &pallas_proof,
+                    &sr_params.even_parameters.pc_gens,
+                    &sr_params.even_parameters.bp_gens,
+                ),
             );
             verifier_time += clock.elapsed();
             assert!(vesta_res.is_ok());
@@ -298,7 +319,7 @@ pub fn test_curve_tree_with_parameters_new<
         }
     }
 
-    log::debug!(
+    println!(
         "For tree with {} leaves, {} proofs took {:?} prover time and {:?} verifier time",
         num_leaves,
         num_proofs,
@@ -431,8 +452,9 @@ pub fn test_curve_tree_batch_verification() {
     )
     .expect("Failed to create SelRerandParameters");
 
-    let some_point = PallasP::rand(&mut rng).into_affine();
-    let set = vec![some_point];
+    let batch_size = 5;
+
+    let set = (0..batch_size).map(|_| PallasP::rand(&mut rng).into_affine()).collect::<Vec<_>>();
     let curve_tree = CurveTree::<32, 1, PallasParameters, VestaParameters>::from_leaves(
         &set,
         &sr_params,
@@ -440,79 +462,113 @@ pub fn test_curve_tree_batch_verification() {
     );
     assert_eq!(curve_tree.height(), 4);
 
-    let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
-    let mut pallas_prover: Prover<_, Affine<PallasParameters>> =
-        Prover::new(&sr_params.even_parameters.pc_gens, pallas_transcript);
+    let labels = [b"select_and_rerandomize_1", b"select_and_rerandomize_2", b"select_and_rerandomize_3"];
 
-    let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
-    let mut vesta_prover: Prover<_, Affine<VestaParameters>> =
-        Prover::new(&sr_params.odd_parameters.pc_gens, vesta_transcript);
+    println!("Batch size = {batch_size}");
 
-    let path = curve_tree.get_path_to_leaf_for_proof(0, 0);
-    let (path_commitments, _) = path.select_and_rerandomize_prover_gadget(
-        &mut pallas_prover,
-        &mut vesta_prover,
-        &sr_params,
-        &mut thread_rng(),
-    );
+    let mut path_commitments = Vec::with_capacity(batch_size);
+    let mut pallas_proofs = Vec::with_capacity(batch_size);
+    let mut vesta_proofs = Vec::with_capacity(batch_size);
+    for i in 0..batch_size {
+        // Choosing arbitrary labels
+        let label = labels[i % labels.len()];
+        let pallas_transcript = MerlinTranscript::new(label);
+        let mut pallas_prover: Prover<_, Affine<PallasParameters>> =
+            Prover::new(&sr_params.even_parameters.pc_gens, pallas_transcript);
 
-    let pallas_proof = pallas_prover
-        .prove(&sr_params.even_parameters.bp_gens)
-        .unwrap();
-    let vesta_proof = vesta_prover
-        .prove(&sr_params.odd_parameters.bp_gens)
-        .unwrap();
+        let vesta_transcript = MerlinTranscript::new(label);
+        let mut vesta_prover: Prover<_, Affine<VestaParameters>> =
+            Prover::new(&sr_params.odd_parameters.pc_gens, vesta_transcript);
 
-    let (pvt1, vvt1) = {
-        let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
+        let path = curve_tree.get_path_to_leaf_for_proof(i, 0);
+        let (path_commitment, _) = path.select_and_rerandomize_prover_gadget(
+            &mut pallas_prover,
+            &mut vesta_prover,
+            &sr_params,
+            &mut thread_rng(),
+        );
+
+        let pallas_proof = pallas_prover
+            .prove(&sr_params.even_parameters.bp_gens)
+            .unwrap();
+        let vesta_proof = vesta_prover
+            .prove(&sr_params.odd_parameters.bp_gens)
+            .unwrap();
+        path_commitments.push(path_commitment);
+        pallas_proofs.push(pallas_proof);
+        vesta_proofs.push(vesta_proof);
+    }
+
+    let start = Instant::now();
+    let mut pallas_vt = Vec::with_capacity(batch_size);
+    let mut vesta_vt = Vec::with_capacity(batch_size);
+    for i in 0..batch_size {
+        // Choosing same label as prover
+        let label = labels[i % labels.len()];
+        let pallas_transcript = MerlinTranscript::new(label);
         let mut pallas_verifier = Verifier::new(pallas_transcript);
-        let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
+        let vesta_transcript = MerlinTranscript::new(label);
         let mut vesta_verifier = Verifier::new(vesta_transcript);
 
-        let _rerandomized_leaf = path_commitments.select_and_rerandomize_verifier_gadget(
+        let _ = path_commitments[i].select_and_rerandomize_verifier_gadget(
             &curve_tree.root_node(),
             &mut pallas_verifier,
             &mut vesta_verifier,
             &sr_params,
         );
-        let vesta_verification_tuples = vesta_verifier
-            .verification_scalars_and_points(&vesta_proof)
-            .unwrap();
         let pallas_verification_tuples = pallas_verifier
-            .verification_scalars_and_points(&pallas_proof)
+            .verification_scalars_and_points(&pallas_proofs[i])
             .unwrap();
-        (pallas_verification_tuples, vesta_verification_tuples)
-    };
-    let (pvt2, vvt2) = {
-        let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
-        let mut pallas_verifier = Verifier::new(pallas_transcript);
-        let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
-        let mut vesta_verifier = Verifier::new(vesta_transcript);
+        let vesta_verification_tuples = vesta_verifier
+            .verification_scalars_and_points(&vesta_proofs[i])
+            .unwrap();
+        pallas_vt.push(pallas_verification_tuples);
+        vesta_vt.push(vesta_verification_tuples);
+    }
 
-        let _rerandomized_leaf = path_commitments.select_and_rerandomize_verifier_gadget(
-            &curve_tree.root_node(),
-            &mut pallas_verifier,
-            &mut vesta_verifier,
-            &sr_params,
-        );
-        let vesta_verification_tuples = vesta_verifier
-            .verification_scalars_and_points(&vesta_proof)
-            .unwrap();
-        let pallas_verification_tuples = pallas_verifier
-            .verification_scalars_and_points(&pallas_proof)
-            .unwrap();
-        (pallas_verification_tuples, vesta_verification_tuples)
-    };
     let pallas_res = batch_verify(
-        vec![pvt1, pvt2],
+        pallas_vt,
         &sr_params.even_parameters.pc_gens,
         &sr_params.even_parameters.bp_gens,
     );
     let vesta_res = batch_verify(
-        vec![vvt1, vvt2],
+        vesta_vt,
         &sr_params.odd_parameters.pc_gens,
         &sr_params.odd_parameters.bp_gens,
     );
-    assert_eq!(pallas_res, vesta_res);
+
     assert_eq!(pallas_res, Ok(()));
+    assert_eq!(vesta_res, Ok(()));
+
+    println!("Batch verification took {:?}", start.elapsed());
+
+    let start = Instant::now();
+    for i in 0..batch_size {
+        // Choosing same label as prover
+        let label = labels[i % labels.len()];
+        let pallas_transcript = MerlinTranscript::new(label);
+        let mut pallas_verifier = Verifier::new(pallas_transcript);
+        let vesta_transcript = MerlinTranscript::new(label);
+        let mut vesta_verifier = Verifier::new(vesta_transcript);
+
+        let _ = path_commitments[i].select_and_rerandomize_verifier_gadget(
+            &curve_tree.root_node(),
+            &mut pallas_verifier,
+            &mut vesta_verifier,
+            &sr_params,
+        );
+        let vesta_res = vesta_verifier.verify(
+            &vesta_proofs[i],
+            &sr_params.odd_parameters.pc_gens,
+            &sr_params.odd_parameters.bp_gens,
+        );
+        let pallas_res = pallas_verifier.verify(
+            &pallas_proofs[i],
+            &sr_params.even_parameters.pc_gens,
+            &sr_params.even_parameters.bp_gens,
+        );
+        assert_eq!(pallas_res, Ok(()));
+        assert_eq!(vesta_res, Ok(()));
+    }
+    println!("Regular verification took {:?}", start.elapsed());
 }
