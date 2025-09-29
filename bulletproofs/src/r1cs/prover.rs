@@ -1229,13 +1229,17 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
             r_vec,
         );
 
+        let second_phase = if A_I2.is_zero() && A_O2.is_zero() && S2.is_zero() {
+            None
+        } else {
+            Some((A_I2, A_O2, S2))
+        };
+
         let proof = R1CSProof {
             A_I1,
             A_O1,
             S1,
-            A_I2,
-            A_O2,
-            S2,
+            second_phase,
             T,
             t_x,
             t_x_blinding,

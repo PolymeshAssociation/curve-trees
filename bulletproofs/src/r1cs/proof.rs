@@ -35,12 +35,8 @@ pub struct R1CSProof<C: AffineRepr> {
     pub(super) A_O1: C,
     /// Commitment to the blinding factors in the first phase.
     pub(super) S1: C,
-    /// Commitment to the values of input wires in the second phase.
-    pub(super) A_I2: C,
-    /// Commitment to the values of output wires in the second phase.
-    pub(super) A_O2: C,
-    /// Commitment to the blinding factors in the second phase.
-    pub(super) S2: C,
+    /// Commitment to the (A_I2, A_O2, S2) tuple if the second phase
+    pub(super) second_phase: Option<(C, C, C)>,
     pub(super) T: Vec<C>,
     /// Evaluation of the polynomial \\(t(x)\\) at the challenge point \\(x\\)
     pub(super) t_x: C::ScalarField,
@@ -54,8 +50,9 @@ pub struct R1CSProof<C: AffineRepr> {
 }
 
 impl<C: AffineRepr> R1CSProof<C> {
-    pub fn missing_phase2_commitments(&self) -> bool {
-        self.A_I2.is_zero() && self.A_O2.is_zero() && self.S2.is_zero()
+    pub fn second_phase_commitments(&self) -> (C, C, C) {
+        self.second_phase
+            .unwrap_or((C::zero(), C::zero(), C::zero()))
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
@@ -70,104 +67,3 @@ impl<C: AffineRepr> R1CSProof<C> {
         Self::deserialize_compressed(slice).map_err(|_| R1CSError::FormatError)
     }
 }
-
-/*
-const ONE_PHASE_COMMITMENTS: u8 = 0;
-const TWO_PHASE_COMMITMENTS: u8 = 1;
-
-impl<C: AffineRepr> CanonicalSerialize for R1CSProof<C> {
-    /// Returns the size in bytes required to serialize the `R1CSProof`.
-    fn serialized_size(&self, compress: Compress) -> usize {
-        let number_of_points = if self.missing_phase2_commitments() {
-            3
-        } else {
-            6
-        };
-        // allocate space for the 6 points
-        let points_size = number_of_points * self.A_I1.serialized_size(compress);
-        // allocate space for the T vector
-        let t_size = self.T.serialized_size(compress);
-        // size of 3 scalars
-        let scalars_size = 3 * self.t_x.serialized_size(compress);
-        // size of the inner product proof
-        let ipp_size = self.ipp_proof.serialized_size(compress);
-        points_size + t_size + scalars_size + ipp_size + 1
-    }
-
-    fn serialize_with_mode<W: Write>(
-        &self,
-        mut writer: W,
-        compress: Compress,
-    ) -> Result<(), SerializationError> {
-        // serialize first phase commitments.
-        self.A_I1.serialize_with_mode(&mut writer, compress)?;
-        self.A_O1.serialize_with_mode(&mut writer, compress)?;
-        self.S1.serialize_with_mode(&mut writer, compress)?;
-
-        // serialize second phase commitments, if present.
-        if self.missing_phase2_commitments() {
-            ONE_PHASE_COMMITMENTS.serialize_with_mode(&mut writer, compress)?;
-        } else {
-            TWO_PHASE_COMMITMENTS.serialize_with_mode(&mut writer, compress)?;
-            self.A_I2.serialize_with_mode(&mut writer, compress)?;
-            self.A_O2.serialize_with_mode(&mut writer, compress)?;
-            self.S2.serialize_with_mode(&mut writer, compress)?;
-        }
-
-        // Serialize T
-        self.T.serialize_with_mode(&mut writer, compress)?;
-        // serialize scalars
-        self.t_x.serialize_with_mode(&mut writer, compress)?;
-        self.t_x_blinding
-            .serialize_with_mode(&mut writer, compress)?;
-        self.e_blinding.serialize_with_mode(&mut writer, compress)?;
-        // serialize inner product argument
-        self.ipp_proof.serialize_with_mode(&mut writer, compress)?;
-
-        Ok(())
-    }
-}
-
-impl<C: AffineRepr> Valid for R1CSProof<C> {
-    fn check(&self) -> Result<(), SerializationError> {
-        Ok(())
-    }
-}
-impl<C: AffineRepr> CanonicalDeserialize for R1CSProof<C> {
-    fn deserialize_with_mode<R: Read>(
-        mut reader: R,
-        compress: Compress,
-        validate: ark_serialize::Validate,
-    ) -> Result<Self, SerializationError> {
-        let A_I1 = C::deserialize_with_mode(&mut reader, compress, validate)?;
-        let A_O1 = C::deserialize_with_mode(&mut reader, compress, validate)?;
-        let S1 = C::deserialize_with_mode(&mut reader, compress, validate)?;
-        let flag = u8::deserialize_with_mode(&mut reader, compress, validate)?;
-        let (A_I2, A_O2, S2) = if flag == TWO_PHASE_COMMITMENTS {
-            (
-                C::deserialize_with_mode(&mut reader, compress, validate)?,
-                C::deserialize_with_mode(&mut reader, compress, validate)?,
-                C::deserialize_with_mode(&mut reader, compress, validate)?,
-            )
-        } else {
-            (C::zero(), C::zero(), C::zero())
-        };
-        Ok(Self {
-            A_I1,
-            A_O1,
-            S1,
-            A_I2,
-            A_O2,
-            S2,
-            T: Vec::<C>::deserialize_with_mode(&mut reader, compress, validate)?,
-            t_x: C::ScalarField::deserialize_with_mode(&mut reader, compress, validate)?,
-            t_x_blinding: C::ScalarField::deserialize_with_mode(&mut reader, compress, validate)?,
-            e_blinding: C::ScalarField::deserialize_with_mode(&mut reader, compress, validate)?,
-            ipp_proof: InnerProductProof::<C>::deserialize_with_mode(
-                &mut reader,
-                compress,
-                validate,
-            )?,
-        })
-    }
-}*/

@@ -530,9 +530,10 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
         use dock_crypto_utils::ff::inner_product;
 
         // These points are the identity in the 1-phase unrandomized case.
-        TranscriptProtocol::append_point(transcript, b"A_I2", &proof.A_I2);
-        TranscriptProtocol::append_point(transcript, b"A_O2", &proof.A_O2);
-        TranscriptProtocol::append_point(transcript, b"S2", &proof.S2);
+        let (A_I2, A_O2, S2) = proof.second_phase_commitments();
+        TranscriptProtocol::append_point(transcript, b"A_I2", &A_I2);
+        TranscriptProtocol::append_point(transcript, b"A_O2", &A_O2);
+        TranscriptProtocol::append_point(transcript, b"S2", &S2);
 
         let y = TranscriptProtocol::challenge_scalar::<C>(transcript, b"y");
         let z = TranscriptProtocol::challenge_scalar::<C>(transcript, b"z");
@@ -672,9 +673,9 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
             T_scalars.push(rxs[d]);
         }
 
-        debug_assert!(ncomm == 0 || proof.A_I2 == C::zero());
-        debug_assert!(ncomm == 0 || proof.A_O2 == C::zero());
-        debug_assert!(ncomm == 0 || proof.S2 == C::zero());
+        debug_assert!(ncomm == 0 || A_I2 == C::zero());
+        debug_assert!(ncomm == 0 || A_O2 == C::zero());
+        debug_assert!(ncomm == 0 || S2 == C::zero());
 
         let xI = xs[op_aLaR.0];
         let xO = xs[op_aO.0];
@@ -687,9 +688,9 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
             .chain(iter::once(proof.A_I1))
             .chain(iter::once(proof.A_O1))
             .chain(iter::once(proof.S1))
-            .chain(iter::once(proof.A_I2))
-            .chain(iter::once(proof.A_O2))
-            .chain(iter::once(proof.S2))
+            .chain(iter::once(A_I2))
+            .chain(iter::once(A_O2))
+            .chain(iter::once(S2))
             .chain(self.V.iter().copied())
             .chain(T_points.iter().copied())
             .chain(proof.ipp_proof.L_vec.iter().copied())
