@@ -11,9 +11,10 @@ use alloc::vec::Vec;
 use ark_ec::{AffineRepr, VariableBaseMSM};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use core::marker::PhantomData;
+// use ark_ec::hashing::curve_maps::swu::SWUConfig;
+// use ark_ec::hashing::HashToCurve;
 use digest::{ExtendableOutputDirty, Update, XofReader};
 use sha3::{Sha3XofReader, Shake256};
-
 /// Represents a pair of base points for Pedersen commitments.
 ///
 /// The Bulletproofs implementation and API is designed to support
@@ -46,11 +47,52 @@ impl<C: AffineRepr> PedersenGens<C> {
         })
     }
 
+    // /// Creates by hashing the label
+    // pub fn new_using_label(label: &[u8]) -> Self where C::Config: SWUConfig {
+    //     // Initialize the SWU-based hash-to-curve hasher
+    //     let hasher = MapToCurveBasedHasher::<
+    //         SWProjective<C::Config>,
+    //         // DefaultFieldHasher<sha3::Sha3_256, 128>,
+    //         DefaultFieldHasher<Sha256, 128>,
+    //         SWUMap<C::Config>,
+    //     >::new(b"PedersenGens").expect("Failed to initialize SWU hash-to-curve");
+    //
+    //     let mut input = [label, b"-B"].concat();
+    //     let B = hasher.hash(&input).unwrap();
+    //
+    //     input.pop();
+    //     input.pop();
+    //     input.extend_from_slice(b"-B_blinding");
+    //     let B_blinding = hasher.hash(&input).unwrap();
+    //     Self {B, B_blinding}
+    // }
+
     /// Creates a Pedersen commitment using the value scalar and a blinding factor.
     pub fn commit(&self, value: C::ScalarField, blinding: C::ScalarField) -> C {
         C::Group::msm_unchecked(&[self.B, self.B_blinding], &[value, blinding]).into()
     }
 }
+
+// impl<C: SWUConfig> PedersenGens<SWAffine<C>>
+// {
+//     /// Creates by hashing the label
+//     pub fn new_using_label(label: &[u8]) -> Self {
+//         let hasher = MapToCurveBasedHasher::<
+//             SWProjective<C>,
+//             DefaultFieldHasher<Sha256, 128>,
+//             SWUMap<C>,
+//         >::new(b"PedersenGens").unwrap();
+//
+//         let mut input = [label, b"-B"].concat();
+//         let B = hasher.hash(&input).unwrap();
+//
+//         input.pop();
+//         input.pop();
+//         input.extend_from_slice(b"-B_blinding");
+//         let B_blinding = hasher.hash(&input).unwrap();
+//         Self {B, B_blinding}
+//     }
+// }
 
 impl<C: AffineRepr> Default for PedersenGens<C> {
     fn default() -> Self {
@@ -144,9 +186,9 @@ pub struct BulletproofGens<C: AffineRepr> {
     /// Number of values or parties
     pub party_capacity: usize,
     /// Precomputed \\(\mathbf G\\) generators for each party.
-    G_vec: Vec<Vec<C>>,
+    pub(crate) G_vec: Vec<Vec<C>>,
     /// Precomputed \\(\mathbf H\\) generators for each party.
-    H_vec: Vec<Vec<C>>,
+    pub(crate) H_vec: Vec<Vec<C>>,
 }
 
 // todo we are not using the multi party stuff
@@ -185,7 +227,7 @@ impl<C: AffineRepr> BulletproofGens<C> {
 
     /// Increases the generators' capacity to the amount specified.
     /// If less than or equal to the current capacity, does nothing.
-    pub fn increase_capacity(&mut self, new_capacity: usize) {
+    fn increase_capacity(&mut self, new_capacity: usize) {
         use byteorder::{ByteOrder, LittleEndian};
 
         if self.gens_capacity >= new_capacity {
@@ -301,6 +343,14 @@ mod tests {
     use test_log::test;
 
     use ark_pallas::*;
+
+    // use ark_bls12_381::G1Affine;
+
+    // #[test]
+    // fn ped_gens_label() {
+    //     let label = b"test";
+    //     let gens = PedersenGens::<G1Affine>::new_using_label(label);
+    // }
 
     #[test]
     fn aggregated_gens_iter_matches_flat_map() {

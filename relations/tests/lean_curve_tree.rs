@@ -120,7 +120,8 @@ pub fn check_inserts<
         if proof_indices.contains(&i) {
             let root = lean_curve_tree.root_node();
 
-            let (prover_time, verifier_time) = check_proof(&mut rng, leaves[i], path, &root, &sr_params);
+            let (prover_time, verifier_time) =
+                check_proof(&mut rng, leaves[i], path, &root, &sr_params);
             total_prover_time += prover_time;
             total_verifier_time += verifier_time;
         }

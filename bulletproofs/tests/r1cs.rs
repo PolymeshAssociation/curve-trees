@@ -6,14 +6,15 @@ extern crate rand;
 use ark_ec::AffineRepr;
 use ark_ff::Field;
 use ark_std::UniformRand;
+use std::time::Instant;
 
 use ark_pallas::Affine;
-
+use bulletproofs::r1cs::verifier::batch_verify_with_given_randomness;
 use bulletproofs::r1cs::*;
 use bulletproofs::{BulletproofGens, PedersenGens};
+use dock_crypto_utils::randomized_mult_checker::RandomizedMultChecker;
 use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
 use rand::seq::SliceRandom;
-
 // Shuffle gadget (documented in markdown file)
 
 /// A proof-of-shuffle.
@@ -189,6 +190,7 @@ fn kshuffle_helper(k: usize) {
     };
 
     {
+        let start = Instant::now();
         let mut verifier_transcript = MerlinTranscript::new(b"ShuffleProofTest");
         assert!(proof
             .verify(
@@ -199,6 +201,23 @@ fn kshuffle_helper(k: usize) {
                 &output_commitments
             )
             .is_ok());
+        println!("verify: {:?}", start.elapsed());
+
+        let start = Instant::now();
+        let mut rng = rand::thread_rng();
+        let mut verifier_transcript = MerlinTranscript::new(b"ShuffleProofTest");
+        let r = Scalar::rand(&mut rng);
+        let mut rmc = RandomizedMultChecker::new(r);
+        let vt = proof
+            .verification_scalars_and_points(
+                &mut verifier_transcript,
+                &input_commitments,
+                &output_commitments,
+            )
+            .unwrap();
+        add_verification_tuple_to_rmc(vt, &pc_gens, &bp_gens, &mut rmc).unwrap();
+        assert!(rmc.verify());
+        println!("rmc.verify: {:?}", start.elapsed());
     }
 }
 
@@ -207,8 +226,12 @@ fn kshuffle_batch_helper(k: usize, n: usize) {
     type Scalar = <Affine as AffineRepr>::ScalarField;
 
     // Common code
-    let pc_gens = PedersenGens::<Affine>::default();
-    let bp_gens = BulletproofGens::<Affine>::new((2 * k).next_power_of_two(), 1);
+    let pc_gens = PedersenGens::<Affine>::new_using_label(b"test-shuffle-pedersen");
+    let bp_gens = BulletproofGens::<Affine>::new_using_label(
+        b"test-shuffle-bulletproof",
+        (2 * k).next_power_of_two(),
+        1,
+    );
 
     let mut proofs_and_commitments = Vec::with_capacity(n);
     for _ in 0..n {
@@ -243,7 +266,38 @@ fn kshuffle_batch_helper(k: usize, n: usize) {
         );
     }
 
-    assert!(batch_verify(vsps, &pc_gens, &bp_gens).is_ok());
+    let start = Instant::now();
+    assert!(batch_verify(vsps.clone(), &pc_gens, &bp_gens).is_ok());
+    println!("batch_verify: {:?}", start.elapsed());
+
+    let mut rng = rand::thread_rng();
+
+    let r = Scalar::rand(&mut rng);
+    let start = Instant::now();
+    assert!(batch_verify_with_given_randomness(vsps.clone(), &pc_gens, &bp_gens, r).is_ok());
+    println!("batch_verify_with_given_randomness: {:?}", start.elapsed());
+
+    let start = Instant::now();
+    let mut rmc = RandomizedMultChecker::new(r);
+    add_verification_tuples_to_rmc_0(vsps.clone(), &pc_gens, &bp_gens, &mut rmc).unwrap();
+    println!(
+        "add_verification_tuples_to_rmc_0 prepare: {:?}",
+        start.elapsed()
+    );
+    println!("MSM size = {}", rmc.len());
+    assert!(rmc.verify());
+    println!("add_verification_tuples_to_rmc_0: {:?}", start.elapsed());
+
+    let start = Instant::now();
+    let mut rmc = RandomizedMultChecker::new(r);
+    add_verification_tuples_to_rmc(vsps, &pc_gens, &bp_gens, &mut rmc).unwrap();
+    println!(
+        "add_verification_tuples_to_rmc prepare: {:?}",
+        start.elapsed()
+    );
+    println!("MSM size = {}", rmc.len());
+    assert!(rmc.verify());
+    println!("add_verification_tuples_to_rmc: {:?}", start.elapsed());
 }
 
 #[test]
@@ -291,7 +345,7 @@ fn shuffle_gadget_test_24() {
 #[test]
 fn shuffle_gadget_test_42() {
     kshuffle_helper(42);
-    // kshuffle_batch_helper(42, 42);
+    kshuffle_batch_helper(42, 42);
 }
 
 /// Constrains (a1 + a2) * (b1 + b2) = (c1 + c2)
@@ -494,5 +548,22 @@ fn range_proof_helper<C: AffineRepr>(v_val: u64, n: usize) -> Result<(), R1CSErr
     assert!(range_proof(&mut verifier, var.into(), None, n).is_ok());
 
     // Verifier verifies proof
-    verifier.verify(&proof, &pc_gens, &bp_gens)
+    verifier.verify(&proof, &pc_gens, &bp_gens)?;
+
+    let mut rng = rand::thread_rng();
+
+    let mut verifier_transcript = MerlinTranscript::new(b"RangeProofTest");
+    let mut verifier = Verifier::new(&mut verifier_transcript);
+
+    let var = verifier.commit(commitment);
+    // Verifier adds constraints to the constraint system
+    assert!(range_proof(&mut verifier, var.into(), None, n).is_ok());
+
+    let r = C::ScalarField::rand(&mut rng);
+    let mut rmc = RandomizedMultChecker::new(r);
+    let vt = verifier.verification_scalars_and_points(&proof)?;
+    add_verification_tuple_to_rmc(vt, &pc_gens, &bp_gens, &mut rmc)?;
+    assert!(rmc.verify());
+
+    Ok(())
 }

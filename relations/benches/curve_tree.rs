@@ -28,7 +28,13 @@ const NUM_LEAVES: usize = 10;
 fn prove(
     even_prover: Prover<MerlinTranscript, Affine<PallasParameters>>,
     odd_prover: Prover<MerlinTranscript, Affine<VestaParameters>>,
-) -> Result<(R1CSProof<Affine<PallasParameters>>, R1CSProof<Affine<VestaParameters>>), R1CSError> {
+) -> Result<
+    (
+        R1CSProof<Affine<PallasParameters>>,
+        R1CSProof<Affine<VestaParameters>>,
+    ),
+    R1CSError,
+> {
     #[cfg(feature = "parallel")]
     let (even_proof, odd_proof) = rayon::join(
         || even_prover.prove(&SRParamsPallasLeaf.even_parameters.bp_gens),
@@ -59,7 +65,7 @@ fn setup_curve_tree_data<const L: usize>(
     let set = (0..NUM_LEAVES)
         .map(|_| Affine::<PallasParameters>::rand(&mut rng))
         .collect::<Vec<_>>();
-    
+
     let curve_tree = CurveTree::<L, 1, PallasParameters, VestaParameters>::from_leaves(
         &set,
         &SRParamsPallasLeaf,
@@ -70,8 +76,10 @@ fn setup_curve_tree_data<const L: usize>(
 
     // Create a single proof to use for verification benchmarks
     let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
-    let mut pallas_prover: Prover<_, Affine<PallasParameters>> =
-        Prover::new(&SRParamsPallasLeaf.even_parameters.pc_gens, pallas_transcript);
+    let mut pallas_prover: Prover<_, Affine<PallasParameters>> = Prover::new(
+        &SRParamsPallasLeaf.even_parameters.pc_gens,
+        pallas_transcript,
+    );
 
     let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
     let mut vesta_prover: Prover<_, Affine<VestaParameters>> =
@@ -87,17 +95,23 @@ fn setup_curve_tree_data<const L: usize>(
 
     let (pallas_proof, vesta_proof) = prove(pallas_prover, vesta_prover).unwrap();
 
-    (curve_tree, root, path_commitments, pallas_proof, vesta_proof)
+    (
+        curve_tree,
+        root,
+        path_commitments,
+        pallas_proof,
+        vesta_proof,
+    )
 }
 
-fn curve_tree_verify<const L: usize>(
-    c: &mut Criterion,
-    height: usize,
-) {
+fn curve_tree_verify<const L: usize>(c: &mut Criterion, height: usize) {
     let (_curve_tree, root, path_commitments, pallas_proof, vesta_proof) =
         setup_curve_tree_data::<L>(height);
 
-    println!("Proof size for L={L}, height={height}: {} bytes", pallas_proof.serialized_size(Compress::Yes) + vesta_proof.serialized_size(Compress::Yes));
+    println!(
+        "Proof size for L={L}, height={height}: {} bytes",
+        pallas_proof.serialized_size(Compress::Yes) + vesta_proof.serialized_size(Compress::Yes)
+    );
 
     let bench_name = format!("curve_tree_verify_{}_{}", L, height);
     c.bench_function(&bench_name, |b| {
@@ -113,19 +127,23 @@ fn curve_tree_verify<const L: usize>(
                 &mut vesta_verifier,
                 &SRParamsPallasLeaf,
             );
-            
+
             #[cfg(feature = "parallel")]
             let (vesta_res, pallas_res) = rayon::join(
-                || vesta_verifier.verify(
-                    &vesta_proof,
-                    &SRParamsPallasLeaf.odd_parameters.pc_gens,
-                    &SRParamsPallasLeaf.odd_parameters.bp_gens,
-                ),
-                || pallas_verifier.verify(
-                    &pallas_proof,
-                    &SRParamsPallasLeaf.even_parameters.pc_gens,
-                    &SRParamsPallasLeaf.even_parameters.bp_gens,
-                ),
+                || {
+                    vesta_verifier.verify(
+                        &vesta_proof,
+                        &SRParamsPallasLeaf.odd_parameters.pc_gens,
+                        &SRParamsPallasLeaf.odd_parameters.bp_gens,
+                    )
+                },
+                || {
+                    pallas_verifier.verify(
+                        &pallas_proof,
+                        &SRParamsPallasLeaf.even_parameters.pc_gens,
+                        &SRParamsPallasLeaf.even_parameters.bp_gens,
+                    )
+                },
             );
 
             #[cfg(not(feature = "parallel"))]
@@ -141,23 +159,20 @@ fn curve_tree_verify<const L: usize>(
                     &SRParamsPallasLeaf.even_parameters.bp_gens,
                 ),
             );
-            
+
             black_box((vesta_res, pallas_res))
         })
     });
 }
 
 /// Generic curve tree proving benchmark
-fn curve_tree_prove<const L: usize>(
-    c: &mut Criterion,
-    height: usize,
-) {
+fn curve_tree_prove<const L: usize>(c: &mut Criterion, height: usize) {
     let mut rng = thread_rng();
 
     let set = (0..NUM_LEAVES)
         .map(|_| Affine::<PallasParameters>::rand(&mut rng))
         .collect::<Vec<_>>();
-    
+
     let curve_tree = CurveTree::<L, 1, PallasParameters, VestaParameters>::from_leaves(
         &set,
         &SRParamsPallasLeaf,
@@ -168,8 +183,10 @@ fn curve_tree_prove<const L: usize>(
     c.bench_function(&bench_name, |b| {
         b.iter(|| {
             let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
-            let mut pallas_prover: Prover<_, Affine<PallasParameters>> =
-                Prover::new(&SRParamsPallasLeaf.even_parameters.pc_gens, pallas_transcript);
+            let mut pallas_prover: Prover<_, Affine<PallasParameters>> = Prover::new(
+                &SRParamsPallasLeaf.even_parameters.pc_gens,
+                pallas_transcript,
+            );
 
             let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
             let mut vesta_prover: Prover<_, Affine<VestaParameters>> =

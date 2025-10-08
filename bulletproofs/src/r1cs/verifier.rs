@@ -8,6 +8,7 @@ use ark_ff::Field;
 use ark_std::{One, UniformRand, Zero};
 use core::borrow::BorrowMut;
 use core::mem;
+use dock_crypto_utils::randomized_mult_checker::RandomizedMultChecker;
 use dock_crypto_utils::transcript::MerlinTranscript;
 use rand_core::{CryptoRng, RngCore};
 
@@ -454,7 +455,7 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
             Err(e) => return Err(e),
             Ok(t) => t,
         };
-        Self::verify_given_verification_tuple(verification_tuple, pc_gens, bp_gens)
+        verify_given_verification_tuple(verification_tuple, pc_gens, bp_gens)
     }
 
     #[cfg(feature = "std")]
@@ -467,10 +468,29 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
     }
 
     pub fn verification_scalars_and_points_with_rng<R: RngCore + CryptoRng>(
-        mut self,
+        self,
         proof: &R1CSProof<C>,
         rng: &mut R,
     ) -> Result<VerificationTuple<C>, R1CSError> {
+        self.verification_scalars_and_points_core(proof, || C::ScalarField::rand(rng))
+    }
+
+    pub fn verification_scalars_and_points_with_given_randomness(
+        self,
+        proof: &R1CSProof<C>,
+        randomness: C::ScalarField,
+    ) -> Result<VerificationTuple<C>, R1CSError> {
+        self.verification_scalars_and_points_core(proof, || randomness)
+    }
+
+    pub fn verification_scalars_and_points_core<F>(
+        mut self,
+        proof: &R1CSProof<C>,
+        mut randomness_getter: F,
+    ) -> Result<VerificationTuple<C>, R1CSError>
+    where
+        F: FnMut() -> C::ScalarField,
+    {
         // pad
         while self.size() > self.num_vars {
             self.allocate_multiplier(None)?;
@@ -557,7 +577,7 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
         // they are assigned the lowest powers and therefore the coefficients
         // in the combination are correspondingly assigned the highest powers
 
-        let r = C::ScalarField::rand(rng);
+        let r = randomness_getter();
 
         // precompute x powers
         let mut xs: Vec<C::ScalarField> = vec![C::ScalarField::zero(); t_poly_deg + 1];
@@ -723,29 +743,195 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
             proof_independent_scalars: fixed_point_scalars,
         })
     }
-
-    pub fn verify_given_verification_tuple(
-        verification_tuple: VerificationTuple<C>,
-        pc_gens: &PedersenGens<C>,
-        bp_gens: &BulletproofGens<C>,
-    ) -> Result<(), R1CSError> {
-        let padded_n = (verification_tuple.proof_independent_scalars.len() - 2) / 2;
-
-        msm_check(
-            verification_tuple.proof_dependent_points,
-            verification_tuple.proof_dependent_scalars,
-            verification_tuple.proof_independent_scalars,
-            padded_n,
-            pc_gens,
-            bp_gens,
-        )
-    }
 }
 
+pub fn verify_given_verification_tuple<C: AffineRepr>(
+    verification_tuple: VerificationTuple<C>,
+    pc_gens: &PedersenGens<C>,
+    bp_gens: &BulletproofGens<C>,
+) -> Result<(), R1CSError> {
+    let padded_n = verification_tuple.padded_n();
+
+    msm_check(
+        verification_tuple.proof_dependent_points,
+        verification_tuple.proof_dependent_scalars,
+        verification_tuple.proof_independent_scalars,
+        padded_n,
+        pc_gens,
+        bp_gens,
+    )
+}
+
+pub fn add_verification_tuple_to_rmc<C: AffineRepr>(
+    verification_tuple: VerificationTuple<C>,
+    pc_gens: &PedersenGens<C>,
+    bp_gens: &BulletproofGens<C>,
+    rmc: &mut RandomizedMultChecker<C>,
+) -> Result<(), R1CSError> {
+    let padded_n = verification_tuple.padded_n();
+    let VerificationTuple {
+        proof_dependent_points,
+        proof_dependent_scalars,
+        proof_independent_scalars,
+    } = verification_tuple;
+    let (b, s) = bases_and_scalars(
+        proof_dependent_points,
+        proof_dependent_scalars,
+        proof_independent_scalars,
+        padded_n,
+        pc_gens,
+        bp_gens,
+    )?;
+    rmc.add_many(b, &s, C::zero());
+    Ok(())
+}
+
+pub fn add_pre_randomized_verification_tuple_to_rmc<C: AffineRepr>(
+    verification_tuple: VerificationTuple<C>,
+    pc_gens: &PedersenGens<C>,
+    bp_gens: &BulletproofGens<C>,
+    rmc: &mut RandomizedMultChecker<C>,
+) -> Result<(), R1CSError> {
+    let padded_n = verification_tuple.padded_n();
+    let VerificationTuple {
+        proof_dependent_points,
+        proof_dependent_scalars,
+        proof_independent_scalars,
+    } = verification_tuple;
+    let (b, s) = bases_and_scalars(
+        proof_dependent_points,
+        proof_dependent_scalars,
+        proof_independent_scalars,
+        padded_n,
+        pc_gens,
+        bp_gens,
+    )?;
+    for (b_i, s_i) in b.into_iter().zip(s.into_iter()) {
+        rmc.add(b_i, s_i);
+    }
+    Ok(())
+}
+
+pub fn add_verification_tuples_to_rmc_0<C: AffineRepr>(
+    verification_tuples: Vec<VerificationTuple<C>>,
+    pc_gens: &PedersenGens<C>,
+    bp_gens: &BulletproofGens<C>,
+    rmc: &mut RandomizedMultChecker<C>,
+) -> Result<(), R1CSError> {
+    let mut ver_iter = verification_tuples.iter();
+    let vt = ver_iter.next().ok_or(R1CSError::BatchVerificationError)?;
+    let padded_n = vt.padded_n();
+
+    // We are performing a single-party circuit proof, so party index is 0.
+    let gens = bp_gens.share(0);
+
+    if bp_gens.gens_capacity < padded_n {
+        return Err(R1CSError::InvalidGeneratorsLength(
+            bp_gens.gens_capacity,
+            padded_n,
+        ));
+    }
+
+    use core::iter;
+    let fixed_points = iter::once(pc_gens.B)
+        .chain(iter::once(pc_gens.B_blinding))
+        .chain(gens.G(padded_n).copied())
+        .chain(gens.H(padded_n).copied())
+        .collect::<Vec<_>>();
+
+    for vt in verification_tuples {
+        if padded_n != vt.padded_n() {
+            return Err(R1CSError::BatchVerificationError);
+        }
+        let b = vt
+            .proof_dependent_points
+            .into_iter()
+            .chain(fixed_points.clone())
+            .collect::<Vec<_>>();
+
+        let s = vt
+            .proof_dependent_scalars
+            .into_iter()
+            .chain(vt.proof_independent_scalars)
+            .collect::<Vec<_>>();
+        rmc.add_many(b, &s, C::zero());
+    }
+    Ok(())
+}
+
+/// Accumulate all scalar multiplication checks of Bulletproof verification so that they can be later done in
+/// a single scalar multiplication
+pub fn add_verification_tuples_to_rmc<C: AffineRepr>(
+    verification_tuples: Vec<VerificationTuple<C>>,
+    pc_gens: &PedersenGens<C>,
+    bp_gens: &BulletproofGens<C>,
+    rmc: &mut RandomizedMultChecker<C>,
+) -> Result<(), R1CSError> {
+    let mut ver_iter = verification_tuples.iter();
+    let vt = ver_iter.next().ok_or(R1CSError::BatchVerificationError)?;
+    let padded_n = vt.padded_n();
+
+    let mut proof_points =
+        Vec::with_capacity(vt.proof_dependent_points.len() * verification_tuples.len());
+    let mut proof_dependent_scalars =
+        Vec::with_capacity(vt.proof_dependent_scalars.len() * verification_tuples.len());
+    let mut linear_combination = vec![C::ScalarField::zero(); vt.proof_independent_scalars.len()];
+
+    for mut vt in verification_tuples {
+        if padded_n != vt.padded_n() {
+            return Err(R1CSError::BatchVerificationError);
+        }
+        proof_points.append(&mut vt.proof_dependent_points);
+
+        let random_scalar = rmc.current_random;
+
+        // Multiply all scalars
+        let ps = vt
+            .proof_dependent_scalars
+            .into_iter()
+            .map(|s| s * random_scalar);
+        let fps = vt
+            .proof_independent_scalars
+            .into_iter()
+            .map(|s| s * random_scalar);
+
+        proof_dependent_scalars.append(&mut ps.collect());
+        linear_combination = linear_combination
+            .iter()
+            .zip(fps)
+            .map(|(a, b)| *a + b)
+            .collect();
+
+        rmc.update_random();
+    }
+
+    let (b, s) = bases_and_scalars(
+        proof_points,
+        proof_dependent_scalars,
+        linear_combination,
+        padded_n,
+        pc_gens,
+        bp_gens,
+    )?;
+
+    for (b_i, s_i) in b.into_iter().zip(s.into_iter()) {
+        rmc.add(b_i, s_i);
+    }
+
+    Ok(())
+}
+
+#[derive(Clone)]
 pub struct VerificationTuple<C: AffineRepr> {
     pub proof_dependent_points: Vec<C>,
     pub proof_dependent_scalars: Vec<C::ScalarField>,
     pub proof_independent_scalars: Vec<C::ScalarField>,
+}
+
+impl<C: AffineRepr> VerificationTuple<C> {
+    pub fn padded_n(&self) -> usize {
+        (self.proof_independent_scalars.len() - 2) / 2
+    }
 }
 
 #[cfg(feature = "std")]
@@ -764,20 +950,47 @@ pub fn batch_verify_with_rng<C: AffineRepr, R: RngCore + CryptoRng>(
     bp_gens: &BulletproofGens<C>,
     rng: &mut R,
 ) -> Result<(), R1CSError> {
+    batch_verify_core(verification_tuples, pc_gens, bp_gens, |_| {
+        C::ScalarField::rand(rng)
+    })
+}
+
+pub fn batch_verify_with_given_randomness<C: AffineRepr>(
+    verification_tuples: Vec<VerificationTuple<C>>,
+    pc_gens: &PedersenGens<C>,
+    bp_gens: &BulletproofGens<C>,
+    randomness: C::ScalarField,
+) -> Result<(), R1CSError> {
+    batch_verify_core(verification_tuples, pc_gens, bp_gens, |r| randomness * r)
+}
+
+pub fn batch_verify_core<C: AffineRepr, F>(
+    verification_tuples: Vec<VerificationTuple<C>>,
+    pc_gens: &PedersenGens<C>,
+    bp_gens: &BulletproofGens<C>,
+    mut new_randomness_getter: F,
+) -> Result<(), R1CSError>
+where
+    F: FnMut(C::ScalarField) -> C::ScalarField,
+{
     let mut ver_iter = verification_tuples.into_iter();
-    let vt = ver_iter.next().ok_or(R1CSError::VerificationError)?;
+    let vt = ver_iter.next().ok_or(R1CSError::BatchVerificationError)?;
+    let padded_n = vt.padded_n();
     let (mut proof_points, mut proof_point_scalars, mut linear_combination) = (
         vt.proof_dependent_points,
         vt.proof_dependent_scalars,
         vt.proof_independent_scalars,
     );
-    let padded_n = (linear_combination.len() - 2) / 2;
+
+    let mut random_scalar = C::ScalarField::one();
 
     for mut vt in ver_iter {
+        if padded_n != vt.padded_n() {
+            return Err(R1CSError::BatchVerificationError);
+        }
         proof_points.append(&mut vt.proof_dependent_points);
 
-        // Sample random scalar
-        let random_scalar = C::ScalarField::rand(rng);
+        random_scalar = new_randomness_getter(random_scalar);
 
         // Multiply all scalars
         let ps = vt
@@ -811,42 +1024,59 @@ pub fn msm_check<C: AffineRepr>(
     proof_dependent_points: Vec<C>,
     proof_dependent_scalars: Vec<C::ScalarField>,
     proof_independent_scalars: Vec<C::ScalarField>,
-    msm_size: usize,
+    padded_n: usize,
     pc_gens: &PedersenGens<C>,
     bp_gens: &BulletproofGens<C>,
 ) -> Result<(), R1CSError> {
+    let (b, s) = bases_and_scalars(
+        proof_dependent_points,
+        proof_dependent_scalars,
+        proof_independent_scalars,
+        padded_n,
+        pc_gens,
+        bp_gens,
+    )?;
+    let mega_check = C::Group::msm_unchecked(&b, &s);
+    if !mega_check.is_zero() {
+        return Err(R1CSError::VerificationError);
+    }
+
+    Ok(())
+}
+
+fn bases_and_scalars<C: AffineRepr>(
+    proof_dependent_points: Vec<C>,
+    proof_dependent_scalars: Vec<C::ScalarField>,
+    proof_independent_scalars: Vec<C::ScalarField>,
+    padded_n: usize,
+    pc_gens: &PedersenGens<C>,
+    bp_gens: &BulletproofGens<C>,
+) -> Result<(Vec<C>, Vec<C::ScalarField>), R1CSError> {
     // We are performing a single-party circuit proof, so party index is 0.
     let gens = bp_gens.share(0);
 
-    if bp_gens.gens_capacity < msm_size {
+    if bp_gens.gens_capacity < padded_n {
         return Err(R1CSError::InvalidGeneratorsLength(
             bp_gens.gens_capacity,
-            msm_size,
+            padded_n,
         ));
     }
 
     use core::iter;
     let fixed_points = iter::once(pc_gens.B)
         .chain(iter::once(pc_gens.B_blinding))
-        .chain(gens.G(msm_size).copied())
-        .chain(gens.H(msm_size).copied());
+        .chain(gens.G(padded_n).copied())
+        .chain(gens.H(padded_n).copied());
 
-    let mega_check: C::Group = C::Group::msm_unchecked(
-        proof_dependent_points
-            .into_iter()
-            .chain(fixed_points)
-            .collect::<Vec<_>>()
-            .as_slice(),
-        proof_dependent_scalars
-            .into_iter()
-            .chain(proof_independent_scalars)
-            .collect::<Vec<_>>()
-            .as_slice(),
-    );
+    let b = proof_dependent_points
+        .into_iter()
+        .chain(fixed_points)
+        .collect::<Vec<_>>();
 
-    if !mega_check.is_zero() {
-        return Err(R1CSError::VerificationError);
-    }
+    let s = proof_dependent_scalars
+        .into_iter()
+        .chain(proof_independent_scalars)
+        .collect::<Vec<_>>();
 
-    Ok(())
+    Ok((b, s))
 }

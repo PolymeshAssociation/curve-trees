@@ -1,14 +1,14 @@
+use ark_ec::AffineRepr;
 use ark_pallas::PallasConfig;
-use ark_vesta::VestaConfig;
+use ark_serialize::{CanonicalSerialize, Compress};
 use ark_std::UniformRand;
+use ark_vesta::VestaConfig;
 use bulletproofs::r1cs::*;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use dock_crypto_utils::transcript::MerlinTranscript;
 use rand::{thread_rng, Rng};
 use relations::curve_tree::SelRerandParameters;
 use relations::range_proof::range_proof;
-use ark_serialize::{CanonicalSerialize, Compress};
-use ark_ec::AffineRepr;
 
 type VestaA = ark_vesta::Affine;
 type VestaScalar = <VestaA as AffineRepr>::ScalarField;
@@ -17,10 +17,11 @@ type VestaAffine = ark_ec::short_weierstrass::Affine<VestaConfig>;
 fn range_proof_prove(c: &mut Criterion, n: usize) {
     let mut rng = thread_rng();
     let generators_length = 1 << 11; // 2048 generators should be enough
-    
-    let sr_params = SelRerandParameters::<PallasConfig, VestaConfig>::new(generators_length, generators_length)
-        .expect("Failed to create SelRerandParameters");
-    
+
+    let sr_params =
+        SelRerandParameters::<PallasConfig, VestaConfig>::new(generators_length, generators_length)
+            .expect("Failed to create SelRerandParameters");
+
     let bench_name = format!("range_proof_prove_n{}", n);
     c.bench_function(&bench_name, |b| {
         b.iter(|| {
@@ -29,17 +30,18 @@ fn range_proof_prove(c: &mut Criterion, n: usize) {
             } else {
                 rng.gen::<u64>() % (1u64 << n)
             };
-            
+
             let mut transcript = MerlinTranscript::new(b"range_proof");
-            let mut prover: Prover<_, VestaAffine> = Prover::new(&sr_params.odd_parameters.pc_gens, &mut transcript);
-            
+            let mut prover: Prover<_, VestaAffine> =
+                Prover::new(&sr_params.odd_parameters.pc_gens, &mut transcript);
+
             let blinding = VestaScalar::rand(&mut rng);
             let (_, var) = prover.commit(value.into(), blinding);
-            
+
             range_proof(&mut prover, var.into(), Some(value), n).unwrap();
-            
+
             let proof = prover.prove(&sr_params.odd_parameters.bp_gens).unwrap();
-            
+
             black_box(proof)
         })
     });
@@ -48,24 +50,30 @@ fn range_proof_prove(c: &mut Criterion, n: usize) {
 fn range_proof_verify(c: &mut Criterion, n: usize) {
     let mut rng = thread_rng();
     let generators_length = 1 << 11;
-    
-    let sr_params = SelRerandParameters::<PallasConfig, VestaConfig>::new(generators_length, generators_length)
-        .expect("Failed to create SelRerandParameters");
-    
+
+    let sr_params =
+        SelRerandParameters::<PallasConfig, VestaConfig>::new(generators_length, generators_length)
+            .expect("Failed to create SelRerandParameters");
+
     let value: u64 = if n <= 32 {
         (rng.gen::<u32>() as u64) % (1u64 << n)
     } else {
         rng.gen::<u64>() % (1u64 << n)
     };
-    
+
     let mut transcript = MerlinTranscript::new(b"range_proof");
-    let mut prover: Prover<_, VestaAffine> = Prover::new(&sr_params.odd_parameters.pc_gens, &mut transcript);
+    let mut prover: Prover<_, VestaAffine> =
+        Prover::new(&sr_params.odd_parameters.pc_gens, &mut transcript);
     let blinding = VestaScalar::rand(&mut rng);
     let (commitment, var) = prover.commit(value.into(), blinding);
     range_proof(&mut prover, var.into(), Some(value), n).unwrap();
     let proof = prover.prove(&sr_params.odd_parameters.bp_gens).unwrap();
 
-    println!("Proof size for n={}: {} bytes", n, proof.serialized_size(Compress::Yes));
+    println!(
+        "Proof size for n={}: {} bytes",
+        n,
+        proof.serialized_size(Compress::Yes)
+    );
 
     let bench_name = format!("range_proof_verify_n{}", n);
     c.bench_function(&bench_name, |b| {
@@ -74,8 +82,12 @@ fn range_proof_verify(c: &mut Criterion, n: usize) {
             let mut verifier = Verifier::<_, VestaAffine>::new(&mut transcript);
             let var = verifier.commit(commitment);
             range_proof(&mut verifier, var.into(), None, n).unwrap();
-            
-            let result = verifier.verify(&proof, &sr_params.odd_parameters.pc_gens, &sr_params.odd_parameters.bp_gens);
+
+            let result = verifier.verify(
+                &proof,
+                &sr_params.odd_parameters.pc_gens,
+                &sr_params.odd_parameters.bp_gens,
+            );
             black_box(result)
         })
     });

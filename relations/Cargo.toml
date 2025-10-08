@@ -18,6 +18,8 @@ ark-crypto-primitives = { version = "0.4", default-features = false, features = 
 digest = { version = "0.10.7", default-features = false }
 blake2 = { version = "0.10", default-features = false }
 rayon = { version = "1.5.3", optional = true, default-features = false }
+ark-pallas = { version = "0.4", default-features = false, features = ["curve"] }
+ark-vesta = { version = "0.4", default-features = false }
 
 dock_crypto_utils = { workspace = true, default-features = false }
 schnorr_pok = { workspace = true, default-features = false }
@@ -25,8 +27,6 @@ schnorr_pok = { workspace = true, default-features = false }
 [dev-dependencies]
 test-log = "0.2"
 criterion = "0.3"
-ark-pallas = "0.4"
-ark-vesta = "0.4"
 ark-secp256k1 = "0.4"
 ark-secq256k1 = "0.4"
 lazy_static = "1.5.0"

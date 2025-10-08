@@ -12,6 +12,14 @@ resolver = "2"
 dock_crypto_utils = { git = "https://github.com/PolymeshAssociation/crypto" }
 schnorr_pok = { git = "https://github.com/PolymeshAssociation/crypto" }
 
+## Polymesh changes.
+#ark-serialize = { path = "../arkworks-algebra/serialize" }
+#ark-ec = { path = "../arkworks-algebra/ec" }
+#ark-ff = { path = "../arkworks-algebra/ff" }
+##ark-serialize = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-v0.4" }
+##ark-ec = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-v0.4" }
+##ark-ff = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-v0.4" }
+
 [workspace.dependencies]
 dock_crypto_utils = { version = "0.22.0", default-features = false }
 schnorr_pok = { version = "0.22.0", default-features = false }

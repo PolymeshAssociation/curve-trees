@@ -1,4 +1,3 @@
-use std::time::{Duration, Instant};
 use ark_ec::short_weierstrass::{Affine, SWCurveConfig};
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
@@ -7,6 +6,7 @@ use dock_crypto_utils::transcript::MerlinTranscript;
 use rand::RngCore;
 use relations::curve_tree::{Root, SelRerandParameters};
 use relations::curve_tree_prover::CurveTreeWitnessPath;
+use std::time::{Duration, Instant};
 
 #[allow(dead_code)]
 const PROOF_LABEL: &'static [u8; 22] = b"select_and_rerandomize";

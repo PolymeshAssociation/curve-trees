@@ -37,6 +37,10 @@ pub enum ProofError {
     /// consider its errors to be internal errors.
     #[error("Internal error during proof creation: {0}")]
     ProvingError(MPCError),
+
+    /// Hash to curve error
+    #[error("Hash to curve error")]
+    HashToCurveError,
 }
 
 impl From<MPCError> for ProofError {
@@ -112,6 +116,11 @@ pub enum R1CSError {
     /// [`R1CSProof`](::r1cs::R1CSProof) fails.
     #[error("R1CSProof did not verify correctly.")]
     VerificationError,
+
+    /// Occurs when batch verification of 1 or more
+    /// [`R1CSProof`](::r1cs::R1CSProof) fails.
+    #[error("Batch of R1CSProof did not verify correctly.")]
+    BatchVerificationError,
 
     /// Occurs when trying to use a missing variable assignment.
     /// Used by gadgets that build the constraint system to signal that

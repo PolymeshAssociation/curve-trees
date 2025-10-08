@@ -13,7 +13,10 @@ use ark_ec::{
     VariableBaseMSM,
 };
 use ark_ff::{Field, PrimeField, Zero};
+use ark_pallas::{Affine as PallasAffine, PallasConfig};
 use ark_std::vec::Vec;
+use ark_vesta::{Affine as VestaAffine, VestaConfig};
+use bulletproofs::hash_to_curve_pasta::{hash_to_pallas, hash_to_vesta};
 use core::iter;
 use core::marker::PhantomData;
 use dock_crypto_utils::transcript::Transcript;
@@ -104,6 +107,32 @@ impl<P: SWCurveConfig + Copy> SingleLayerParameters<P> {
         (g * x).into_affine()
     }
 }
+
+macro_rules! impl_single_layer_parameters_new_using_label {
+    ($config:ty, $affine:ty, $hash_fn:ident, $curve_name:literal) => {
+        impl SingleLayerParameters<$config> {
+            pub fn new_using_label(label: &[u8], generators_length: usize) -> Result<Self, Error> {
+                let pc_gens = PedersenGens::<$affine>::new_using_label(label);
+                let bp_gens =
+                    BulletproofGens::<$affine>::new_using_label(label, generators_length, 1);
+                let delta = $hash_fn($curve_name.as_bytes(), b"curve_trees_delta").into_affine();
+                let tables = build_tables(pc_gens.B_blinding)?;
+
+                Ok(SingleLayerParameters {
+                    bp_gens,
+                    pc_gens,
+                    delta,
+                    coeff_a: <$config>::COEFF_A,
+                    coeff_b: <$config>::COEFF_B,
+                    tables,
+                })
+            }
+        }
+    };
+}
+
+impl_single_layer_parameters_new_using_label!(PallasConfig, PallasAffine, hash_to_pallas, "pallas");
+impl_single_layer_parameters_new_using_label!(VestaConfig, VestaAffine, hash_to_vesta, "vesta");
 
 /// Circuit for the single level select and rerandomize relation.
 pub fn single_level_select_and_rerandomize<
@@ -239,45 +268,38 @@ mod tests {
 
     use super::*;
 
-    use ark_ec::AffineRepr;
     use ark_std::UniformRand;
     use dock_crypto_utils::transcript::MerlinTranscript;
 
-    type PallasA = ark_pallas::Affine;
-    type PallasScalar = <PallasA as AffineRepr>::ScalarField;
-    type VestaA = ark_vesta::Affine;
-    type VestaScalar = <VestaA as AffineRepr>::ScalarField;
-
-    #[test]
-    fn test_single_level() {
+    fn test_single_level_inner<
+        P0: SWCurveConfig + Copy,
+        P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = P0::BaseField> + Copy,
+    >(
+        sr_params: &SelRerandParameters<P0, P1>,
+    ) where
+        Affine<P0>: UniformRand,
+        P0::ScalarField: UniformRand,
+        P1::ScalarField: UniformRand,
+    {
         let mut rng = rand::thread_rng();
-        let generators_length = 1 << 12;
-
-        let sr_params =
-            SelRerandParameters::<ark_pallas::PallasConfig, ark_vesta::VestaConfig>::new(
-                generators_length,
-                generators_length,
-            )
-            .expect("Failed to create SelRerandParameters");
-
         // Test of selecting and rerandomizing a dummy commitment `child'
-        let child = ark_pallas::Affine::rand(&mut rng);
+        let child = Affine::<P0>::rand(&mut rng);
 
         // Parent is a commitment to the x coordinate of the children where Delta is added to each child.
         let child_plus_delta = (child + sr_params.even_parameters.delta).into_affine();
         let child_plus_delta_x = child_plus_delta.x;
         let xs = vec![child_plus_delta_x];
-        let blinding = VestaScalar::rand(&mut rng);
+        let blinding = P1::ScalarField::rand(&mut rng);
         let parent = sr_params.odd_parameters.commit(xs.as_slice(), blinding, 0);
 
         // Rerandomize the child
-        let rerandomization = PallasScalar::rand(&mut rng);
+        let rerandomization = P0::ScalarField::rand(&mut rng);
         let rerandomized_child =
             child + (sr_params.even_parameters.pc_gens.B_blinding * rerandomization);
 
         let proof = {
             let mut transcript = MerlinTranscript::new(b"single_level_select_and_rerandomize");
-            let mut prover: Prover<_, VestaA> =
+            let mut prover: Prover<_, Affine<P1>> =
                 Prover::new(&sr_params.odd_parameters.pc_gens, &mut transcript);
 
             let (xs_comm, xs_vars) =
@@ -297,7 +319,7 @@ mod tests {
         };
 
         let mut transcript = MerlinTranscript::new(b"single_level_select_and_rerandomize");
-        let mut verifier = Verifier::<_, VestaA>::new(&mut transcript);
+        let mut verifier = Verifier::<_, Affine<P1>>::new(&mut transcript);
         let xs_vars = verifier.commit_vec(1, parent);
         single_level_select_and_rerandomize(
             &mut verifier,
@@ -308,29 +330,72 @@ mod tests {
             None,
         );
 
-        let res = verifier.verify(
-            &proof,
-            &sr_params.odd_parameters.pc_gens,
-            &sr_params.odd_parameters.bp_gens,
-        );
-        assert_eq!(res, Ok(()))
+        verifier
+            .verify(
+                &proof,
+                &sr_params.odd_parameters.pc_gens,
+                &sr_params.odd_parameters.bp_gens,
+            )
+            .unwrap();
     }
 
     #[test]
-    fn test_single_level_batched() {
-        let mut rng = rand::thread_rng();
+    fn test_single_level() {
         let generators_length = 1 << 12;
 
-        let sr_params =
-            SelRerandParameters::<ark_pallas::PallasConfig, ark_vesta::VestaConfig>::new(
-                generators_length,
+        // Test with parameters created using new()
+        let sr_params_new = SelRerandParameters::<PallasConfig, VestaConfig>::new(
+            generators_length,
+            generators_length,
+        )
+        .expect("Failed to create SelRerandParameters");
+        test_single_level_inner(&sr_params_new);
+
+        // Test with parameters created using new_using_label()
+        let sr_params_label = SelRerandParameters {
+            even_parameters: SingleLayerParameters::<PallasConfig>::new_using_label(
+                b"test_single_level_even",
                 generators_length,
             )
-            .expect("Failed to create SelRerandParameters");
+            .expect("Failed to create even parameters"),
+            odd_parameters: SingleLayerParameters::<VestaConfig>::new_using_label(
+                b"test_single_level_odd",
+                generators_length,
+            )
+            .expect("Failed to create odd parameters"),
+        };
+        test_single_level_inner(&sr_params_label);
 
+        // Test with reversed curves using new_using_label()
+        let sr_params_label_reversed = SelRerandParameters {
+            even_parameters: SingleLayerParameters::<VestaConfig>::new_using_label(
+                b"test_single_level_even_rev",
+                generators_length,
+            )
+            .expect("Failed to create even parameters"),
+            odd_parameters: SingleLayerParameters::<PallasConfig>::new_using_label(
+                b"test_single_level_odd_rev",
+                generators_length,
+            )
+            .expect("Failed to create odd parameters"),
+        };
+        test_single_level_inner(&sr_params_label_reversed);
+    }
+
+    fn test_single_level_batched_inner<
+        P0: SWCurveConfig + Copy,
+        P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = P0::BaseField> + Copy,
+    >(
+        sr_params: &SelRerandParameters<P0, P1>,
+    ) where
+        Affine<P0>: UniformRand,
+        P0::ScalarField: UniformRand,
+        P1::ScalarField: UniformRand,
+    {
+        let mut rng = rand::thread_rng();
         const M: usize = 2;
         let arity = 32;
-        let children: Vec<_> = iter::from_fn(|| Some(PallasA::rand(&mut rng)))
+        let children: Vec<_> = iter::from_fn(|| Some(Affine::<P0>::rand(&mut rng)))
             .take(M * arity)
             .collect();
         // Pick M children
@@ -346,16 +411,16 @@ mod tests {
             .iter()
             .map(|child_plus_delta| child_plus_delta.x)
             .collect();
-        let blinding = VestaScalar::rand(&mut rng);
+        let blinding = P1::ScalarField::rand(&mut rng);
         let parent = sr_params.odd_parameters.commit(xs.as_slice(), blinding, 0);
 
         // Rerandomize the selected children
-        let rerandomization_1 = PallasScalar::rand(&mut rng);
+        let rerandomization_1 = P0::ScalarField::rand(&mut rng);
         let rerandomized_child_1 = (children[child_index_1]
             + (sr_params.even_parameters.pc_gens.B_blinding * rerandomization_1))
             .into_affine();
 
-        let rerandomization_2 = PallasScalar::rand(&mut rng);
+        let rerandomization_2 = P0::ScalarField::rand(&mut rng);
         let rerandomized_child_2 = (children[child_index_2]
             + (sr_params.even_parameters.pc_gens.B_blinding * rerandomization_2))
             .into_affine();
@@ -364,7 +429,7 @@ mod tests {
 
         let proof = {
             let mut transcript = MerlinTranscript::new(b"single_level_select_and_rerandomize");
-            let mut prover: Prover<_, VestaA> =
+            let mut prover: Prover<_, Affine<P1>> =
                 Prover::new(&sr_params.odd_parameters.pc_gens, &mut transcript);
 
             let (xs_comm, xs_vars) =
@@ -388,23 +453,67 @@ mod tests {
         };
 
         let mut transcript = MerlinTranscript::new(b"single_level_select_and_rerandomize");
-        let mut verifier = Verifier::<_, VestaA>::new(&mut transcript);
+        let mut verifier = Verifier::<_, Affine<P1>>::new(&mut transcript);
         let xs_vars = verifier.commit_vec(M * arity, parent);
         single_level_batched_select_and_rerandomize(
             &mut verifier,
             &sr_params.even_parameters,
             &rerandomized_sum,
             xs_vars.into_iter().map(|x| x.into()).collect(),
-            None::<&[PallasA; M]>,
+            None::<&[Affine<P0>; M]>,
             None,
         )
         .expect("Failed to run single_level_batched_select_and_rerandomize");
 
-        let res = verifier.verify(
-            &proof,
-            &sr_params.odd_parameters.pc_gens,
-            &sr_params.odd_parameters.bp_gens,
-        );
-        assert_eq!(res, Ok(()))
+        verifier
+            .verify(
+                &proof,
+                &sr_params.odd_parameters.pc_gens,
+                &sr_params.odd_parameters.bp_gens,
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn test_single_level_batched() {
+        let generators_length = 1 << 12;
+
+        // Test with parameters created using new()
+        let sr_params_new = SelRerandParameters::<PallasConfig, VestaConfig>::new(
+            generators_length,
+            generators_length,
+        )
+        .expect("Failed to create SelRerandParameters");
+        test_single_level_batched_inner(&sr_params_new);
+
+        // Test with parameters created using new_using_label()
+        let sr_params_label = SelRerandParameters {
+            even_parameters: SingleLayerParameters::<PallasConfig>::new_using_label(
+                b"test_batched_even",
+                generators_length,
+            )
+            .expect("Failed to create even parameters"),
+            odd_parameters: SingleLayerParameters::<VestaConfig>::new_using_label(
+                b"test_batched_odd",
+                generators_length,
+            )
+            .expect("Failed to create odd parameters"),
+        };
+        test_single_level_batched_inner(&sr_params_label);
+
+        // Test with reversed curves using new_using_label()
+        let sr_params_label_reversed = SelRerandParameters {
+            even_parameters: SingleLayerParameters::<VestaConfig>::new_using_label(
+                b"test_batched_even_rev",
+                generators_length,
+            )
+            .expect("Failed to create even parameters"),
+            odd_parameters: SingleLayerParameters::<PallasConfig>::new_using_label(
+                b"test_batched_odd_rev",
+                generators_length,
+            )
+            .expect("Failed to create odd parameters"),
+        };
+        test_single_level_batched_inner(&sr_params_label_reversed);
     }
 }

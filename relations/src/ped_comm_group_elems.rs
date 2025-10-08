@@ -60,7 +60,7 @@ pub fn prove_naive<
         .collect::<Vec<_>>();
     let re_randomized_points = Projective::normalize_batch(&re_randomized_points);
 
-    // Commit to all x-coordinates
+    // Allocate commitment to all x-coordinates
     let x_coord_vars =
         prover.vars_for_committed_vec(re_randomized_comm, &x_coords, blinding_of_comm);
 

@@ -227,7 +227,8 @@ pub fn check_updates<
         let root = partial_curve_tree.root_node();
         for i in leaf_indices_to_track {
             let path = partial_curve_tree.get_path_to_leaf(i).unwrap();
-            let (prover_time, verifier_time) = check_proof(&mut rng, leaves[i as usize], path, &root, &sr_params);
+            let (prover_time, verifier_time) =
+                check_proof(&mut rng, leaves[i as usize], path, &root, &sr_params);
             total_prover_time += prover_time;
             total_verifier_time += verifier_time;
             num_proofs += 1;

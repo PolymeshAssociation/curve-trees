@@ -4,10 +4,12 @@ use crate::single_level_select_and_rerandomize::*;
 use ark_ec::AffineRepr;
 use ark_ec::{models::short_weierstrass::SWCurveConfig, short_weierstrass::Affine, CurveGroup};
 use ark_ff::PrimeField;
+use ark_pallas::PallasConfig;
 use ark_serialize::{
     CanonicalDeserialize, CanonicalSerialize, Compress, SerializationError, Valid, Validate, Write,
 };
 use ark_std::{boxed::Box, io::Read, vec, vec::Vec, Zero};
+use ark_vesta::VestaConfig;
 
 /// Parameters for multi level select and rerandomize over a 2-cycle of curves
 #[derive(Clone, CanonicalSerialize, CanonicalDeserialize)]
@@ -21,6 +23,44 @@ impl<P0: SWCurveConfig + Copy, P1: SWCurveConfig + Copy> SelRerandParameters<P0,
         Ok(SelRerandParameters {
             even_parameters: SingleLayerParameters::<P0>::new(even_generators_length)?,
             odd_parameters: SingleLayerParameters::<P1>::new(odd_generators_length)?,
+        })
+    }
+}
+
+impl SelRerandParameters<PallasConfig, VestaConfig> {
+    pub fn new_using_label(
+        label: &[u8],
+        even_generators_length: usize,
+        odd_generators_length: usize,
+    ) -> Result<Self, Error> {
+        Ok(SelRerandParameters {
+            even_parameters: SingleLayerParameters::<PallasConfig>::new_using_label(
+                label,
+                even_generators_length,
+            )?,
+            odd_parameters: SingleLayerParameters::<VestaConfig>::new_using_label(
+                label,
+                odd_generators_length,
+            )?,
+        })
+    }
+}
+
+impl SelRerandParameters<VestaConfig, PallasConfig> {
+    pub fn new_using_label(
+        label: &[u8],
+        even_generators_length: usize,
+        odd_generators_length: usize,
+    ) -> Result<Self, Error> {
+        Ok(SelRerandParameters {
+            even_parameters: SingleLayerParameters::<VestaConfig>::new_using_label(
+                label,
+                even_generators_length,
+            )?,
+            odd_parameters: SingleLayerParameters::<PallasConfig>::new_using_label(
+                label,
+                odd_generators_length,
+            )?,
         })
     }
 }

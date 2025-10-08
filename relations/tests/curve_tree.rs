@@ -8,8 +8,9 @@ use ark_ff::PrimeField;
 use ark_pallas::{Fq as PallasBase, PallasConfig};
 use ark_secp256k1::{Config as SecpConfig, Fq as SecpBase};
 use ark_secq256k1::Config as SecqConfig;
+use ark_serialize::{CanonicalSerialize, Compress};
 use ark_std::UniformRand;
-use ark_vesta::VestaConfig;
+use ark_vesta::{Fq as VestaBase, VestaConfig};
 use bulletproofs::r1cs::*;
 use dock_crypto_utils::transcript::MerlinTranscript;
 use rand::prelude::SliceRandom;
@@ -17,7 +18,6 @@ use rand::thread_rng;
 use relations::curve_tree::*;
 use std::collections::BTreeSet;
 use std::time::{Duration, Instant};
-use ark_serialize::{CanonicalSerialize, Compress};
 
 mod common;
 use common::prove;
@@ -128,28 +128,50 @@ pub fn curve_tree_get_update() {
     test_curve_tree_get_update::<2, PallasBase, PallasConfig, VestaConfig>(None, 12, 64, 10);
 }
 
-pub fn test_curve_tree_with_parameters<
+#[test]
+pub fn test_curve_tree_using_params_generated_by_hash_to_curve() {
+    let generators_length = 1 << 11;
+
+    // Test with Pallas as P0, Vesta as P1
+    let sr_params_pallas = SelRerandParameters::<PallasConfig, VestaConfig>::new_using_label(
+        b"curve_tree_test_pallas_p0",
+        generators_length,
+        generators_length,
+    )
+    .expect("Failed to create SelRerandParameters with Pallas as P0");
+
+    test_curve_tree_inner::<32, PallasBase, PallasConfig, VestaConfig>(&sr_params_pallas, 4);
+
+    // Test with Vesta as P0, Pallas as P1
+    let sr_params_vesta = SelRerandParameters::<VestaConfig, PallasConfig>::new_using_label(
+        b"curve_tree_test_vesta_p0",
+        generators_length,
+        generators_length,
+    )
+    .expect("Failed to create SelRerandParameters with Vesta as P0");
+
+    test_curve_tree_inner::<32, VestaBase, VestaConfig, PallasConfig>(&sr_params_vesta, 4);
+}
+
+fn test_curve_tree_inner<
     const L: usize,
     F: PrimeField,
     P0: SWCurveConfig<BaseField = F> + Copy,
     P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = P0::BaseField> + Copy,
 >(
+    sr_params: &SelRerandParameters<P0, P1>,
     depth: usize,
-    generators_length_log_2: usize,
-) {
-    let mut rng = rand::thread_rng();
-    let generators_length = 1 << generators_length_log_2;
+) where
+    Affine<P0>: UniformRand,
+{
+    let mut rng = thread_rng();
+    let even_transcript = MerlinTranscript::new(b"select_and_rerandomize");
+    let mut even_prover: Prover<_, Affine<P0>> =
+        Prover::new(&sr_params.even_parameters.pc_gens, even_transcript);
 
-    let sr_params = SelRerandParameters::<P0, P1>::new(generators_length, generators_length)
-        .expect("Failed to create SelRerandParameters");
-
-    let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
-    let mut pallas_prover: Prover<_, Affine<P0>> =
-        Prover::new(&sr_params.even_parameters.pc_gens, pallas_transcript);
-
-    let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
-    let mut vesta_prover: Prover<_, Affine<P1>> =
-        Prover::new(&sr_params.odd_parameters.pc_gens, vesta_transcript);
+    let odd_transcript = MerlinTranscript::new(b"select_and_rerandomize");
+    let mut odd_prover: Prover<_, Affine<P1>> =
+        Prover::new(&sr_params.odd_parameters.pc_gens, odd_transcript);
 
     let some_point = Affine::<P0>::rand(&mut rng);
     let set = vec![some_point];
@@ -158,46 +180,67 @@ pub fn test_curve_tree_with_parameters<
 
     let path = curve_tree.get_path_to_leaf_for_proof(0, 0);
     let (path_commitments, re_randomization_of_leaf) = path.select_and_rerandomize_prover_gadget(
-            &mut pallas_prover,
-            &mut vesta_prover,
-            &sr_params,
-            &mut rng,
-        );
+        &mut even_prover,
+        &mut odd_prover,
+        &sr_params,
+        &mut rng,
+    );
 
-    let (pallas_proof, vesta_proof) = prove(pallas_prover, vesta_prover, &sr_params).unwrap();
+    let (pallas_proof, vesta_proof) = prove(even_prover, odd_prover, &sr_params).unwrap();
 
     let root = curve_tree.root_node();
 
     {
-        let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
-        let mut pallas_verifier = Verifier::new(pallas_transcript);
-        let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
-        let mut vesta_verifier = Verifier::new(vesta_transcript);
+        let even_transcript = MerlinTranscript::new(b"select_and_rerandomize");
+        let mut even_verifier = Verifier::new(even_transcript);
+        let odd_transcript = MerlinTranscript::new(b"select_and_rerandomize");
+        let mut odd_verifier = Verifier::new(odd_transcript);
 
         let rerandomized_leaf = path_commitments.select_and_rerandomize_verifier_gadget(
             &root,
-            &mut pallas_verifier,
-            &mut vesta_verifier,
+            &mut even_verifier,
+            &mut odd_verifier,
             &sr_params,
         );
-        let vesta_res = vesta_verifier.verify(
-            &vesta_proof,
-            &sr_params.odd_parameters.pc_gens,
-            &sr_params.odd_parameters.bp_gens,
-        );
-        let pallas_res = pallas_verifier.verify(
-            &pallas_proof,
-            &sr_params.even_parameters.pc_gens,
-            &sr_params.even_parameters.bp_gens,
-        );
-        assert_eq!(vesta_res, pallas_res);
-        assert_eq!(vesta_res, Ok(()));
+        odd_verifier
+            .verify(
+                &vesta_proof,
+                &sr_params.odd_parameters.pc_gens,
+                &sr_params.odd_parameters.bp_gens,
+            )
+            .unwrap();
+        even_verifier
+            .verify(
+                &pallas_proof,
+                &sr_params.even_parameters.pc_gens,
+                &sr_params.even_parameters.bp_gens,
+            )
+            .unwrap();
         assert_eq!(
             rerandomized_leaf.into_group(),
             curve_tree.get_leaf(0)
                 + (sr_params.even_parameters.pc_gens.B_blinding * re_randomization_of_leaf)
         )
     }
+}
+
+pub fn test_curve_tree_with_parameters<
+    const L: usize,
+    F: PrimeField,
+    P0: SWCurveConfig<BaseField = F> + Copy,
+    P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = P0::BaseField> + Copy,
+>(
+    depth: usize,
+    generators_length_log_2: usize,
+) where
+    Affine<P0>: UniformRand,
+{
+    let generators_length = 1 << generators_length_log_2;
+
+    let sr_params = SelRerandParameters::<P0, P1>::new(generators_length, generators_length)
+        .expect("Failed to create SelRerandParameters");
+
+    test_curve_tree_inner::<L, F, P0, P1>(&sr_params, depth);
 }
 
 pub fn test_curve_tree_with_parameters_new<
@@ -211,7 +254,7 @@ pub fn test_curve_tree_with_parameters_new<
     num_leaves: usize,
     num_proofs: usize,
 ) {
-    let mut rng = rand::thread_rng();
+    let mut rng = thread_rng();
     let generators_length = 1 << generators_length_log_2;
 
     let sr_params = SelRerandParameters::<P0, P1>::new(generators_length, generators_length)
@@ -263,7 +306,12 @@ pub fn test_curve_tree_with_parameters_new<
         prover_time += clock.elapsed();
 
         if !proof_size_printed {
-            println!("Proof size for L={L}, height={}: {} bytes", depth.unwrap(), pallas_proof.serialized_size(Compress::Yes) + vesta_proof.serialized_size(Compress::Yes));
+            println!(
+                "Proof size for L={L}, height={}: {} bytes",
+                depth.unwrap(),
+                pallas_proof.serialized_size(Compress::Yes)
+                    + vesta_proof.serialized_size(Compress::Yes)
+            );
             proof_size_printed = true;
         }
 
@@ -283,16 +331,20 @@ pub fn test_curve_tree_with_parameters_new<
 
             #[cfg(feature = "parallel")]
             let (vesta_res, pallas_res) = rayon::join(
-                || vesta_verifier.verify(
-                    &vesta_proof,
-                    &sr_params.odd_parameters.pc_gens,
-                    &sr_params.odd_parameters.bp_gens,
-                ),
-                || pallas_verifier.verify(
-                    &pallas_proof,
-                    &sr_params.even_parameters.pc_gens,
-                    &sr_params.even_parameters.bp_gens,
-                ),
+                || {
+                    vesta_verifier.verify(
+                        &vesta_proof,
+                        &sr_params.odd_parameters.pc_gens,
+                        &sr_params.odd_parameters.bp_gens,
+                    )
+                },
+                || {
+                    pallas_verifier.verify(
+                        &pallas_proof,
+                        &sr_params.even_parameters.pc_gens,
+                        &sr_params.even_parameters.bp_gens,
+                    )
+                },
             );
 
             #[cfg(not(feature = "parallel"))]
@@ -321,10 +373,7 @@ pub fn test_curve_tree_with_parameters_new<
 
     println!(
         "For tree with {} leaves, {} proofs took {:?} prover time and {:?} verifier time",
-        num_leaves,
-        num_proofs,
-        prover_time,
-        verifier_time
+        num_leaves, num_proofs, prover_time, verifier_time
     );
 }
 
@@ -339,7 +388,7 @@ pub fn test_curve_tree_get_update<
     num_leaves: usize,
     num_updates: usize,
 ) {
-    let mut rng = rand::thread_rng();
+    let mut rng = thread_rng();
     let generators_length = 1 << generators_length_log_2;
 
     let sr_params = SelRerandParameters::<P0, P1>::new(generators_length, generators_length)
@@ -443,7 +492,7 @@ pub fn test_curve_tree_get_update<
 
 #[test]
 pub fn test_curve_tree_batch_verification() {
-    let mut rng = rand::thread_rng();
+    let mut rng = thread_rng();
     let generators_length = 1 << 12;
 
     let sr_params = SelRerandParameters::<PallasParameters, VestaParameters>::new(
@@ -454,7 +503,9 @@ pub fn test_curve_tree_batch_verification() {
 
     let batch_size = 5;
 
-    let set = (0..batch_size).map(|_| PallasP::rand(&mut rng).into_affine()).collect::<Vec<_>>();
+    let set = (0..batch_size)
+        .map(|_| PallasP::rand(&mut rng).into_affine())
+        .collect::<Vec<_>>();
     let curve_tree = CurveTree::<32, 1, PallasParameters, VestaParameters>::from_leaves(
         &set,
         &sr_params,
@@ -462,7 +513,11 @@ pub fn test_curve_tree_batch_verification() {
     );
     assert_eq!(curve_tree.height(), 4);
 
-    let labels = [b"select_and_rerandomize_1", b"select_and_rerandomize_2", b"select_and_rerandomize_3"];
+    let labels = [
+        b"select_and_rerandomize_1",
+        b"select_and_rerandomize_2",
+        b"select_and_rerandomize_3",
+    ];
 
     println!("Batch size = {batch_size}");
 

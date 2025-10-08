@@ -6,7 +6,7 @@ pub mod linear_combination;
 mod metrics;
 mod proof;
 mod prover;
-mod verifier;
+pub mod verifier;
 
 pub use self::constraint_system::{
     ConstraintSystem, RandomizableConstraintSystem, RandomizedConstraintSystem,
@@ -17,7 +17,11 @@ pub use self::proof::R1CSProof;
 pub use self::prover::Prover;
 #[cfg(feature = "std")]
 pub use self::verifier::batch_verify;
-pub use self::verifier::{batch_verify_with_rng, VerificationTuple, Verifier};
+pub use self::verifier::{
+    add_verification_tuple_to_rmc, add_verification_tuples_to_rmc,
+    add_verification_tuples_to_rmc_0, batch_verify_with_rng, verify_given_verification_tuple,
+    VerificationTuple, Verifier,
+};
 
 pub use crate::errors::R1CSError;
 
