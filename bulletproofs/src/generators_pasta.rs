@@ -42,11 +42,11 @@ macro_rules! impl_bulletproof_gens_new_using_label {
                 let dst_h = $dst_h;
                 let mut G_vec = Vec::with_capacity(party_capacity);
                 let mut H_vec = Vec::with_capacity(party_capacity);
-                for i in 0..party_capacity {
+                for i in 0..party_capacity as u32 {
                     let mut G = Vec::with_capacity(gens_capacity);
                     let mut H = Vec::with_capacity(gens_capacity);
                     let dst_g = [dst_g, i.to_le_bytes().as_slice()].concat();
-                    for j in 0..gens_capacity {
+                    for j in 0..gens_capacity as u32 {
                         G.push($hash_fn(
                             dst_g.as_slice(),
                             &[label, j.to_le_bytes().as_slice()].concat(),

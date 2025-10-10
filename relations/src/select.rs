@@ -24,10 +24,12 @@ mod tests {
     use super::*;
 
     use ark_ec::AffineRepr;
+    use ark_serialize::CanonicalSerialize;
     use ark_std::UniformRand;
     use bulletproofs::{BulletproofGens, PedersenGens};
     use core::iter;
     use dock_crypto_utils::transcript::MerlinTranscript;
+    use std::time::Instant;
 
     type PallasA = ark_pallas::Affine;
     type PallasBase = <PallasA as AffineRepr>::BaseField;
@@ -36,47 +38,60 @@ mod tests {
 
     #[test]
     fn test_select() {
-        let mut rng = rand::thread_rng();
-        let pg = PedersenGens::default();
-        let bpg = BulletproofGens::new(1024, 1);
-        let (proof, xs_comm, x_comm) = {
-            // have a prover commit to a vector of random elements in Pallas base field
-            let xs: Vec<_> = iter::from_fn(|| Some(VestaScalar::rand(&mut rng)))
-                .take(256)
-                .collect();
-            let index = 42;
-            let x = xs[index];
+        let pg = PedersenGens::<VestaA>::default();
+        let bpg = BulletproofGens::<VestaA>::new(1 << 12, 1);
 
+        fn check(set_size: usize, pg: &PedersenGens<VestaA>, bpg: &BulletproofGens<VestaA>) {
+            let mut rng = rand::thread_rng();
+            let (proof, xs_comm, x_comm) = {
+                // have a prover commit to a vector of random elements in Pallas base field
+                let xs: Vec<_> = iter::from_fn(|| Some(VestaScalar::rand(&mut rng)))
+                    .take(set_size)
+                    .collect();
+                let index = 42;
+                let x = xs[index];
+
+                let start = Instant::now();
+                let mut transcript = MerlinTranscript::new(b"select");
+                let mut prover: Prover<_, VestaA> = Prover::new(&pg, &mut transcript);
+                let blinding_xs = PallasBase::rand(&mut rng);
+                let (xs_comm, xs_vars) = prover.commit_vec(xs.as_slice(), blinding_xs, &bpg);
+                let blinding_x = PallasBase::rand(&mut rng);
+                let (x_comm, x_var) = prover.commit(x, blinding_x);
+
+                select(
+                    &mut prover,
+                    x_var.into(),
+                    xs_vars.into_iter().map(|v| v.into()),
+                );
+
+                let proof = prover.prove(&bpg).unwrap();
+                println!("For set size = {set_size}");
+                println!("Prover time {:?}", start.elapsed());
+                println!("Proof size {}", proof.compressed_size());
+
+                (proof, xs_comm, x_comm)
+            };
+
+            let start = Instant::now();
             let mut transcript = MerlinTranscript::new(b"select");
-            let mut prover: Prover<_, VestaA> = Prover::new(&pg, &mut transcript);
-            let blinding_xs = PallasBase::rand(&mut rng);
-            let (xs_comm, xs_vars) = prover.commit_vec(xs.as_slice(), blinding_xs, &bpg);
-            let blinding_x = PallasBase::rand(&mut rng);
-            let (x_comm, x_var) = prover.commit(x, blinding_x);
+            let mut verifier = Verifier::new(&mut transcript);
+
+            let xs_vars = verifier.commit_vec(set_size, xs_comm);
+            let x_var = verifier.commit(x_comm);
 
             select(
-                &mut prover,
+                &mut verifier,
                 x_var.into(),
                 xs_vars.into_iter().map(|v| v.into()),
             );
 
-            let proof = prover.prove(&bpg).unwrap();
-            (proof, xs_comm, x_comm)
-        };
+            verifier.verify(&proof, pg, bpg).unwrap();
+            println!("Verifier time {:?}", start.elapsed());
+        }
 
-        let mut transcript = MerlinTranscript::new(b"select");
-        let mut verifier = Verifier::new(&mut transcript);
-
-        let xs_vars = verifier.commit_vec(256, xs_comm);
-        let x_var = verifier.commit(x_comm);
-
-        select(
-            &mut verifier,
-            x_var.into(),
-            xs_vars.into_iter().map(|v| v.into()),
-        );
-
-        let res = verifier.verify(&proof, &pg, &bpg);
-        assert_eq!(res, Ok(()))
+        check(512, &pg, &bpg);
+        check(1000, &pg, &bpg);
+        check(2000, &pg, &bpg);
     }
 }
