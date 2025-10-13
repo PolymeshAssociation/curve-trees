@@ -365,7 +365,7 @@ impl<
         child_level_params: &SingleLayerParameters<P0>,
     ) {
         let child_node_delta_x_coord = (child_node + child_level_params.delta).into_affine().x;
-        let gen_iter = node_level_params.bp_gens.share(0).G(L).skip(pos);
+        let gen_iter = node_level_params.bp_gens.share(0).G(L as u32).skip(pos);
         let gen = gen_iter.copied().next().unwrap();
 
         let diff = if pos < node_to_update.x_coords.len() {
@@ -385,7 +385,7 @@ impl<
         parameters: &SingleLayerParameters<P1>,
     ) -> DefaultNode<P0, P1> {
         let child_delta_x = (child_node + delta).into_affine().x;
-        let commitment = parameters.commit_for_default_node(child_delta_x, L, 0);
+        let commitment = parameters.commit_for_default_node(child_delta_x, L as u32, 0);
         DefaultNode {
             x_coord: child_delta_x,
             commitment,

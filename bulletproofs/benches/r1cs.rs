@@ -152,7 +152,7 @@ const MAX_SHUFFLE_SIZE: usize = 1 << LG_MAX_SHUFFLE_SIZE;
 fn bench_kshuffle_prove(c: &mut Criterion) {
     // Construct Bulletproof generators externally
     let pc_gens = PedersenGens::default();
-    let bp_gens = BulletproofGens::new(2 * MAX_SHUFFLE_SIZE, 1);
+    let bp_gens = BulletproofGens::new((2 * MAX_SHUFFLE_SIZE) as u32, 1);
 
     let mut group = c.benchmark_group("k-shuffle proof creation");
     for k in (1..=LG_MAX_SHUFFLE_SIZE).map(|i| 1 << i) {
@@ -189,7 +189,7 @@ criterion_group! {
 fn bench_kshuffle_verify(c: &mut Criterion) {
     // Construct Bulletproof generators externally
     let pc_gens = PedersenGens::default();
-    let bp_gens = BulletproofGens::new(2 * MAX_SHUFFLE_SIZE, 1);
+    let bp_gens = BulletproofGens::new((2 * MAX_SHUFFLE_SIZE) as u32, 1);
 
     let mut group = c.benchmark_group("k-shuffle proof verification");
     for k in (1..=LG_MAX_SHUFFLE_SIZE).map(|i| 1 << i) {

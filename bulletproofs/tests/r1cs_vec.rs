@@ -568,7 +568,7 @@ mod veccom_large_linear {
     fn gadget_roundtrip_helper<C: AffineRepr>() -> Result<(), R1CSError> {
         // Common
         let pc_gens = PedersenGens::<C>::default();
-        let bp_gens = BulletproofGens::<C>::new(DIM, 1);
+        let bp_gens = BulletproofGens::<C>::new(DIM as u32, 1);
 
         let (proof, comm) = gadget_proof::<C>(&pc_gens, &bp_gens)?;
 

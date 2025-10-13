@@ -410,9 +410,9 @@ mod tests {
         let mut rng = StdRng::from_seed(seed);
 
         use crate::generators::BulletproofGens;
-        let bp_gens = BulletproofGens::<Affine>::new(n, 1);
-        let G: Vec<_> = bp_gens.share(0).G(n).copied().collect();
-        let H: Vec<_> = bp_gens.share(0).H(n).copied().collect();
+        let bp_gens = BulletproofGens::<Affine>::new(n as u32, 1);
+        let G: Vec<_> = bp_gens.share(0).G(n as u32).copied().collect();
+        let H: Vec<_> = bp_gens.share(0).H(n as u32).copied().collect();
 
         // Q would be determined upstream in the protocol, so we pick a random one.
         let Q =

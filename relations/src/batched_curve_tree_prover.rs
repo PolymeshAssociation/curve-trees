@@ -68,7 +68,7 @@ impl<
         for i in 0..independent_paths[0].even_internal_nodes.len() {
             let witnesses: Vec<_> = independent_paths
                 .iter()
-                .map(|w| w.even_internal_nodes[i])
+                .map(|w| w.even_internal_nodes[i].clone())
                 .collect();
             even_internal_nodes.push(witnesses.try_into().unwrap());
         }
@@ -77,7 +77,7 @@ impl<
         for i in 0..independent_paths[0].odd_internal_nodes.len() {
             let witnesses: Vec<_> = independent_paths
                 .iter()
-                .map(|w| w.odd_internal_nodes[i])
+                .map(|w| w.odd_internal_nodes[i].clone())
                 .collect();
             odd_internal_nodes.push(witnesses.try_into().unwrap());
         }

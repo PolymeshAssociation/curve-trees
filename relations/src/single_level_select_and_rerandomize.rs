@@ -32,7 +32,7 @@ pub struct SingleLayerParameters<P: SWCurveConfig + Copy> {
 }
 
 impl<P: SWCurveConfig + Copy> SingleLayerParameters<P> {
-    pub fn new(generators_length: usize) -> Result<Self, Error> {
+    pub fn new(generators_length: u32) -> Result<Self, Error> {
         let pc_gens = PedersenGens::<Affine<P>>::new().ok_or_else(|| {
             Error::GenerationError("Failed to generate Pedersen generators".into())
         })?;
@@ -53,13 +53,13 @@ impl<P: SWCurveConfig + Copy> SingleLayerParameters<P> {
         &self,
         v: &[P::ScalarField],
         v_blinding: P::ScalarField,
-        generator_set_index: usize,
+        generator_set_index: u32,
     ) -> Affine<P> {
         let gens = self
             .bp_gens
             .share(0)
-            .G(v.len() * (generator_set_index + 1))
-            .skip(v.len() * generator_set_index);
+            .G((v.len() * (generator_set_index as usize + 1)) as u32)
+            .skip(v.len() * generator_set_index as usize);
 
         let (generators, scalars) = if v_blinding.is_zero() {
             (
@@ -94,14 +94,14 @@ impl<P: SWCurveConfig + Copy> SingleLayerParameters<P> {
     pub fn commit_for_default_node(
         &self,
         x: P::ScalarField,
-        count: usize,
-        generator_set_index: usize,
+        count: u32,
+        generator_set_index: u32,
     ) -> Affine<P> {
         let gens = self
             .bp_gens
             .share(0)
-            .G(count * (generator_set_index + 1))
-            .skip(count * generator_set_index);
+            .G((count * (generator_set_index + 1)) as u32)
+            .skip((count * generator_set_index) as usize);
         let g = gens.copied().sum::<<Affine<P> as AffineRepr>::Group>();
 
         (g * x).into_affine()
@@ -111,7 +111,7 @@ impl<P: SWCurveConfig + Copy> SingleLayerParameters<P> {
 macro_rules! impl_single_layer_parameters_new_using_label {
     ($config:ty, $affine:ty, $hash_fn:ident, $curve_name:literal) => {
         impl SingleLayerParameters<$config> {
-            pub fn new_using_label(label: &[u8], generators_length: usize) -> Result<Self, Error> {
+            pub fn new_using_label(label: &[u8], generators_length: u32) -> Result<Self, Error> {
                 let pc_gens = PedersenGens::<$affine>::new_using_label(label);
                 let bp_gens =
                     BulletproofGens::<$affine>::new_using_label(label, generators_length, 1);

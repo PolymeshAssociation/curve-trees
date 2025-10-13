@@ -349,7 +349,7 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
 
         // [b] * H + [v_1] * G1 + ... + [v_n] * Gn
         let generators: Vec<_> = iter::once(&self.pc_gens.B_blinding)
-            .chain(gens.G(v.len()))
+            .chain(gens.G(v.len() as u32))
             .copied()
             .collect::<Vec<_>>();
 
@@ -509,12 +509,12 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
             .map(|(proof, _transcript)| proof)
     }
 
-    pub fn size(&self) -> usize {
+    pub fn size(&self) -> u32 {
         let mut n = self.secrets.a_L.len();
         for (_, v) in self.secrets.vec_open.iter() {
             n = core::cmp::max(n, v.len());
         }
-        n
+        n as u32
     }
 
     pub fn number_of_constraints(&self) -> usize {
@@ -538,7 +538,7 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
         rng: &mut R,
     ) -> Result<(R1CSProof<C>, T), R1CSError> {
         // pad
-        while self.size() > self.secrets.a_L.len() {
+        while self.size() > self.secrets.a_L.len() as u32 {
             self.allocate_multiplier(Some((C::ScalarField::zero(), C::ScalarField::zero())))?;
         }
 
@@ -807,14 +807,14 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
                 // A_I = <a_L, G> + <a_R, H> + i_blinding * B_blinding
                 C::Group::msm_unchecked(
                     iter::once(&self.pc_gens.B_blinding)
-                        .chain(gens.G(n).skip(n1))
-                        .chain(gens.H(n).skip(n1))
+                        .chain(gens.G(n).skip(n1 as usize))
+                        .chain(gens.H(n).skip(n1 as usize))
                         .copied()
                         .collect::<Vec<C>>()
                         .as_slice(),
                     iter::once(&i_blinding2)
-                        .chain(self.secrets.a_L.iter().skip(n1))
-                        .chain(self.secrets.a_R.iter().skip(n1))
+                        .chain(self.secrets.a_L.iter().skip(n1 as usize))
+                        .chain(self.secrets.a_R.iter().skip(n1 as usize))
                         .copied()
                         .collect::<Vec<C::ScalarField>>()
                         .as_slice(),
@@ -823,12 +823,12 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
                 // A_O = <a_O, G> + o_blinding * B_blinding
                 C::Group::msm_unchecked(
                     iter::once(&self.pc_gens.B_blinding)
-                        .chain(gens.G(n).skip(n1))
+                        .chain(gens.G(n).skip(n1 as usize))
                         .copied()
                         .collect::<Vec<C>>()
                         .as_slice(),
                     iter::once(&o_blinding2)
-                        .chain(self.secrets.a_O.iter().skip(n1))
+                        .chain(self.secrets.a_O.iter().skip(n1 as usize))
                         .copied()
                         .collect::<Vec<C::ScalarField>>()
                         .as_slice(),
@@ -837,8 +837,8 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
                 // S = <s_L, G> + <s_R, H> + s_blinding * B_blinding
                 C::Group::msm_unchecked(
                     iter::once(&self.pc_gens.B_blinding)
-                        .chain(gens.G(n).skip(n1))
-                        .chain(gens.H(n).skip(n1))
+                        .chain(gens.G(n).skip(n1 as usize))
+                        .chain(gens.H(n).skip(n1 as usize))
                         .copied()
                         .collect::<Vec<C>>()
                         .as_slice(),
@@ -885,15 +885,19 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
         //     log::debug!("prover wO = {:?}", &wO);
         // }
 
-        let mut l_poly = util::VecPoly::<C::ScalarField>::zero(n, op_degree + 1);
-        let mut r_poly = util::VecPoly::<C::ScalarField>::zero(n, op_degree + 1);
+        let mut l_poly = util::VecPoly::<C::ScalarField>::zero(n as usize, op_degree + 1);
+        let mut r_poly = util::VecPoly::<C::ScalarField>::zero(n as usize, op_degree + 1);
 
         let y_inv = y.inverse().ok_or_else(|| R1CSError::GadgetError {
             description: "y must be non-zero".into(),
         })?;
 
-        let exp_y_inv = util::exp_iter(y_inv).take(padded_n).collect::<Vec<_>>();
-        let exp_y = util::exp_iter(y).take(padded_n).collect::<Vec<_>>();
+        let exp_y_inv = util::exp_iter(y_inv)
+            .take(padded_n as usize)
+            .collect::<Vec<_>>();
+        let exp_y = util::exp_iter(y)
+            .take(padded_n as usize)
+            .collect::<Vec<_>>();
 
         //
         let sLsR = s_L1
@@ -1097,14 +1101,14 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
 
         // The constant term of l is zero, hence l_vec is zero beyond n
         let mut l_vec = l_poly.eval(x);
-        l_vec.append(&mut vec![C::ScalarField::zero(); pad]);
+        l_vec.append(&mut vec![C::ScalarField::zero(); pad as usize]);
 
         // XXX this should refer to the notes to explain why this is correct
         // This is the constant term of r(x) beyond w_O since it is zero after n.
         let mut r_vec = r_poly.eval(x);
-        r_vec.append(&mut vec![C::ScalarField::zero(); pad]);
+        r_vec.append(&mut vec![C::ScalarField::zero(); pad as usize]);
         for i in n..padded_n {
-            r_vec[i] = -exp_y[i];
+            r_vec[i as usize] = -exp_y[i as usize];
         }
 
         // sanity check
@@ -1116,22 +1120,22 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
                 description: "y must be non-zero".into(),
             })?;
             let y_inv_vec = util::exp_iter(y_inv)
-                .take(padded_n)
+                .take(padded_n as usize)
                 .collect::<Vec<C::ScalarField>>();
 
             let yneg_wR = wR
                 .iter()
                 .zip(y_inv_vec.iter())
                 .map(|(wRi, exp_y_inv)| (*wRi) * exp_y_inv)
-                .chain(iter::repeat(C::ScalarField::zero()).take(padded_n - n))
+                .chain(iter::repeat(C::ScalarField::zero()).take((padded_n - n) as usize))
                 .collect::<Vec<C::ScalarField>>();
 
-            let delta = inner_product(&yneg_wR[0..n], &wL);
+            let delta = inner_product(&yneg_wR[0..n as usize], &wL);
 
-            let yn: Vec<_> = util::exp_iter(y).take(n).collect();
-            let mut aRyn = vec![C::ScalarField::zero(); n];
+            let yn: Vec<_> = util::exp_iter(y).take(n as usize).collect();
+            let mut aRyn = vec![C::ScalarField::zero(); n as usize];
             for i in 0..n {
-                aRyn[i] = self.secrets.a_R[i] * yn[i];
+                aRyn[i as usize] = self.secrets.a_R[i as usize] * yn[i as usize];
             }
 
             let mut t2 = C::ScalarField::zero();
@@ -1205,8 +1209,8 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
         let Q = self.pc_gens.B.mul(w).into();
 
         let G_factors = iter::repeat(C::ScalarField::one())
-            .take(n1)
-            .chain(iter::repeat(u).take(n2 + pad))
+            .take(n1 as usize)
+            .chain(iter::repeat(u).take((n2 + pad) as usize))
             .collect::<Vec<_>>();
 
         let H_factors = exp_y_inv

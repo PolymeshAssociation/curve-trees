@@ -929,8 +929,9 @@ pub struct VerificationTuple<C: AffineRepr> {
 }
 
 impl<C: AffineRepr> VerificationTuple<C> {
-    pub fn padded_n(&self) -> usize {
-        (self.proof_independent_scalars.len() - 2) / 2
+    pub fn padded_n(&self) -> u32 {
+        // This can be be safely cast to 32 since parameters length always fits in u32
+        ((self.proof_independent_scalars.len() - 2) / 2) as u32
     }
 }
 
@@ -1024,7 +1025,7 @@ pub fn msm_check<C: AffineRepr>(
     proof_dependent_points: Vec<C>,
     proof_dependent_scalars: Vec<C::ScalarField>,
     proof_independent_scalars: Vec<C::ScalarField>,
-    padded_n: usize,
+    padded_n: u32,
     pc_gens: &PedersenGens<C>,
     bp_gens: &BulletproofGens<C>,
 ) -> Result<(), R1CSError> {
@@ -1048,7 +1049,7 @@ fn bases_and_scalars<C: AffineRepr>(
     proof_dependent_points: Vec<C>,
     proof_dependent_scalars: Vec<C::ScalarField>,
     proof_independent_scalars: Vec<C::ScalarField>,
-    padded_n: usize,
+    padded_n: u32,
     pc_gens: &PedersenGens<C>,
     bp_gens: &BulletproofGens<C>,
 ) -> Result<(Vec<C>, Vec<C::ScalarField>), R1CSError> {

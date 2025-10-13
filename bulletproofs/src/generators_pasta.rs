@@ -33,18 +33,14 @@ macro_rules! impl_bulletproof_gens_new_using_label {
     ($affine_type:ty, $projective_type:ty, $hash_fn:ident, $dst_g:expr, $dst_h:expr) => {
         impl BulletproofGens<$affine_type> {
             /// Creates by hashing the label. Do not call `increase_capacity` as it doesn't call standard hash to curve
-            pub fn new_using_label(
-                label: &[u8],
-                gens_capacity: usize,
-                party_capacity: usize,
-            ) -> Self {
+            pub fn new_using_label(label: &[u8], gens_capacity: u32, party_capacity: u32) -> Self {
                 let dst_g = $dst_g;
                 let dst_h = $dst_h;
-                let mut G_vec = Vec::with_capacity(party_capacity);
-                let mut H_vec = Vec::with_capacity(party_capacity);
+                let mut G_vec = Vec::with_capacity(party_capacity as usize);
+                let mut H_vec = Vec::with_capacity(party_capacity as usize);
                 for i in 0..party_capacity as u32 {
-                    let mut G = Vec::with_capacity(gens_capacity);
-                    let mut H = Vec::with_capacity(gens_capacity);
+                    let mut G = Vec::with_capacity(gens_capacity as usize);
+                    let mut H = Vec::with_capacity(gens_capacity as usize);
                     let dst_g = [dst_g, i.to_le_bytes().as_slice()].concat();
                     for j in 0..gens_capacity as u32 {
                         G.push($hash_fn(
@@ -98,13 +94,13 @@ mod tests {
             fn $test_name() {
                 let gens = BulletproofGens::<$affine_type>::new_using_label($label, 64, 8);
 
-                let helper = |n: usize, m: usize| {
+                let helper = |n: u32, m: u32| {
                     let agg_G: Vec<$affine_type> = gens.G(n, m).copied().collect();
                     let flat_G: Vec<$affine_type> = gens
                         .G_vec
                         .iter()
-                        .take(m)
-                        .flat_map(move |G_j| G_j.iter().take(n))
+                        .take(m as usize)
+                        .flat_map(move |G_j| G_j.iter().take(n as usize))
                         .copied()
                         .collect();
 
@@ -112,8 +108,8 @@ mod tests {
                     let flat_H: Vec<$affine_type> = gens
                         .H_vec
                         .iter()
-                        .take(m)
-                        .flat_map(move |H_j| H_j.iter().take(n))
+                        .take(m as usize)
+                        .flat_map(move |H_j| H_j.iter().take(n as usize))
                         .copied()
                         .collect();
 
@@ -141,8 +137,11 @@ mod tests {
                     // Test different sizes for this party's share
                     for n in [16, 32, 64] {
                         let share_G: Vec<$affine_type> = share.G(n).copied().collect();
-                        let direct_G: Vec<$affine_type> =
-                            gens.G_vec[party].iter().take(n).copied().collect();
+                        let direct_G: Vec<$affine_type> = gens.G_vec[party as usize]
+                            .iter()
+                            .take(n as usize)
+                            .copied()
+                            .collect();
                         assert_eq!(
                             share_G, direct_G,
                             "share({}).G({}) doesn't match direct access",
@@ -150,8 +149,11 @@ mod tests {
                         );
 
                         let share_H: Vec<$affine_type> = share.H(n).copied().collect();
-                        let direct_H: Vec<$affine_type> =
-                            gens.H_vec[party].iter().take(n).copied().collect();
+                        let direct_H: Vec<$affine_type> = gens.H_vec[party as usize]
+                            .iter()
+                            .take(n as usize)
+                            .copied()
+                            .collect();
                         assert_eq!(
                             share_H, direct_H,
                             "share({}).H({}) doesn't match direct access",

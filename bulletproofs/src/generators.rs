@@ -123,7 +123,7 @@ impl<C: AffineRepr> GeneratorsChain<C> {
 
     /// Advances the reader n times, squeezing and discarding
     /// the result.
-    fn fast_forward(mut self, n: usize) -> Self {
+    fn fast_forward(mut self, n: u32) -> Self {
         for _ in 0..n {
             let mut buf = [0u8; 64];
             self.reader.read(&mut buf);
@@ -182,9 +182,9 @@ impl<C: AffineRepr> Iterator for GeneratorsChain<C> {
 #[derive(Clone, CanonicalSerialize, CanonicalDeserialize)]
 pub struct BulletproofGens<C: AffineRepr> {
     /// The maximum number of usable generators for each party.
-    pub gens_capacity: usize,
+    pub gens_capacity: u32,
     /// Number of values or parties
-    pub party_capacity: usize,
+    pub party_capacity: u32,
     /// Precomputed \\(\mathbf G\\) generators for each party.
     pub(crate) G_vec: Vec<Vec<C>>,
     /// Precomputed \\(\mathbf H\\) generators for each party.
@@ -205,7 +205,7 @@ impl<C: AffineRepr> BulletproofGens<C> {
     ///
     /// * `party_capacity` is the maximum number of parties that can
     ///    produce an aggregated proof.
-    pub fn new(gens_capacity: usize, party_capacity: usize) -> Self {
+    pub fn new(gens_capacity: u32, party_capacity: u32) -> Self {
         let mut gens = BulletproofGens {
             gens_capacity: 0,
             party_capacity,
@@ -218,7 +218,7 @@ impl<C: AffineRepr> BulletproofGens<C> {
 
     /// Returns j-th share of generators, with an appropriate
     /// slice of vectors G and H for the j-th range proof.
-    pub fn share(&self, j: usize) -> BulletproofGensShare<'_, C> {
+    pub fn share(&self, j: u32) -> BulletproofGensShare<'_, C> {
         BulletproofGensShare {
             gens: self,
             share: j,
@@ -227,7 +227,7 @@ impl<C: AffineRepr> BulletproofGens<C> {
 
     /// Increases the generators' capacity to the amount specified.
     /// If less than or equal to the current capacity, does nothing.
-    fn increase_capacity(&mut self, new_capacity: usize) {
+    fn increase_capacity(&mut self, new_capacity: u32) {
         use byteorder::{ByteOrder, LittleEndian};
 
         if self.gens_capacity >= new_capacity {
@@ -235,27 +235,27 @@ impl<C: AffineRepr> BulletproofGens<C> {
         }
 
         for i in 0..self.party_capacity {
-            let party_index = i as u32;
+            let party_index = i;
             let mut label = [b'G', 0, 0, 0, 0];
             LittleEndian::write_u32(&mut label[1..5], party_index);
-            self.G_vec[i].extend(
+            self.G_vec[i as usize].extend(
                 &mut GeneratorsChain::<C>::new(&label)
                     .fast_forward(self.gens_capacity)
-                    .take(new_capacity - self.gens_capacity),
+                    .take((new_capacity - self.gens_capacity) as usize),
             );
 
             label[0] = b'H';
-            self.H_vec[i].extend(
+            self.H_vec[i as usize].extend(
                 &mut GeneratorsChain::<C>::new(&label)
                     .fast_forward(self.gens_capacity)
-                    .take(new_capacity - self.gens_capacity),
+                    .take((new_capacity - self.gens_capacity) as usize),
             );
         }
         self.gens_capacity = new_capacity;
     }
 
     /// Return an iterator over the aggregation of the parties' G generators with given size `n`.
-    pub fn G(&self, n: usize, m: usize) -> impl Iterator<Item = &C> {
+    pub fn G(&self, n: u32, m: u32) -> impl Iterator<Item = &C> {
         AggregatedGensIter {
             n,
             m,
@@ -266,7 +266,7 @@ impl<C: AffineRepr> BulletproofGens<C> {
     }
 
     /// Return an iterator over the aggregation of the parties' H generators with given size `n`.
-    pub fn H(&self, n: usize, m: usize) -> impl Iterator<Item = &C> {
+    pub fn H(&self, n: u32, m: u32) -> impl Iterator<Item = &C> {
         AggregatedGensIter {
             n,
             m,
@@ -279,10 +279,10 @@ impl<C: AffineRepr> BulletproofGens<C> {
 
 struct AggregatedGensIter<'a, C: AffineRepr> {
     array: &'a Vec<Vec<C>>,
-    n: usize,
-    m: usize,
-    party_idx: usize,
-    gen_idx: usize,
+    n: u32,
+    m: u32,
+    party_idx: u32,
+    gen_idx: u32,
 }
 
 impl<'a, C: AffineRepr> Iterator for AggregatedGensIter<'a, C> {
@@ -299,12 +299,13 @@ impl<'a, C: AffineRepr> Iterator for AggregatedGensIter<'a, C> {
         } else {
             let cur_gen = self.gen_idx;
             self.gen_idx += 1;
-            Some(&self.array[self.party_idx][cur_gen])
+            Some(&self.array[self.party_idx as usize][cur_gen as usize])
         }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let size = self.n * (self.m - self.party_idx) - self.gen_idx;
+        let remaining = self.n * (self.m - self.party_idx) - self.gen_idx;
+        let size = remaining as usize;
         (size, Some(size))
     }
 }
@@ -322,18 +323,18 @@ pub struct BulletproofGensShare<'a, C: AffineRepr> {
     /// The parent object that this is a view into
     gens: &'a BulletproofGens<C>,
     /// Which share we are
-    share: usize,
+    share: u32,
 }
 
 impl<'a, C: AffineRepr> BulletproofGensShare<'a, C> {
     /// Return an iterator over this party's G generators with given size `n`.
-    pub fn G(&self, n: usize) -> impl Iterator<Item = &'a C> {
-        self.gens.G_vec[self.share].iter().take(n)
+    pub fn G(&self, n: u32) -> impl Iterator<Item = &'a C> {
+        self.gens.G_vec[self.share as usize].iter().take(n as usize)
     }
 
     /// Return an iterator over this party's H generators with given size `n`.
-    pub(crate) fn H(&self, n: usize) -> impl Iterator<Item = &'a C> {
-        self.gens.H_vec[self.share].iter().take(n)
+    pub(crate) fn H(&self, n: u32) -> impl Iterator<Item = &'a C> {
+        self.gens.H_vec[self.share as usize].iter().take(n as usize)
     }
 }
 
@@ -356,13 +357,13 @@ mod tests {
     fn aggregated_gens_iter_matches_flat_map() {
         let gens = BulletproofGens::<Affine>::new(64, 8);
 
-        let helper = |n: usize, m: usize| {
+        let helper = |n: u32, m: u32| {
             let agg_G: Vec<Affine> = gens.G(n, m).copied().collect();
             let flat_G: Vec<Affine> = gens
                 .G_vec
                 .iter()
-                .take(m)
-                .flat_map(move |G_j| G_j.iter().take(n))
+                .take(m as usize)
+                .flat_map(move |G_j| G_j.iter().take(n as usize))
                 .copied()
                 .collect();
 
@@ -370,8 +371,8 @@ mod tests {
             let flat_H: Vec<Affine> = gens
                 .H_vec
                 .iter()
-                .take(m)
-                .flat_map(move |H_j| H_j.iter().take(n))
+                .take(m as usize)
+                .flat_map(move |H_j| H_j.iter().take(n as usize))
                 .copied()
                 .collect();
 
@@ -400,7 +401,7 @@ mod tests {
         let mut gen_resized = BulletproofGens::<Affine>::new(32, 8);
         gen_resized.increase_capacity(64);
 
-        let helper = |n: usize, m: usize| {
+        let helper = |n: u32, m: u32| {
             let gens_G: Vec<Affine> = gens.G(n, m).copied().collect();
             let gens_H: Vec<Affine> = gens.H(n, m).copied().collect();
 

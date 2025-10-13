@@ -173,7 +173,7 @@ fn kshuffle_helper(k: usize) {
 
     // Common code
     let pc_gens = PedersenGens::<Affine>::default();
-    let bp_gens = BulletproofGens::<Affine>::new((2 * k).next_power_of_two(), 1);
+    let bp_gens = BulletproofGens::<Affine>::new(((2 * k).next_power_of_two()) as u32, 1);
 
     let (proof, input_commitments, output_commitments) = {
         // Randomly generate inputs and outputs to kshuffle
@@ -229,7 +229,7 @@ fn kshuffle_batch_helper(k: usize, n: usize) {
     let pc_gens = PedersenGens::<Affine>::new_using_label(b"test-shuffle-pedersen");
     let bp_gens = BulletproofGens::<Affine>::new_using_label(
         b"test-shuffle-bulletproof",
-        (2 * k).next_power_of_two(),
+        ((2 * k).next_power_of_two()) as u32,
         1,
     );
 

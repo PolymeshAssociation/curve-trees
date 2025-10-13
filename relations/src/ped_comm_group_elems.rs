@@ -26,6 +26,7 @@ use dock_crypto_utils::transcript::MerlinTranscript;
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
+use zeroize::Zeroize;
 
 pub fn prove_naive<
     Fb: PrimeField,
@@ -54,11 +55,13 @@ pub fn prove_naive<
 
     // For each nested, re-randomization nested_r[i] = nested[i] + B_blinding * blindings[i]
     let window_table = WindowTable::new(size, parameters.pc_gens.B_blinding.into_group());
-    let blinders = window_table.multiply_many(&blindings_for_points);
+    let mut blinders = window_table.multiply_many(&blindings_for_points);
     let re_randomized_points = (0..size)
         .map(|i| points[i] + blinders[i])
         .collect::<Vec<_>>();
     let re_randomized_points = Projective::normalize_batch(&re_randomized_points);
+
+    Zeroize::zeroize(&mut blinders);
 
     // Allocate commitment to all x-coordinates
     let x_coord_vars =

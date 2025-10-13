@@ -23,6 +23,7 @@ ark-vesta = { version = "0.4", default-features = false }
 
 dock_crypto_utils = { workspace = true, default-features = false }
 schnorr_pok = { workspace = true, default-features = false }
+zeroize = { version = "1", features = ["zeroize_derive"] }
 
 [dev-dependencies]
 test-log = "0.2"

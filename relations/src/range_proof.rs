@@ -1,5 +1,6 @@
 use ark_ff::fields::Field;
 use bulletproofs::r1cs::*;
+use zeroize::Zeroize;
 
 /// Enforces that the quantity of v is in the range [0, 2^n).
 pub fn range_proof<F: Field, CS: ConstraintSystem<F>>(
@@ -11,8 +12,9 @@ pub fn range_proof<F: Field, CS: ConstraintSystem<F>>(
     let mut exp_2 = F::one();
     for i in 0..n {
         // Create low-level variables and add them to constraints
-        let (a, b, o) = cs.allocate_multiplier(v_assignment.map(|q| {
+        let (a, b, o) = cs.allocate_multiplier(v_assignment.map(|mut q| {
             let bit: u64 = (q >> i) & 1;
+            Zeroize::zeroize(&mut q);
             ((1 - bit).into(), bit.into())
         }))?;
 

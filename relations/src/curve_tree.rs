@@ -19,7 +19,7 @@ pub struct SelRerandParameters<P0: SWCurveConfig + Copy, P1: SWCurveConfig + Cop
 }
 
 impl<P0: SWCurveConfig + Copy, P1: SWCurveConfig + Copy> SelRerandParameters<P0, P1> {
-    pub fn new(even_generators_length: usize, odd_generators_length: usize) -> Result<Self, Error> {
+    pub fn new(even_generators_length: u32, odd_generators_length: u32) -> Result<Self, Error> {
         Ok(SelRerandParameters {
             even_parameters: SingleLayerParameters::<P0>::new(even_generators_length)?,
             odd_parameters: SingleLayerParameters::<P1>::new(odd_generators_length)?,
@@ -30,8 +30,8 @@ impl<P0: SWCurveConfig + Copy, P1: SWCurveConfig + Copy> SelRerandParameters<P0,
 impl SelRerandParameters<PallasConfig, VestaConfig> {
     pub fn new_using_label(
         label: &[u8],
-        even_generators_length: usize,
-        odd_generators_length: usize,
+        even_generators_length: u32,
+        odd_generators_length: u32,
     ) -> Result<Self, Error> {
         Ok(SelRerandParameters {
             even_parameters: SingleLayerParameters::<PallasConfig>::new_using_label(
@@ -49,8 +49,8 @@ impl SelRerandParameters<PallasConfig, VestaConfig> {
 impl SelRerandParameters<VestaConfig, PallasConfig> {
     pub fn new_using_label(
         label: &[u8],
-        even_generators_length: usize,
-        odd_generators_length: usize,
+        even_generators_length: u32,
+        odd_generators_length: u32,
     ) -> Result<Self, Error> {
         Ok(SelRerandParameters {
             even_parameters: SingleLayerParameters::<VestaConfig>::new_using_label(
@@ -515,7 +515,7 @@ impl<
         let gen_iter = current_level_parameters
             .bp_gens
             .share(0)
-            .G(L * (tree_index + 1))
+            .G((L * (tree_index + 1)) as u32)
             .skip(L * tree_index + child_node_index_to_update);
         let gen = gen_iter.copied().next().unwrap();
         let new_x_coord = (child_commitment + child_level_parameters.delta)
@@ -619,7 +619,7 @@ impl<
         let mut x_coords = vec![[P1::BaseField::zero(); L]; M];
         for (tree_index, (c, x)) in commitments.iter_mut().zip(x_coords.iter_mut()).enumerate() {
             *x = x_coordinates(&children, delta, tree_index);
-            *c = parameters.commit(x, P0::ScalarField::zero(), tree_index);
+            *c = parameters.commit(x, P0::ScalarField::zero(), tree_index as u32);
         }
         Self::InnerNode(InnerNode {
             commitments_to_children: commitments,

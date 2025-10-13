@@ -28,7 +28,7 @@ pub enum ProofError {
     InvalidAggregation,
     /// This error occurs when there are insufficient generators for the proof.
     #[error("Invalid generators size, too few generators for proof")]
-    InvalidGeneratorsLength(usize, usize),
+    InvalidGeneratorsLength(u32, u32),
     /// This error results from an internal error during proving.
     ///
     /// The single-party prover is implemented by performing
@@ -79,7 +79,7 @@ pub enum MPCError {
     InvalidAggregation,
     /// This error occurs when there are insufficient generators for the proof.
     #[error("Invalid generators size, too few generators for proof")]
-    InvalidGeneratorsLength(usize, usize),
+    InvalidGeneratorsLength(u32, u32),
     /// This error occurs when the dealer is given the wrong number of
     /// value commitments.
     #[error("Wrong number of value commitments")]
@@ -108,7 +108,7 @@ pub enum MPCError {
 pub enum R1CSError {
     /// Occurs when there are insufficient generators for the proof.
     #[error("Invalid generators size, too few generators for proof")]
-    InvalidGeneratorsLength(usize, usize),
+    InvalidGeneratorsLength(u32, u32),
     /// This error occurs when the proof encoding is malformed.
     #[error("Proof data could not be parsed.")]
     FormatError,
