@@ -25,4 +25,18 @@ dock_crypto_utils = { version = "0.22.0", default-features = false }
 schnorr_pok = { version = "0.22.0", default-features = false }
 
 [profile.release]
-lto = true
+opt-level = 3
+
+[profile.bench]
+inherits = "release"
+# https://doc.rust-lang.org/rustc/linker-plugin-lto.html
+lto = "fat"
+
+# Use this profile to compile binary for deployment
+[profile.production]
+inherits = "release"
+# Keeping lto independent from bench for now
+# https://doc.rust-lang.org/rustc/linker-plugin-lto.html
+lto = "fat"
+# https://doc.rust-lang.org/rustc/codegen-options/index.html#codegen-units
+codegen-units = 1
