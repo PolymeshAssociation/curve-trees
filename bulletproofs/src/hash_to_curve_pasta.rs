@@ -1,5 +1,5 @@
 use crate::errors::ProofError as Error;
-use ark_ec::hashing::curve_maps::swu::parity;
+use ark_ec::hashing::curve_maps::parity;
 use ark_ec::short_weierstrass::{Projective as SWProjective, SWCurveConfig};
 use ark_ff::field_hashers::{DefaultFieldHasher, HashToField};
 use ark_ff::{Field, MontFp, One};
@@ -10,7 +10,7 @@ use sha2::Sha256;
 macro_rules! hash_to_curve_naive {
     ($base_field:ty, $curve_config:ty, $projective:ty, $zeta:expr, $iso_a:expr, $iso_b:expr, $iso_consts:expr, $dst:expr, $message:expr) => {{
         let hasher = <DefaultFieldHasher<Sha256> as HashToField<$base_field>>::new($dst);
-        let u = hasher.hash_to_field($message, 2);
+        let u = hasher.hash_to_field::<2>($message);
 
         // This is more expensive since the isogeny map is applied twice vs adding points in the isogeny curve first
         // and then applying the isogeny map. But it should be correct as isogeny is a homomorphism.
@@ -28,7 +28,7 @@ macro_rules! hash_to_curve_naive {
 macro_rules! hash_to_curve {
     ($base_field:ty, $curve_config:ty, $projective:ty, $zeta:expr, $iso_a:expr, $iso_b:expr, $iso_consts:expr, $dst:expr, $message:expr) => {{
         let hasher = <DefaultFieldHasher<Sha256> as HashToField<$base_field>>::new($dst);
-        let u = hasher.hash_to_field($message, 2);
+        let u = hasher.hash_to_field::<2>($message);
 
         let q0 = map_to_curve_simple_swu::<$base_field, $curve_config>(u[0], $zeta, $iso_a, $iso_b);
         let q1 = map_to_curve_simple_swu::<$base_field, $curve_config>(u[1], $zeta, $iso_a, $iso_b);

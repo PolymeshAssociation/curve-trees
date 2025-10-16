@@ -1,6 +1,5 @@
 use ark_serialize::SerializationError;
 use ark_std::string::String;
-use schnorr_pok::error::SchnorrError;
 use thiserror::Error;
 
 pub type Result<T> = core::result::Result<T, Error>;
@@ -34,10 +33,6 @@ pub enum Error {
     /// Serialization error
     #[error("Serialization error: {0}")]
     SerializationError(SerializationError),
-
-    /// Schnorr proof error
-    #[error("Schnorr proof error: {0:?}")]
-    SchnorrError(SchnorrError),
 
     /// Failed to generate point or scalar.
     #[error("Failed to generate point or scalar: {0}")]

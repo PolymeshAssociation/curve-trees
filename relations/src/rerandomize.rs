@@ -7,7 +7,7 @@ use crate::lookup::*;
 use ark_ec::{
     models::short_weierstrass::SWCurveConfig, short_weierstrass::Affine, AffineRepr, CurveGroup,
 };
-use ark_ff::{BigInteger, Field, PrimeField};
+use ark_ff::{AdditiveGroup, BigInteger, Field, PrimeField};
 use ark_std::{vec::Vec, One, Zero};
 use core::marker::PhantomData;
 
@@ -54,10 +54,10 @@ pub fn build_tables<C: AffineRepr>(h: C) -> Result<Vec<Lookup3Bit<2, C::BaseFiel
             let s = (C::ScalarField::from(j as u64) * j_term) + right_term;
             // Multiply blinding by s
             let hs = h.mul(s).into_affine();
-            table.elems[0][j] = *hs
+            table.elems[0][j] = hs
                 .x()
                 .ok_or_else(|| Error::GenerationError("Failed to get x coordinate".into()))?;
-            table.elems[1][j] = *hs
+            table.elems[1][j] = hs
                 .y()
                 .ok_or_else(|| Error::GenerationError("Failed to get y coordinate".into()))?;
         }

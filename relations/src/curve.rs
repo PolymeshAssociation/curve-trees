@@ -48,14 +48,14 @@ pub fn incomplete_curve_addition_helper<
     let (out_witness, delta) = match (left.point, right.point) {
         (Some(left), Some(right)) => {
             let out = (left + right).into_affine();
-            let delta = (*right.y().unwrap() - *left.y().unwrap())
-                / (*right.x().unwrap() - *left.x().unwrap());
+            let delta = (right.y().unwrap() - left.y().unwrap())
+                / (right.x().unwrap() - left.x().unwrap());
             (Some(out), Some(delta))
         }
         _ => (None, None),
     };
-    let x_out = cs.allocate(out_witness.map(|o| *o.x().unwrap())).unwrap();
-    let y_out = cs.allocate(out_witness.map(|o| *o.y().unwrap())).unwrap();
+    let x_out = cs.allocate(out_witness.map(|o| o.x().unwrap())).unwrap();
+    let y_out = cs.allocate(out_witness.map(|o| o.y().unwrap())).unwrap();
     incomplete_curve_addition(
         cs,
         &CurveAddition {
@@ -90,16 +90,16 @@ pub fn checked_curve_addition_helper<
     let (out_witness, delta, x_l_minus_x_r_inv) = match (left.point, right.point) {
         (Some(left), Some(right)) => {
             let out = (left + right).into_affine();
-            let delta = (*right.y().unwrap() - left.y().unwrap())
-                / (*right.x().unwrap() - left.x().unwrap());
+            let delta = (right.y().unwrap() - left.y().unwrap())
+                / (right.x().unwrap() - left.x().unwrap());
             assert_ne!(left.x().unwrap(), right.x().unwrap());
-            let x_l_minus_x_r_inv = F::one() / (*left.x().unwrap() - right.x().unwrap());
+            let x_l_minus_x_r_inv = F::one() / (left.x().unwrap() - right.x().unwrap());
             (Some(out), Some(delta), Some(x_l_minus_x_r_inv))
         }
         _ => (None, None, None),
     };
-    let x_out = cs.allocate(out_witness.map(|o| *o.x().unwrap())).unwrap();
-    let y_out = cs.allocate(out_witness.map(|o| *o.y().unwrap())).unwrap();
+    let x_out = cs.allocate(out_witness.map(|o| o.x().unwrap())).unwrap();
+    let y_out = cs.allocate(out_witness.map(|o| o.y().unwrap())).unwrap();
     checked_curve_addition(
         cs,
         &CurveAddition {

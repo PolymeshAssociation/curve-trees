@@ -308,7 +308,7 @@ pub fn test_curve_tree_with_parameters_new<
         if !proof_size_printed {
             println!(
                 "Proof size for L={L}, height={}: {} bytes",
-                depth.unwrap(),
+                curve_tree.height(),
                 pallas_proof.serialized_size(Compress::Yes)
                     + vesta_proof.serialized_size(Compress::Yes)
             );

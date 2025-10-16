@@ -198,6 +198,7 @@ fn bench_select_and_rerandomize_with_parameters<
 
                 let (_path, _) = curve_tree.select_and_rerandomize_prover_gadget(
                     0,
+                    0,
                     &mut pallas_prover,
                     &mut vesta_prover,
                     &sr_params,
@@ -213,18 +214,19 @@ fn bench_select_and_rerandomize_with_parameters<
         group.bench_function("verification_gadget", |b| {
             b.iter(|| {
                 // Common part
-                let srv = curve_tree.add_root_to_randomized_path(path.clone());
+                let mut path = path.clone();
+                curve_tree.add_root_to_randomized_path(&mut path);
 
                 let even_verification_gadget = || {
                     let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
                     let mut pallas_verifier = Verifier::new(pallas_transcript);
-                    srv.even_verifier_gadget(&mut pallas_verifier, &sr_params, &curve_tree);
+                    path.even_verifier_gadget_old(&mut pallas_verifier, &sr_params, &curve_tree);
                 };
 
                 let odd_verification_gadget = || {
                     let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
                     let mut vesta_verifier = Verifier::new(vesta_transcript);
-                    srv.odd_verifier_gadget(&mut vesta_verifier, &sr_params, &curve_tree);
+                    path.odd_verifier_gadget_old(&mut vesta_verifier, &sr_params, &curve_tree);
                 };
 
                 #[cfg(not(feature = "parallel"))]
@@ -243,12 +245,13 @@ fn bench_select_and_rerandomize_with_parameters<
         group.bench_function("verification_tuples", |b| {
             b.iter(|| {
                 // Common part
-                let srv = curve_tree.add_root_to_randomized_path(path.clone());
+                let mut path = path.clone();
+                curve_tree.add_root_to_randomized_path(&mut path);
 
                 let even_verification_gadget = || {
                     let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
                     let mut pallas_verifier = Verifier::new(pallas_transcript);
-                    srv.even_verifier_gadget(&mut pallas_verifier, &sr_params, &curve_tree);
+                    path.even_verifier_gadget_old(&mut pallas_verifier, &sr_params, &curve_tree);
                     let _ = pallas_verifier
                         .verification_scalars_and_points(&pallas_proof)
                         .unwrap();
@@ -257,7 +260,7 @@ fn bench_select_and_rerandomize_with_parameters<
                 let odd_verification_gadget = || {
                     let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
                     let mut vesta_verifier = Verifier::new(vesta_transcript);
-                    srv.odd_verifier_gadget(&mut vesta_verifier, &sr_params, &curve_tree);
+                    path.odd_verifier_gadget_old(&mut vesta_verifier, &sr_params, &curve_tree);
                     let _ = vesta_verifier
                         .verification_scalars_and_points(&vesta_proof)
                         .unwrap();
@@ -278,12 +281,13 @@ fn bench_select_and_rerandomize_with_parameters<
         group.bench_function("verify_single", |b| {
             b.iter(|| {
                 // Common part
-                let srv = curve_tree.add_root_to_randomized_path(path.clone());
+                let mut path = path.clone();
+                curve_tree.add_root_to_randomized_path(&mut path);
 
                 let even_verification_gadget = || {
                     let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
                     let mut pallas_verifier = Verifier::new(pallas_transcript);
-                    srv.even_verifier_gadget(&mut pallas_verifier, &sr_params, &curve_tree);
+                    path.even_verifier_gadget_old(&mut pallas_verifier, &sr_params, &curve_tree);
                     let pallas_vt = pallas_verifier
                         .verification_scalars_and_points(&pallas_proof)
                         .unwrap();
@@ -299,7 +303,7 @@ fn bench_select_and_rerandomize_with_parameters<
                 let odd_verification_gadget = || {
                     let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
                     let mut vesta_verifier = Verifier::new(vesta_transcript);
-                    srv.odd_verifier_gadget(&mut vesta_verifier, &sr_params, &curve_tree);
+                    path.odd_verifier_gadget_old(&mut vesta_verifier, &sr_params, &curve_tree);
 
                     let vesta_vt = vesta_verifier
                         .verification_scalars_and_points(&vesta_proof)
@@ -405,12 +409,12 @@ fn bench_select_and_rerandomize_with_parameters<
                             Vec::with_capacity(proofs.len());
                         for path in proofs {
                             let mut srv = path.clone();
-                            curve_tree.select_and_rerandomize_verification_commitments(&mut srv);
+                            curve_tree.add_root_to_randomized_path(&mut srv);
                             {
                                 let pallas_transcript =
                                     MerlinTranscript::new(b"select_and_rerandomize");
                                 let mut pallas_verifier = Verifier::new(pallas_transcript);
-                                srv.even_verifier_gadget(
+                                srv.even_verifier_gadget_old(
                                     &mut pallas_verifier,
                                     &sr_params,
                                     &curve_tree,
@@ -425,7 +429,7 @@ fn bench_select_and_rerandomize_with_parameters<
                                 let vesta_transcript =
                                     MerlinTranscript::new(b"select_and_rerandomize");
                                 let mut vesta_verifier = Verifier::new(vesta_transcript);
-                                srv.odd_verifier_gadget(
+                                srv.odd_verifier_gadget_old(
                                     &mut vesta_verifier,
                                     &sr_params,
                                     &curve_tree,

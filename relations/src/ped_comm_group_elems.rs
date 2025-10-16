@@ -20,8 +20,8 @@ use ark_ec::short_weierstrass::{Affine, Projective, SWCurveConfig};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{Field, PrimeField};
 use ark_std::{cfg_iter, vec::Vec};
+use dock_crypto_utils::msm::multiply_field_elems_with_same_group_elem;
 use bulletproofs::r1cs::{constant, ConstraintSystem, Prover, Variable, Verifier};
-use dock_crypto_utils::msm::WindowTable;
 use dock_crypto_utils::transcript::MerlinTranscript;
 
 #[cfg(feature = "parallel")]
@@ -54,8 +54,10 @@ pub fn prove_naive<
     let x_coords = points_plus_delta.iter().map(|n| n.x).collect::<Vec<_>>();
 
     // For each nested, re-randomization nested_r[i] = nested[i] + B_blinding * blindings[i]
-    let window_table = WindowTable::new(size, parameters.pc_gens.B_blinding.into_group());
-    let mut blinders = window_table.multiply_many(&blindings_for_points);
+    let mut blinders = multiply_field_elems_with_same_group_elem(
+        parameters.pc_gens.B_blinding.into_group(),
+        &blindings_for_points,
+    );
     let re_randomized_points = (0..size)
         .map(|i| points[i] + blinders[i])
         .collect::<Vec<_>>();
