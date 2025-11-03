@@ -41,8 +41,8 @@ default = ["std", "parallel", "asm"]
 no_std = []
 std = ["rand/std", "thiserror/std", "sha2/std", "ark-pallas/std", "ark-vesta/std"]
 asm = ["ark-ff/asm", "sha2/asm"]
-parallel = ["ark-ec/parallel", "ark-ff/parallel", "ark-std/parallel", "rayon", "dock_crypto_utils/parallel"]
-
+parallel = [ "rayon" ]
+parallel_full = [ "parallel", "dock_crypto_utils/parallel_full" ]
 [[test]]
 name = "r1cs"
 
