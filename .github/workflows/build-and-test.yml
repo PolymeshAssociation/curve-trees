@@ -11,28 +11,36 @@ env:
 
 jobs:
   check-stable:
-
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v4
-    - name: Install the stable
-      uses: actions-rs/toolchain@v1
+
+    - name: Install stable Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Cache cargo registry
+      uses: actions/cache@v3
       with:
-          toolchain: stable
-          override: true
-#          components: rustfmt
-#    - name: Cargo fmt
-#      run: cargo fmt --all -- --check
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-
+
+    - name: Cache target directory
+      uses: actions/cache@v3
+      with:
+        path: target
+        key: ${{ runner.os }}-target-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-target-
+
     - name: Run tests
       run: cargo test --release --verbose
-#    - name: Build benchmarks with bench_prover
-#      run: cargo bench --features bench_prover --verbose DONTRUNBENCHMARKS
-#    - name: Build benchmarks no default features
-#      run: cargo bench --no-default-features --verbose DONTRUNBENCHMARKS
 
   build-wasm:
-    name: Build for WASM target
     runs-on: ubuntu-latest
 
     steps:
@@ -50,10 +58,17 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
           key: ${{ runner.os }}-cargo-wasm-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-
+
+      - name: Cache target directory
+        uses: actions/cache@v3
+        with:
+          path: target
+          key: ${{ runner.os }}-target-wasm-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-target-
 
       - name: Build for WASM
         run: cargo build --target wasm32-unknown-unknown --no-default-features
