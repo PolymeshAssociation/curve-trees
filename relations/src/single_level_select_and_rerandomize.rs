@@ -149,27 +149,79 @@ pub fn single_level_select_and_rerandomize<
     child_rerandomization_scalar: Option<Fb>, // The scalar used for randomizing, i.e. child + Delta + child_rerandomization_scalar * H = rerandomized_child + Delta
 ) {
     // Add the re-randomised child to the transcript
-    {
-        // TODO: clean this up. The transcript in CS should be restricted restricted to `ProtocolTranscript'
-        let mut bytes = Vec::new();
-        if let Err(e) = rerandomized_child.serialize_compressed(&mut bytes) {
-            panic!("{}", e)
-        }
-        cs.transcript()
-            .append_message(b"rerandomized_child", &bytes);
-    }
+    cs.transcript().append(b"rerandomized_child", &rerandomized_child);
 
     // Show that child is part of `all_children` by showing that the child's x-coordinate is present in x-coordinates of the all children
     let x_var = cs.allocate(child_plus_delta.map(|xy| xy.x)).unwrap();
-    select(cs, x_var.into(), all_children_plus_delta.iter().cloned());
+    let x_lc: LinearCombination<_> = x_var.into();
+    select(cs, x_lc.clone(), all_children_plus_delta.iter().cloned());
 
+    validate_point_and_re_randomize(
+        cs,
+        parameters,
+        rerandomized_child,
+        x_lc,
+        child_plus_delta,
+        child_rerandomization_scalar,
+    );
+}
+
+/// Circuit for the root level select and rerandomize relation.
+/// Similar to single_level_select_and_rerandomize but uses select_public_set instead of select since root's children are public.
+pub fn root_level_select_and_rerandomize<
+    Fb: PrimeField,
+    Fs: Field,
+    C2: SWCurveConfig<BaseField = Fs, ScalarField = Fb> + Copy,
+    Cs: ConstraintSystem<Fs>,
+>(
+    cs: &mut Cs, // Prover or verifier
+    parameters: &SingleLayerParameters<C2>,
+    rerandomized_child: &Affine<C2>, // The public rerandomization of the selected child without Delta
+    all_children_plus_delta: &[Fs], // Public set of x-coordinates of all children plus delta
+    child_plus_delta: Option<Affine<C2>>, // Witness of the selected child plus Delta
+    child_rerandomization_scalar: Option<Fb>, // The scalar used for randomizing, i.e. child + Delta + child_rerandomization_scalar * H = rerandomized_child + Delta
+) {
+    // Add the re-randomised child to the transcript
+    cs.transcript().append(b"rerandomized_child", &rerandomized_child);
+
+    // Show that child is part of `all_children` by showing that the child's x-coordinate is present in x-coordinates of the all children
+    let x_var = cs.allocate(child_plus_delta.map(|xy| xy.x)).unwrap();
+    let x_lc: LinearCombination<_> = x_var.into();
+    select_public_set(cs, x_lc.clone(), all_children_plus_delta);
+
+    validate_point_and_re_randomize(
+        cs,
+        parameters,
+        rerandomized_child,
+        x_lc,
+        child_plus_delta,
+        child_rerandomization_scalar,
+    );
+}
+
+/// Helper function to validate a point on the curve and prove rerandomization.
+/// This function performs curve validation and rerandomization proof for a given point.
+pub fn validate_point_and_re_randomize<
+    Fb: PrimeField,
+    Fs: Field,
+    C2: SWCurveConfig<BaseField = Fs, ScalarField = Fb> + Copy,
+    Cs: ConstraintSystem<Fs>,
+>(
+    cs: &mut Cs,
+    parameters: &SingleLayerParameters<C2>,
+    rerandomized_child: &Affine<C2>,
+    x_lc: LinearCombination<Fs>,
+    child_plus_delta: Option<Affine<C2>>,
+    child_rerandomization_scalar: Option<Fb>,
+) {
     // Proof that the opened x coordinate with the witnessed y is a point on the curve
     // Note that empty branches are encoded as 0 which works because x=0 does not satisfy the curve equation for any of the curves used.
     let y_var = cs.allocate(child_plus_delta.map(|xy| xy.y)).unwrap();
+    let y_lc: LinearCombination<_> = y_var.into();
     curve_check(
         cs,
-        x_var.into(),
-        y_var.into(),
+        x_lc.clone(),
+        y_lc.clone(),
         parameters.coeff_a,
         parameters.coeff_b,
     );
@@ -180,15 +232,15 @@ pub fn single_level_select_and_rerandomize<
         cs,
         &parameters.tables,
         PointRepresentation {
-            x: x_var.into(),
-            y: y_var.into(),
+            x: x_lc,
+            y: y_lc,
             point: child_plus_delta,
         },
         constant(rerandomized_child_plus_delta.x),
         constant(rerandomized_child_plus_delta.y),
         child_rerandomization_scalar,
     )
-    .expect("Failed to re-randomize");
+        .expect("Failed to re-randomize");
 }
 
 /// Circuit for the single level version of the batched select and rerandomize relation.

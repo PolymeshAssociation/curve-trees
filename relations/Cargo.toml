@@ -72,6 +72,10 @@ harness = false
 name = "curve_tree"
 harness = false
 
+[[bench]]
+name = "select"
+harness = false
+
 # TODO: Uncomment
 #[build]
 # Adds architecture specific optimizations including those enabling the asm backend for ark_ff. It could potentially cause slowdowns from other features.

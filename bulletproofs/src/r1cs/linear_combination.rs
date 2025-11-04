@@ -3,15 +3,15 @@
 #[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
 
+use ahash::RandomState;
 use ark_ff::Field;
-use ark_std::collections::BTreeMap;
-use core::cmp::Ordering;
 use core::iter::FromIterator;
 use core::marker::PhantomData;
 use core::ops::{Add, Mul, Neg, Sub};
+use hashbrown::HashMap;
 
 /// Represents a variable in a constraint system.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Variable<F: Field> {
     /// A Pedersen vector commitment. The first usize corresponds to the index of the Pedersen commitment and
     /// the second corresponds to index of this variable in this committed vector
@@ -26,42 +26,6 @@ pub enum Variable<F: Field> {
     MultiplierOutput(usize),
     /// Represents the constant 1.
     One(PhantomData<F>),
-}
-
-impl<F: Field> PartialOrd for Variable<F> {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl<F: Field> Ord for Variable<F> {
-    fn cmp(&self, other: &Self) -> Ordering {
-        use Variable::*;
-        fn variant_index<F: Field>(v: &Variable<F>) -> u8 {
-            match v {
-                VectorCommit(_, _) => 0,
-                Committed(_) => 1,
-                MultiplierLeft(_) => 2,
-                MultiplierRight(_) => 3,
-                MultiplierOutput(_) => 4,
-                One(_) => 5,
-            }
-        }
-        let self_idx = variant_index(self);
-        let other_idx = variant_index(other);
-        match self_idx.cmp(&other_idx) {
-            Ordering::Equal => match (self, other) {
-                (VectorCommit(a1, a2), VectorCommit(b1, b2)) => (a1, a2).cmp(&(b1, b2)),
-                (Committed(a), Committed(b)) => a.cmp(b),
-                (MultiplierLeft(a), MultiplierLeft(b)) => a.cmp(b),
-                (MultiplierRight(a), MultiplierRight(b)) => a.cmp(b),
-                (MultiplierOutput(a), MultiplierOutput(b)) => a.cmp(b),
-                (One(_), One(_)) => Ordering::Equal,
-                _ => Ordering::Equal, // Should not happen
-            },
-            ord => ord,
-        }
-    }
 }
 
 impl<F: Field> From<Variable<F>> for LinearCombination<F> {
@@ -257,7 +221,7 @@ impl<F: Field> LinearCombination<F> {
     /// Useful when linear combinations become large. Takes ownership of linear combination as this function is useful
     /// when memory is limited and the obvious action after this function call will be to free the memory held by the passed linear combination
     pub fn simplify(self) -> LinearCombination<F> {
-        let mut vars: BTreeMap<Variable<F>, F> = BTreeMap::new();
+        let mut vars: HashMap<Variable<F>, F, RandomState> = HashMap::with_hasher(RandomState::new());
         let terms = self.inner();
         for (var, val) in terms {
             *vars.entry(var).or_insert(F::zero()) += val;

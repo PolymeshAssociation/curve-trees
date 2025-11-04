@@ -49,6 +49,26 @@ pub enum Error {
     /// The curve point cannot be 0.
     #[error("The curve point cannot be 0")]
     PointCantBeZero,
+
+    /// Mismatched commitment lengths
+    #[error("Mismatched commitment lengths: expected {expected}, got {got}")]
+    InconsistentCommitmentLengths { expected: usize, got: usize },
+    
+    /// Paths length must be greater than 0
+    #[error("Paths length must be greater than 0")]
+    PathsLengthMustBeGreaterThanZero,
+
+    /// Root type mismatch
+    #[error("Root type mismatch: expected {expected}, got {got}")]
+    RootTypeMismatch { expected: String, got: String },
+
+    /// Mismatched x-coordinates of children
+    #[error("Mismatched x-coordinates of children")]
+    MismatchedXCoordsChildren,
+
+    /// Invalid root type for path
+    #[error("Invalid root type for path")]
+    InvalidRootTypeForPath,
 }
 
 impl From<ark_serialize::SerializationError> for Error {

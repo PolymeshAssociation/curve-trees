@@ -290,10 +290,7 @@ $$
 \vec{y},
 \vec{a_L} \circ \vec{a_R}
 \rangle -
-\color{brown}{\langle
-\vec{y},
-\vec{a_O}
-\rangle} +
+\color{brown}{\langle \vec{y}, \vec{a_O} \rangle} +
 \langle \vec{w_L}, \vec{a_L} \rangle + 
 \langle \vec{w_R}, \vec{a_R} \rangle +
 \color{brown}{\langle \vec{w_O}, \vec{a_O} \rangle} +

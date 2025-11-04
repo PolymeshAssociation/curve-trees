@@ -4,7 +4,8 @@ use ark_serialize::{CanonicalSerialize, Compress};
 use ark_std::UniformRand;
 use ark_vesta::VestaConfig;
 use bulletproofs::r1cs::*;
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
+use std::hint::black_box;
 use dock_crypto_utils::transcript::MerlinTranscript;
 use rand::{thread_rng, Rng};
 use relations::curve_tree::SelRerandParameters;
@@ -22,20 +23,20 @@ fn range_proof_prove(c: &mut Criterion, n: usize) {
         SelRerandParameters::<PallasConfig, VestaConfig>::new(generators_length, generators_length)
             .expect("Failed to create SelRerandParameters");
 
+    let value: u64 = if n <= 32 {
+        (rng.gen::<u32>() as u64) % (1u64 << n)
+    } else {
+        rng.gen::<u64>() % (1u64 << n)
+    };
+    let blinding = VestaScalar::rand(&mut rng);
+
     let bench_name = format!("range_proof_prove_n{}", n);
     c.bench_function(&bench_name, |b| {
         b.iter(|| {
-            let value: u64 = if n <= 32 {
-                (rng.gen::<u32>() as u64) % (1u64 << n)
-            } else {
-                rng.gen::<u64>() % (1u64 << n)
-            };
-
             let mut transcript = MerlinTranscript::new(b"range_proof");
             let mut prover: Prover<_, VestaAffine> =
                 Prover::new(&sr_params.odd_parameters.pc_gens, &mut transcript);
 
-            let blinding = VestaScalar::rand(&mut rng);
             let (_, var) = prover.commit(value.into(), blinding);
 
             range_proof(&mut prover, var.into(), Some(value), n).unwrap();

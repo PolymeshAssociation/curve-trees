@@ -819,7 +819,7 @@ pub fn add_verification_tuples_to_rmc_0<C: AffineRepr>(
     rmc: &mut RandomizedMultChecker<C>,
 ) -> Result<(), R1CSError> {
     let mut ver_iter = verification_tuples.iter();
-    let vt = ver_iter.next().ok_or(R1CSError::BatchVerificationError)?;
+    let vt = ver_iter.next().ok_or(R1CSError::NoVerificationTuple)?;
     let padded_n = vt.padded_n();
 
     // We are performing a single-party circuit proof, so party index is 0.
@@ -841,7 +841,7 @@ pub fn add_verification_tuples_to_rmc_0<C: AffineRepr>(
 
     for vt in verification_tuples {
         if padded_n != vt.padded_n() {
-            return Err(R1CSError::BatchVerificationError);
+            return Err(R1CSError::InvalidGeneratorsLength(vt.padded_n(), padded_n));
         }
         let b = vt
             .proof_dependent_points
@@ -868,7 +868,7 @@ pub fn add_verification_tuples_to_rmc<C: AffineRepr>(
     rmc: &mut RandomizedMultChecker<C>,
 ) -> Result<(), R1CSError> {
     let mut ver_iter = verification_tuples.iter();
-    let vt = ver_iter.next().ok_or(R1CSError::BatchVerificationError)?;
+    let vt = ver_iter.next().ok_or(R1CSError::NoVerificationTuple)?;
     let padded_n = vt.padded_n();
 
     let mut proof_points =
@@ -879,7 +879,7 @@ pub fn add_verification_tuples_to_rmc<C: AffineRepr>(
 
     for mut vt in verification_tuples {
         if padded_n != vt.padded_n() {
-            return Err(R1CSError::BatchVerificationError);
+            return Err(R1CSError::InvalidGeneratorsLength(vt.padded_n(), padded_n));
         }
         proof_points.append(&mut vt.proof_dependent_points);
 
@@ -975,7 +975,7 @@ where
     F: FnMut(C::ScalarField) -> C::ScalarField,
 {
     let mut ver_iter = verification_tuples.into_iter();
-    let vt = ver_iter.next().ok_or(R1CSError::BatchVerificationError)?;
+    let vt = ver_iter.next().ok_or(R1CSError::NoVerificationTuple)?;
     let padded_n = vt.padded_n();
     let (mut proof_points, mut proof_point_scalars, mut linear_combination) = (
         vt.proof_dependent_points,
@@ -986,8 +986,9 @@ where
     let mut random_scalar = C::ScalarField::one();
 
     for mut vt in ver_iter {
+        // TODO: Remove this restriction. Need to reallign vt members appropriately for this to work.
         if padded_n != vt.padded_n() {
-            return Err(R1CSError::BatchVerificationError);
+            return Err(R1CSError::IncompatibleVerificationTuple(vt.padded_n(), padded_n));
         }
         proof_points.append(&mut vt.proof_dependent_points);
 

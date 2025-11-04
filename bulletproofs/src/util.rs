@@ -21,11 +21,14 @@ pub struct VecPoly1<F: PrimeField>(pub Vec<F>, pub Vec<F>);
 #[derive(ZeroizeOnDrop)]
 pub struct VecPoly3<F: PrimeField>(pub Vec<F>, pub Vec<F>, pub Vec<F>, pub Vec<F>);
 
-pub const T_LABELS: [&[u8]; 41] = [
+pub const T_LABELS: [&[u8]; 71] = [
     b"T_0", b"T_1", b"T_2", b"T_3", b"T_4", b"T_5", b"T_6", b"T_7", b"T_8", b"T_9", b"T_10",
     b"T_11", b"T_12", b"T_13", b"T_14", b"T_15", b"T_16", b"T_17", b"T_18", b"T_19", b"T_20",
     b"T_21", b"T_22", b"T_23", b"T_24", b"T_25", b"T_26", b"T_27", b"T_28", b"T_29", b"T_30",
     b"T_31", b"T_32", b"T_33", b"T_34", b"T_35", b"T_36", b"T_37", b"T_38", b"T_39", b"T_40",
+    b"T_41", b"T_42", b"T_43", b"T_44", b"T_45", b"T_46", b"T_47", b"T_48", b"T_49", b"T_50",
+    b"T_51", b"T_52", b"T_53", b"T_54", b"T_55", b"T_56", b"T_57", b"T_58", b"T_59", b"T_60",
+    b"T_61", b"T_62", b"T_63", b"T_64", b"T_65", b"T_66", b"T_67", b"T_68", b"T_69", b"T_70",
 ];
 
 /// The general case for Vector CP.
