@@ -4,7 +4,6 @@ use crate::error::Error;
 use crate::single_level_select_and_rerandomize::*;
 use crate::curve_tree_prover::RootChildrenCoords;
 use crate::select::multi_select_public_set_ext_challenge;
-
 use crate::curve_tree::{
     CurveTree, CurveTreeNode, Root, SelRerandParameters, SelectAndRerandomizePath,
 };
@@ -12,6 +11,7 @@ use ark_ec::{models::short_weierstrass::SWCurveConfig, short_weierstrass::Affine
 use ark_ff::PrimeField;
 use core::borrow::BorrowMut;
 use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
+use ark_std::{string::ToString, vec::Vec};
 
 impl<
         const L: usize,

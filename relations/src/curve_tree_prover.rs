@@ -19,6 +19,7 @@ use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
 use rand::Rng;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 use crate::select::{multi_select_public_set_ext_challenge};
+use ark_std::string::ToString;
 
 impl<
         const L: usize,

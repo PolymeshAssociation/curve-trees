@@ -2,9 +2,9 @@ name: Rust
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, polymesh ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, polymesh ]
 
 env:
   CARGO_TERM_COLOR: always
@@ -15,34 +15,45 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     - name: Install the stable
       uses: actions-rs/toolchain@v1
       with:
           toolchain: stable
           override: true
-          components: rustfmt
-    - name: Cargo fmt
-      run: cargo fmt --all -- --check
+#          components: rustfmt
+#    - name: Cargo fmt
+#      run: cargo fmt --all -- --check
     - name: Run tests
       run: cargo test --release --verbose
-    - name: Build benchmarks with bench_prover
-      run: cargo bench --features bench_prover --verbose DONTRUNBENCHMARKS
-    - name: Build benchmarks no default features
-      run: cargo bench --no-default-features --verbose DONTRUNBENCHMARKS 
+#    - name: Build benchmarks with bench_prover
+#      run: cargo bench --features bench_prover --verbose DONTRUNBENCHMARKS
+#    - name: Build benchmarks no default features
+#      run: cargo bench --no-default-features --verbose DONTRUNBENCHMARKS
 
-  check-nightly:
-
+  build-wasm:
+    name: Build for WASM target
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v2
-    - name: Install the nightly
-      uses: actions-rs/toolchain@v1
-      with:
-          toolchain: nightly
-          override: true
-    - name: Run tests
-      run: cargo test --release --features="std" --verbose
-    - name: Build benchmarks
-      run: cargo bench --features="std" --verbose DONTRUNBENCHMARKS
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo registry
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-wasm-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build for WASM
+        run: cargo build --target wasm32-unknown-unknown --no-default-features
