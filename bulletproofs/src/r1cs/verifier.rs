@@ -812,48 +812,88 @@ pub fn add_pre_randomized_verification_tuple_to_rmc<C: AffineRepr>(
     Ok(())
 }
 
+// TODO: Dedup batch verification
+
 pub fn add_verification_tuples_to_rmc_0<C: AffineRepr>(
     verification_tuples: Vec<VerificationTuple<C>>,
     pc_gens: &PedersenGens<C>,
     bp_gens: &BulletproofGens<C>,
     rmc: &mut RandomizedMultChecker<C>,
 ) -> Result<(), R1CSError> {
-    let mut ver_iter = verification_tuples.iter();
-    let vt = ver_iter.next().ok_or(R1CSError::NoVerificationTuple)?;
-    let padded_n = vt.padded_n();
+    if verification_tuples.len() == 0 {
+        return Err(R1CSError::NoVerificationTuple);
+    }
+    let mut max_padded_n = 0;
+    let mut max_proof_dep_scalars = 0;
+    for vt in &verification_tuples {
+        if vt.padded_n() > max_padded_n {
+            max_padded_n = vt.padded_n()
+        }
+        if vt.proof_dependent_scalars.len() > max_proof_dep_scalars {
+            max_proof_dep_scalars = vt.proof_dependent_scalars.len();
+        }
+    }
 
     // We are performing a single-party circuit proof, so party index is 0.
     let gens = bp_gens.share(0);
 
-    if bp_gens.gens_capacity < padded_n {
+    if bp_gens.gens_capacity < max_padded_n {
         return Err(R1CSError::InvalidGeneratorsLength(
             bp_gens.gens_capacity,
-            padded_n,
+            max_padded_n,
         ));
     }
 
     use core::iter;
     let fixed_points = iter::once(pc_gens.B)
         .chain(iter::once(pc_gens.B_blinding))
-        .chain(gens.G(padded_n).copied())
-        .chain(gens.H(padded_n).copied())
+        .chain(gens.G(max_padded_n).copied())
+        .chain(gens.H(max_padded_n).copied())
         .collect::<Vec<_>>();
 
-    for vt in verification_tuples {
-        if padded_n != vt.padded_n() {
-            return Err(R1CSError::InvalidGeneratorsLength(vt.padded_n(), padded_n));
-        }
-        let b = vt
-            .proof_dependent_points
-            .into_iter()
+    for mut vt in verification_tuples {
+        let padded_n = vt.padded_n();
+        let proof_dep_scalars = vt.proof_dependent_scalars.len();
+
+        // length of vt.proof_independent_scalars = 2 + 2*padded_n
+
+        let b = vt.proof_dependent_points.into_iter()
+            .chain(iter::repeat(C::zero()).take(max_proof_dep_scalars - proof_dep_scalars))
             .chain(fixed_points.clone())
             .collect::<Vec<_>>();
 
-        let s = vt
-            .proof_dependent_scalars
-            .into_iter()
-            .chain(vt.proof_independent_scalars)
-            .collect::<Vec<_>>();
+        let mut s = Vec::with_capacity(max_proof_dep_scalars + 2*(max_padded_n as usize) + 2);
+        s.append(&mut vt.proof_dependent_scalars);
+        // Padding
+        for _ in 0..(max_proof_dep_scalars - proof_dep_scalars) {
+            s.push(C::ScalarField::zero());
+        }
+
+        // For B and B_blinding
+        s.push(vt.proof_independent_scalars.remove(0));
+        s.push(vt.proof_independent_scalars.remove(0));
+
+        // For G
+        for _ in 0..padded_n {
+            s.push(vt.proof_independent_scalars.remove(0));
+        }
+        // Padding for G
+        for _ in 0..(max_padded_n - padded_n) {
+            s.push(C::ScalarField::zero());
+        }
+
+        // For H
+        for _ in 0..padded_n {
+            s.push(vt.proof_independent_scalars.remove(0));
+        }
+        // Padding for H
+        for _ in 0..(max_padded_n - padded_n) {
+            s.push(C::ScalarField::zero());
+        }
+
+        debug_assert_eq!(b.len(), s.len());
+        debug_assert_eq!(vt.proof_independent_scalars.len(), 0);
+        debug_assert_eq!(s.len(), max_proof_dep_scalars + 2*(max_padded_n as usize) + 2);
         rmc.add_many(b, &s, C::zero());
     }
     Ok(())
@@ -867,21 +907,38 @@ pub fn add_verification_tuples_to_rmc<C: AffineRepr>(
     bp_gens: &BulletproofGens<C>,
     rmc: &mut RandomizedMultChecker<C>,
 ) -> Result<(), R1CSError> {
-    let mut ver_iter = verification_tuples.iter();
-    let vt = ver_iter.next().ok_or(R1CSError::NoVerificationTuple)?;
-    let padded_n = vt.padded_n();
+    if verification_tuples.len() == 0 {
+        return Err(R1CSError::NoVerificationTuple);
+    }
+    let mut max_padded_n = 0;
+    let mut max_proof_dep_scalars = 0;
+    for vt in &verification_tuples {
+        if vt.padded_n() > max_padded_n {
+            max_padded_n = vt.padded_n()
+        }
+        if vt.proof_dependent_scalars.len() > max_proof_dep_scalars {
+            max_proof_dep_scalars = vt.proof_dependent_scalars.len();
+        }
+    }
+    let max_padded_n = max_padded_n as usize;
 
     let mut proof_points =
-        Vec::with_capacity(vt.proof_dependent_points.len() * verification_tuples.len());
+        Vec::with_capacity(max_proof_dep_scalars * verification_tuples.len());
     let mut proof_dependent_scalars =
-        Vec::with_capacity(vt.proof_dependent_scalars.len() * verification_tuples.len());
-    let mut linear_combination = vec![C::ScalarField::zero(); vt.proof_independent_scalars.len()];
+        Vec::with_capacity(max_proof_dep_scalars * verification_tuples.len());
+    let mut linear_combination = vec![C::ScalarField::zero(); max_proof_dep_scalars + 2*(max_padded_n as usize) + 2];
 
     for mut vt in verification_tuples {
-        if padded_n != vt.padded_n() {
-            return Err(R1CSError::InvalidGeneratorsLength(vt.padded_n(), padded_n));
-        }
+        let padded_n = vt.padded_n() as usize;
+        let proof_dep_scalars = vt.proof_dependent_scalars.len();
+
+        // length of vt.proof_independent_scalars = 2 + 2*padded_n
+
         proof_points.append(&mut vt.proof_dependent_points);
+        // Padding
+        for _ in 0..(max_proof_dep_scalars - proof_dep_scalars) {
+            proof_points.push(C::zero());
+        }
 
         let random_scalar = rmc.current_random;
 
@@ -890,17 +947,25 @@ pub fn add_verification_tuples_to_rmc<C: AffineRepr>(
             .proof_dependent_scalars
             .into_iter()
             .map(|s| s * random_scalar);
-        let fps = vt
-            .proof_independent_scalars
-            .into_iter()
-            .map(|s| s * random_scalar);
-
         proof_dependent_scalars.append(&mut ps.collect());
-        linear_combination = linear_combination
-            .iter()
-            .zip(fps)
-            .map(|(a, b)| *a + b)
-            .collect();
+        // Padding
+        for _ in 0..(max_proof_dep_scalars - proof_dep_scalars) {
+            proof_dependent_scalars.push(C::ScalarField::zero());
+        }
+
+        // For B and B_blinding
+        linear_combination[0] += random_scalar * vt.proof_independent_scalars.remove(0);
+        linear_combination[1] += random_scalar * vt.proof_independent_scalars.remove(0);
+
+        // For G
+        for i in 0..padded_n {
+            linear_combination[2+i] += random_scalar * vt.proof_independent_scalars.remove(0);
+        }
+
+        // For H
+        for i in 0..padded_n {
+            linear_combination[2+max_padded_n+i] += random_scalar * vt.proof_independent_scalars.remove(0);
+        }
 
         rmc.update_random();
     }
@@ -909,7 +974,7 @@ pub fn add_verification_tuples_to_rmc<C: AffineRepr>(
         proof_points,
         proof_dependent_scalars,
         linear_combination,
-        padded_n,
+        max_padded_n as u32,
         pc_gens,
         bp_gens,
     )?;
@@ -974,23 +1039,79 @@ pub fn batch_verify_core<C: AffineRepr, F>(
 where
     F: FnMut(C::ScalarField) -> C::ScalarField,
 {
-    let mut ver_iter = verification_tuples.into_iter();
-    let vt = ver_iter.next().ok_or(R1CSError::NoVerificationTuple)?;
-    let padded_n = vt.padded_n();
-    let (mut proof_points, mut proof_point_scalars, mut linear_combination) = (
-        vt.proof_dependent_points,
-        vt.proof_dependent_scalars,
-        vt.proof_independent_scalars,
-    );
+    // let mut ver_iter = verification_tuples.into_iter();
+    // let vt = ver_iter.next().ok_or(R1CSError::NoVerificationTuple)?;
+    // let mut padded_n = vt.padded_n();
+    // let (mut proof_points, mut proof_point_scalars, mut linear_combination) = (
+    //     vt.proof_dependent_points,
+    //     vt.proof_dependent_scalars,
+    //     vt.proof_independent_scalars,
+    // );
+    //
+    // let mut random_scalar = C::ScalarField::one();
+    //
+    // for mut vt in ver_iter {
+    //     // if padded_n != vt.padded_n() {
+    //     //     return Err(R1CSError::BatchVerificationError);
+    //     // }
+    //     if vt.padded_n() > padded_n {
+    //         let pad_size = vt.proof_independent_scalars.len() - linear_combination.len();
+    //         linear_combination.extend(iter::repeat(C::ScalarField::zero()).take(pad_size));
+    //         padded_n = vt.padded_n();
+    //     }
+    //     proof_points.append(&mut vt.proof_dependent_points);
+    //
+    //     random_scalar = new_randomness_getter(random_scalar);
+    //
+    //     // Multiply all scalars
+    //     let ps = vt
+    //         .proof_dependent_scalars
+    //         .into_iter()
+    //         .map(|s| s * random_scalar);
+    //     let fps = vt
+    //         .proof_independent_scalars
+    //         .into_iter()
+    //         .map(|s| s * random_scalar);
+    //
+    //     proof_point_scalars.append(&mut ps.collect());
+    //     linear_combination = linear_combination
+    //         .iter()
+    //         .zip(fps)
+    //         .map(|(a, b)| *a + b)
+    //         .collect()
+    // }
+
+    let mut max_padded_n = 0;
+    let mut max_proof_dep_scalars = 0;
+    for vt in &verification_tuples {
+        if vt.padded_n() > max_padded_n {
+            max_padded_n = vt.padded_n()
+        }
+        if vt.proof_dependent_scalars.len() > max_proof_dep_scalars {
+            max_proof_dep_scalars = vt.proof_dependent_scalars.len();
+        }
+    }
+    let max_padded_n = max_padded_n as usize;
+
+    let mut proof_points =
+        Vec::with_capacity(max_proof_dep_scalars * verification_tuples.len());
+    let mut proof_dependent_scalars =
+        Vec::with_capacity(max_proof_dep_scalars * verification_tuples.len());
+    let mut linear_combination = vec![C::ScalarField::zero(); max_proof_dep_scalars + 2*(max_padded_n as usize) + 2];
 
     let mut random_scalar = C::ScalarField::one();
 
-    for mut vt in ver_iter {
-        // TODO: Remove this restriction. Need to reallign vt members appropriately for this to work.
-        if padded_n != vt.padded_n() {
-            return Err(R1CSError::IncompatibleVerificationTuple(vt.padded_n(), padded_n));
-        }
+    for mut vt in verification_tuples {
+        let padded_n = vt.padded_n() as usize;
+        let proof_dep_scalars = vt.proof_dependent_scalars.len();
+
+        // length of vt.proof_independent_scalars = 2 + 2*padded_n
+
         proof_points.append(&mut vt.proof_dependent_points);
+        // Padding
+        for _ in 0..(max_proof_dep_scalars - proof_dep_scalars) {
+            proof_points.push(C::zero());
+        }
 
         random_scalar = new_randomness_getter(random_scalar);
 
@@ -999,24 +1120,32 @@ where
             .proof_dependent_scalars
             .into_iter()
             .map(|s| s * random_scalar);
-        let fps = vt
-            .proof_independent_scalars
-            .into_iter()
-            .map(|s| s * random_scalar);
+        proof_dependent_scalars.append(&mut ps.collect());
+        // Padding
+        for _ in 0..(max_proof_dep_scalars - proof_dep_scalars) {
+            proof_dependent_scalars.push(C::ScalarField::zero());
+        }
 
-        proof_point_scalars.append(&mut ps.collect());
-        linear_combination = linear_combination
-            .iter()
-            .zip(fps)
-            .map(|(a, b)| *a + b)
-            .collect()
+        // For B and B_blinding
+        linear_combination[0] += random_scalar * vt.proof_independent_scalars.remove(0);
+        linear_combination[1] += random_scalar * vt.proof_independent_scalars.remove(0);
+
+        // For G
+        for i in 0..padded_n {
+            linear_combination[2+i] += random_scalar * vt.proof_independent_scalars.remove(0);
+        }
+
+        // For H
+        for i in 0..padded_n {
+            linear_combination[2+max_padded_n+i] += random_scalar * vt.proof_independent_scalars.remove(0);
+        }
     }
 
     msm_check(
         proof_points,
-        proof_point_scalars,
+        proof_dependent_scalars,
         linear_combination,
-        padded_n,
+        max_padded_n as u32,
         pc_gens,
         bp_gens,
     )

@@ -98,7 +98,7 @@ pub fn multi_select_naive<F: Field, Cs: ConstraintSystem<F>>(
 ) {
     assert!(xs.len() > 0);
     assert!(ys.len() > 0);
-    
+
     for x in xs {
         select(cs, x, ys.clone().into_iter());
     }
@@ -239,19 +239,19 @@ mod tests {
 
         fn check(set_size: usize, pg: &PedersenGens<VestaA>, bpg: &BulletproofGens<VestaA>) {
             let mut rng = rand::thread_rng();
-            
+
             // Generate a public set of random elements
             let xs: Vec<_> = iter::from_fn(|| Some(VestaScalar::rand(&mut rng)))
                 .take(set_size)
                 .collect();
             let index = 42;
             let x = xs[index];
-            
+
             let (proof, x_comm) = {
                 let start = Instant::now();
                 let mut transcript = MerlinTranscript::new(b"select");
                 let mut prover: Prover<_, VestaA> = Prover::new(&pg, &mut transcript);
-                
+
                 // Only commit to x, not to xs (public set)
                 let blinding_x = PallasBase::rand(&mut rng);
                 let (x_comm, x_var) = prover.commit(x, blinding_x);
@@ -348,7 +348,7 @@ mod tests {
         check(512, 3, &pg, &bpg);
         check(512, 4, &pg, &bpg);
     }
-    
+
     #[ignore]
     #[test]
     fn test_multi_select() {
@@ -477,18 +477,18 @@ mod tests {
 
         fn check(set_size: usize, subset_size: usize, pg: &PedersenGens<VestaA>, bpg: &BulletproofGens<VestaA>) {
             let mut rng = rand::thread_rng();
-            
+
             // Generate a public set ys and a subset xs from it
             let ys: Vec<_> = iter::from_fn(|| Some(VestaScalar::rand(&mut rng)))
                 .take(set_size)
                 .collect();
             let xs = ys.choose_multiple(&mut rng, subset_size).cloned().collect::<Vec<_>>();
-            
+
             let (proof, xs_comm) = {
                 let start = Instant::now();
                 let mut transcript = MerlinTranscript::new(b"select");
                 let mut prover: Prover<_, VestaA> = Prover::new(&pg, &mut transcript);
-                
+
                 // Commit to xs elements
                 let blinding_xs = PallasBase::rand(&mut rng);
                 let (xs_comm, xs_vars) = prover.commit_vec(xs.as_slice(), blinding_xs, &bpg);

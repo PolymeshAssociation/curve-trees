@@ -126,12 +126,7 @@ pub enum R1CSError {
     /// [`R1CSProof`](::r1cs::R1CSProof) fails.
     #[error("Occurs when no `VerificationTuple` is provided")]
     NoVerificationTuple,
-
-    /// Occurs when 2 or more incompatible `VerificationTuple`s are provided during batch verification
-    /// [`R1CSProof`](::r1cs::R1CSProof) fails.
-    #[error("Occurs when no VerificationTuple is provided")]
-    IncompatibleVerificationTuple(u32, u32),
-
+    
     /// Occurs when trying to use a missing variable assignment.
     /// Used by gadgets that build the constraint system to signal that
     /// a variable assignment is not provided when the prover needs it.

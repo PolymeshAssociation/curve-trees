@@ -15,6 +15,7 @@ use bulletproofs::{BulletproofGens, PedersenGens};
 use dock_crypto_utils::randomized_mult_checker::RandomizedMultChecker;
 use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
 use rand::seq::SliceRandom;
+use rand::{thread_rng, Rng};
 // Shuffle gadget (documented in markdown file)
 
 /// A proof-of-shuffle.
@@ -137,6 +138,7 @@ impl<C: AffineRepr> ShuffleProof<C> {
         verifier.verify(&self.0, &pc_gens, &bp_gens)?;
         Ok(())
     }
+
     pub fn verification_scalars_and_points<'a, 'b>(
         &self,
         transcript: &'a mut MerlinTranscript,
@@ -445,7 +447,7 @@ fn example_gadget_roundtrip_helper<C: AffineRepr>(
 ) -> Result<(), R1CSError> {
     // Common
     let pc_gens = PedersenGens::<C>::default();
-    let bp_gens = BulletproofGens::<C>::new(128, 1);
+    let bp_gens = BulletproofGens::<C>::new(16, 1);
 
     let (proof, commitments) =
         example_gadget_proof::<C>(&pc_gens, &bp_gens, a1, a2, b1, b2, c1, c2)?;
@@ -566,4 +568,91 @@ fn range_proof_helper<C: AffineRepr>(v_val: u64, n: usize) -> Result<(), R1CSErr
     assert!(rmc.verify());
 
     Ok(())
+}
+
+#[test]
+fn test_batch_verify() {
+    // Verify batch when VerificationTuple of different sizes
+    type Scalar = <Affine as AffineRepr>::ScalarField;
+
+    let mut rng = thread_rng();
+    let n = 64;
+    let (min, max) = (0u64, ((1u128 << n) - 1) as u64);
+    let v = rng.gen_range(min..max);
+
+    let pc_gens = PedersenGens::<Affine>::default();
+    let bp_gens = BulletproofGens::new(128, 1);
+
+    let (a1, a2, b1, b2, c1, c2) = (3, 4, 6, 1, 40, 9);
+
+    // proof_rp is bigger, proof_ex is smaller
+
+    let (proof_rp, comm_rp, proof_ex, comm_ex) = {
+        let mut prover_transcript = MerlinTranscript::new(b"RangeProofTest");
+        let mut rng = rand::thread_rng();
+
+        let mut prover = Prover::new(&pc_gens, &mut prover_transcript);
+
+        let (com, var) = prover.commit(v.into(), Scalar::rand(&mut rng));
+        assert!(range_proof(&mut prover, var.into(), Some(v), n).is_ok());
+
+        let proof_rp = prover.prove(&bp_gens).unwrap();
+
+        let (proof_ex, commitments) =
+            example_gadget_proof(&pc_gens, &bp_gens, a1, a2, b1, b2, c1, c2).unwrap();
+
+        (proof_rp, com, proof_ex, commitments)
+    };
+
+    let mut verifier_transcript = MerlinTranscript::new(b"RangeProofTest");
+    let mut verifier = Verifier::new(&mut verifier_transcript);
+
+    let var = verifier.commit(comm_rp);
+    assert!(range_proof(&mut verifier, var.into(), None, n).is_ok());
+
+    let vt_rp = verifier.verification_scalars_and_points(&proof_rp).unwrap();
+
+    verify_given_verification_tuple(vt_rp.clone(), &pc_gens, &bp_gens).unwrap();
+
+    let mut transcript = MerlinTranscript::new(b"R1CSExampleGadget");
+    let mut verifier = Verifier::new(&mut transcript);
+    let vars: Vec<_> = comm_ex.iter().map(|V| verifier.commit(*V)).collect();
+
+    example_gadget(
+        &mut verifier,
+        vars[0].into(),
+        vars[1].into(),
+        vars[2].into(),
+        vars[3].into(),
+        vars[4].into(),
+        Scalar::from(c2).into(),
+    );
+
+    let vt_ex = verifier.verification_scalars_and_points(&proof_ex).unwrap();
+
+    verify_given_verification_tuple(vt_ex.clone(), &pc_gens, &bp_gens).unwrap();
+
+    // Size is different
+    assert_ne!(vt_ex.proof_dependent_points.len(), vt_rp.proof_dependent_points.len());
+    assert_ne!(vt_ex.proof_dependent_scalars.len(), vt_rp.proof_dependent_scalars.len());
+    assert_ne!(vt_ex.proof_independent_scalars.len(), vt_rp.proof_independent_scalars.len());
+
+    let mut rmc = RandomizedMultChecker::new_using_rng(&mut rng);
+    add_verification_tuples_to_rmc_0(vec![vt_ex.clone(), vt_rp.clone()], &pc_gens, &bp_gens, &mut rmc).unwrap();
+    assert!(rmc.verify());
+
+    let mut rmc = RandomizedMultChecker::new_using_rng(&mut rng);
+    add_verification_tuples_to_rmc_0(vec![vt_rp.clone(), vt_ex.clone()], &pc_gens, &bp_gens, &mut rmc).unwrap();
+    assert!(rmc.verify());
+
+    let mut rmc = RandomizedMultChecker::new_using_rng(&mut rng);
+    add_verification_tuples_to_rmc(vec![vt_ex.clone(), vt_rp.clone()], &pc_gens, &bp_gens, &mut rmc).unwrap();
+    assert!(rmc.verify());
+
+    let mut rmc = RandomizedMultChecker::new_using_rng(&mut rng);
+    add_verification_tuples_to_rmc(vec![vt_rp.clone(), vt_ex.clone()], &pc_gens, &bp_gens, &mut rmc).unwrap();
+    assert!(rmc.verify());
+
+    batch_verify(vec![vt_ex.clone(), vt_rp.clone()], &pc_gens, &bp_gens).unwrap();
+    batch_verify(vec![vt_rp, vt_ex], &pc_gens, &bp_gens).unwrap();
 }
