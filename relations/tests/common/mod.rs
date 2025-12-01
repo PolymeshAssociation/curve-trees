@@ -51,12 +51,13 @@ pub fn check_proof<
         let vesta_transcript = MerlinTranscript::new(PROOF_LABEL);
         let mut vesta_verifier = Verifier::new(vesta_transcript);
 
-        let rerandomized_leaf = path_commitments.select_and_rerandomize_verifier_gadget(
+        path_commitments.select_and_rerandomize_verifier_gadget(
             &root,
             &mut pallas_verifier,
             &mut vesta_verifier,
             &sr_params,
         );
+        let rerandomized_leaf = path_commitments.get_rerandomized_leaf();
 
         verify(
             pallas_verifier,

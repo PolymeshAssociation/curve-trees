@@ -6,14 +6,14 @@ use zeroize::Zeroize;
 pub fn range_proof<F: Field, CS: ConstraintSystem<F>>(
     cs: &mut CS,
     mut v: LinearCombination<F>,
-    v_assignment: Option<u64>,
+    v_assignment: Option<u128>,
     n: usize,
 ) -> Result<(), R1CSError> {
     let mut exp_2 = F::one();
     for i in 0..n {
         // Create low-level variables and add them to constraints
         let (a, b, o) = cs.allocate_multiplier(v_assignment.map(|mut q| {
-            let bit: u64 = (q >> i) & 1;
+            let bit = (q >> i) & 1;
             Zeroize::zeroize(&mut q);
             ((1 - bit).into(), bit.into())
         }))?;

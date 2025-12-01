@@ -1,7 +1,6 @@
 extern crate bulletproofs;
 extern crate relations;
 
-use std::cmp::min;
 use ark_ff::PrimeField;
 use bulletproofs::r1cs::*;
 use std::time::Instant;
@@ -20,14 +19,14 @@ use ark_secp256k1::{Config as SecpConfig, Fq as SecpBase};
 use ark_secq256k1::Config as SecqConfig;
 use ark_serialize::CanonicalSerialize;
 use dock_crypto_utils::transcript::MerlinTranscript;
-
+use rand::thread_rng;
 
 #[test]
 pub fn test_batched_curve_tree_even_depth() {
     test_batched_curve_tree_with_parameters::<32, 2, PallasBase, PallasConfig, VestaConfig>(2, 12, 2);
     test_batched_curve_tree_with_parameters::<32, 2, PallasBase, PallasConfig, VestaConfig>(4, 12, 2);
     test_batched_curve_tree_with_parameters::<32, 2, PallasBase, PallasConfig, VestaConfig>(6, 12, 2);
-    // test_batched_curve_tree_with_parameters::<32, 2, SecpBase, SecpConfig, SecqConfig>(4, 12, 2);
+    test_batched_curve_tree_with_parameters::<32, 2, SecpBase, SecpConfig, SecqConfig>(4, 12, 2);
 }
 
 #[test]
@@ -117,12 +116,13 @@ pub fn test_batched_curve_tree_with_parameters<
         let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
         let mut vesta_verifier = Verifier::new(vesta_transcript);
 
-        let rerandomized_leaves = path_commitments.batched_select_and_rerandomize_verifier_gadget(
+        path_commitments.batched_select_and_rerandomize_verifier_gadget(
             &root,
             &mut pallas_verifier,
             &mut vesta_verifier,
             &sr_params,
         ).unwrap();
+        let rerandomized_leaves = path_commitments.get_rerandomized_leaves();
         verify(pallas_verifier, vesta_verifier, &pallas_proof, &vesta_proof, &sr_params, &mut rng).unwrap();
         println!("Verifying time: {:?}", clock.elapsed());
         for i in 0..num_indices_to_prove as usize {
@@ -272,7 +272,7 @@ pub fn check_individual_vs_batched_proofs_with_parameters<
 
     // For verification, we need to call the verifier gadget for each leaf too
     for path_commitments in &path_commitments_list {
-        let _ = path_commitments.select_and_rerandomize_verifier_gadget(
+        path_commitments.select_and_rerandomize_verifier_gadget(
             &root,
             &mut pallas_verifier,
             &mut vesta_verifier,
@@ -328,12 +328,13 @@ pub fn check_individual_vs_batched_proofs_with_parameters<
     let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
     let mut vesta_verifier = Verifier::new(vesta_transcript);
 
-    let rerandomized_leaves = path_commitments.batched_select_and_rerandomize_verifier_gadget(
+    path_commitments.batched_select_and_rerandomize_verifier_gadget(
         &root,
         &mut pallas_verifier,
         &mut vesta_verifier,
         &sr_params,
     ).unwrap();
+    let rerandomized_leaves = path_commitments.get_rerandomized_leaves();
     verify(pallas_verifier, vesta_verifier, &pallas_proof, &vesta_proof, &sr_params, &mut rng).unwrap();
     println!("Verification time: {:?}", clock.elapsed());
     for i in 0..M {
@@ -349,6 +350,11 @@ pub fn test_batched_combined_vs_common_root_proofs() {
     check_batched_combined_vs_common_root_proofs_with_parameters::<32, 2, PallasBase, PallasConfig, VestaConfig>(4, 13, 3);
     check_batched_combined_vs_common_root_proofs_with_parameters::<32, 2, PallasBase, PallasConfig, VestaConfig>(4, 13, 4);
     check_batched_combined_vs_common_root_proofs_with_parameters::<32, 2, PallasBase, PallasConfig, VestaConfig>(4, 14, 5);
+    check_batched_combined_vs_common_root_proofs_with_parameters::<32, 2, PallasBase, PallasConfig, VestaConfig>(3, 13, 3);
+    check_batched_combined_vs_common_root_proofs_with_parameters::<32, 2, PallasBase, PallasConfig, VestaConfig>(3, 13, 4);
+    check_batched_combined_vs_common_root_proofs_with_parameters::<32, 2, PallasBase, PallasConfig, VestaConfig>(3, 14, 5);
+
+    check_batched_combined_vs_common_root_proofs_with_parameters::<512, 4, PallasBase, PallasConfig, VestaConfig>(4, 17, 40);
 }
 
 pub fn check_batched_combined_vs_common_root_proofs_with_parameters<
@@ -362,7 +368,6 @@ pub fn check_batched_combined_vs_common_root_proofs_with_parameters<
     generators_length_log_2: usize,
     num_leaves: u32,
 ) {
-    use ark_std::rand::thread_rng;
     let mut rng = thread_rng();
     let generators_length = 1 << generators_length_log_2;
 
@@ -377,6 +382,15 @@ pub fn check_batched_combined_vs_common_root_proofs_with_parameters<
     let curve_tree = CurveTree::<L, M, P0, P1>::from_leaves(&set, &sr_params, Some(depth));
     assert_eq!(curve_tree.height(), depth);
 
+    // ceil(num_leaves/M)
+    let num_paths = (num_leaves as usize + M - 1)/ M;
+    let mut paths = vec![];
+    for indices in (0..num_leaves).collect::<Vec<_>>().chunks(M) {
+        paths.push(curve_tree.get_paths_to_leaves(&indices)
+            .unwrap());
+    }
+    assert_eq!(paths.len(), num_paths);
+
     println!("For {num_leaves} leaves with batch size {M}, width {L}, height {depth}");
     
     println!("Combined Proof (separate multi-paths)");
@@ -390,36 +404,29 @@ pub fn check_batched_combined_vs_common_root_proofs_with_parameters<
     let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
     let mut vesta_prover: Prover<_, Affine<P1>> =
         Prover::new(&sr_params.odd_parameters.pc_gens, vesta_transcript);
-    
-    let mut paths = vec![];
+
     let mut path_commitments_list: Vec<SelectAndRerandomizeMultiPath<L, M, P0, P1>> = vec![];
     let mut all_leaf_rerandomizations = vec![];
-    // ceil(num_leaves/M)
-    let num_multi_paths = (num_leaves as usize + M - 1)/ M;
-    for i in 0..num_multi_paths {
-        let indices = ((i * M)..min((i+1)*M, num_leaves as usize)).map(|j| j as u32).collect::<Vec<_>>();
-        let p = curve_tree.get_paths_to_leaves(&indices)
-            .unwrap();
+    for p in &paths {
         let (path_commitments, leaf_rands) = p.batched_select_and_rerandomize_prover_gadget(
             &mut pallas_prover,
             &mut vesta_prover,
             &sr_params,
             &mut rng,
         ).unwrap();
-        paths.push(p);
         path_commitments_list.push(path_commitments);
         all_leaf_rerandomizations.push(leaf_rands);
     }
 
     let mut expected_num_leaves = 0;
-    for i in 0..num_multi_paths {
+    for i in 0..num_paths {
         expected_num_leaves += path_commitments_list[i].num_indices();
     }
     assert_eq!(expected_num_leaves, num_leaves);
 
     let (pallas_proof, vesta_proof) = prove(pallas_prover, vesta_prover, &sr_params, &mut rng).unwrap();
 
-    let combined_proof_size = path_commitments_list.compressed_size() + pallas_proof.compressed_size() + vesta_proof.compressed_size();
+    let combined_proof_size = pallas_proof.compressed_size() + vesta_proof.compressed_size();
 
     println!("Proving time: {:?}", clock.elapsed());
     println!("Proof size: {} bytes", combined_proof_size);
@@ -434,19 +441,20 @@ pub fn check_batched_combined_vs_common_root_proofs_with_parameters<
 
     let mut rerandomized_leaves_list = vec![];
     for path_commitments in &path_commitments_list {
-        let rl = path_commitments.batched_select_and_rerandomize_verifier_gadget(
+        path_commitments.batched_select_and_rerandomize_verifier_gadget(
             &root,
             &mut pallas_verifier,
             &mut vesta_verifier,
             &sr_params,
         ).unwrap();
+        let rl = path_commitments.get_rerandomized_leaves();
         rerandomized_leaves_list.push(rl);
     }
 
     verify(pallas_verifier, vesta_verifier, &pallas_proof, &vesta_proof, &sr_params, &mut rng).unwrap();
     println!("Verification time: {:?}", clock.elapsed());
 
-    for i in 0..num_multi_paths {
+    for i in 0..num_paths {
         for j in 0..M {
             let leaf_idx = i * M + j;
             if leaf_idx < num_leaves as usize {
@@ -481,13 +489,13 @@ pub fn check_batched_combined_vs_common_root_proofs_with_parameters<
 
     let (pallas_proof, vesta_proof) = prove(pallas_prover, vesta_prover, &sr_params, &mut rng).unwrap();
 
-    let all_paths_proof_size = path_commitments_list.compressed_size() + pallas_proof.compressed_size() + vesta_proof.compressed_size();
+    let all_paths_proof_size = pallas_proof.compressed_size() + vesta_proof.compressed_size();
 
     println!("Proving time: {:?}", clock.elapsed());
     println!("Proof size: {} bytes", all_paths_proof_size);
 
     let mut expected_num_leaves = 0;
-    for i in 0..num_multi_paths {
+    for i in 0..num_paths {
         expected_num_leaves += path_commitments_list[i].num_indices();
     }
     assert_eq!(expected_num_leaves, num_leaves);
@@ -498,18 +506,19 @@ pub fn check_batched_combined_vs_common_root_proofs_with_parameters<
     let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
     let mut vesta_verifier = Verifier::new(vesta_transcript);
 
-    let rerandomized_leaves_list = SelectAndRerandomizeMultiPath::batched_select_and_rerandomize_verifier_gadget_for_common_root(
+    SelectAndRerandomizeMultiPath::batched_select_and_rerandomize_verifier_gadget_for_common_root(
         &path_commitments_list,
         &root,
         &mut pallas_verifier,
         &mut vesta_verifier,
         &sr_params,
     ).unwrap();
+    let rerandomized_leaves_list: Vec<_> = path_commitments_list.iter().map(|p| p.get_rerandomized_leaves()).collect();
 
     verify(pallas_verifier, vesta_verifier, &pallas_proof, &vesta_proof, &sr_params, &mut rng).unwrap();
     println!("Verification time: {:?}", clock.elapsed());
 
-    for i in 0..num_multi_paths {
+    for i in 0..num_paths {
         for j in 0..M {
             let leaf_idx = i * M + j;
             if leaf_idx < num_leaves as usize {

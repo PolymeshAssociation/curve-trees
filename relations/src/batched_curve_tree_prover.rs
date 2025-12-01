@@ -111,17 +111,6 @@ impl<
 }
 
 #[derive(Clone)]
-pub enum RootChildren<
-    F0: PrimeField,
-    F1: PrimeField,
-    P0: SWCurveConfig<BaseField = F1, ScalarField = F0>,
-    P1: SWCurveConfig<BaseField = F0, ScalarField = F1>,
-> {
-    Even((Vec<Vec<Affine<P1>>>, Vec<Vec<LinearCombination<F0>>>)),
-    Odd((Vec<Vec<Affine<P0>>>, Vec<Vec<LinearCombination<F1>>>)),
-}
-
-#[derive(Clone)]
 pub enum RootChildrenCoordsVars<F0: PrimeField, F1: PrimeField> {
     Even(Vec<Vec<LinearCombination<F0>>>),
     Odd(Vec<Vec<LinearCombination<F1>>>),
@@ -294,7 +283,7 @@ impl<
         Error,
     > {
         if paths.is_empty() {
-            return Err(Error::PathsLengthMustBeGreaterThanZero);
+            return Err(Error::NeedNonZeroNumberOfPaths);
         }
 
         let root_children = Self::process_root_nodes_for_given_multi_paths_with_common_root(
@@ -329,7 +318,7 @@ impl<
         Error,
     > {
         if paths.is_empty() {
-            return Err(Error::PathsLengthMustBeGreaterThanZero);
+            return Err(Error::NeedNonZeroNumberOfPaths);
         }
 
         let is_root_even = paths[0].root_is_even();
@@ -359,7 +348,7 @@ impl<
 
             // Process root node for this multi-path
             root_children_selected_coord_vars.validate_and_re_randomize_children(
-                &mut root_children_selected,
+                Some(&mut root_children_selected),
                 even_prover,
                 odd_prover,
                 &even_rerandomized_sum_of_nodes[0],
@@ -613,7 +602,6 @@ impl<
                 prover.allocate(Some(s.x)).unwrap().into()
             }).collect::<Vec<_>>();
             let c = prover.transcript().challenge_scalar(b"challenge-for-multi_select");
-            // Show that the parent is committed to the ith child's x-coordinate
             multi_select_public_set_ext_challenge(
                 prover,
                 xs.clone(),
@@ -803,7 +791,7 @@ impl<
         Cs0: ConstraintSystem<F0>, Cs1: ConstraintSystem<F1>
     >(
         &mut self,
-        selected_children_plus_delta: &mut RootChildrenSelected<F0, F1, P0, P1>,
+        selected_children_plus_delta: Option<&mut RootChildrenSelected<F0, F1, P0, P1>>,
         cs_even: &mut Cs0,
         cs_odd: &mut Cs1,
         even_rerandomized_sum_of_nodes: &Affine<P0>,
@@ -814,42 +802,53 @@ impl<
         is_root_even: bool,
         parameters: &SelRerandParameters<P0, P1>,
     ) -> Result<(), Error> {
-        match (self, selected_children_plus_delta) {
-            (Self::Even(children_x_coords), RootChildrenSelected::Even(children_plus_delta)) => {
+        match self {
+            Self::Even(children_x_coords) => {
                 if !is_root_even {
                     return Err(Error::RootTypeMismatch { expected: "even".to_string(), got: "odd".to_string() });
                 }
                 let re_randomized_child_sum = &odd_rerandomized_sum_of_nodes;
-                let children = children_plus_delta.remove(0);
+                let children = selected_children_plus_delta.map(|s| {
+                    match s {
+                        RootChildrenSelected::Even(c) => c.remove(0),
+                        _ => unreachable!()
+                    }
+                });
+                let children = children.as_ref().map(|c| c.as_slice());
                 let x_coords = children_x_coords.remove(0);
                 single_level_batched_validate_and_rerandomize_root_children(
                     cs_even,
                     &parameters.odd_parameters,
                     num_indices,
                     re_randomized_child_sum,
-                    Some(&children),
+                    children,
                     x_coords,
                     odd_rerandomization_scalar
                 )
             }
-            (Self::Odd(children_x_coords), RootChildrenSelected::Odd(children_plus_delta)) => {
+            Self::Odd(children_x_coords) => {
                 if is_root_even {
                     return Err(Error::RootTypeMismatch { expected: "odd".to_string(), got: "even".to_string() });
                 }
                 let re_randomized_child_sum = &even_rerandomized_sum_of_nodes;
-                let children = children_plus_delta.remove(0);
+                let children = selected_children_plus_delta.map(|s| {
+                    match s {
+                        RootChildrenSelected::Odd(c) => c.remove(0),
+                        _ => unreachable!()
+                    }
+                });
+                let children = children.as_ref().map(|c| c.as_slice());
                 let x_coords = children_x_coords.remove(0);
                 single_level_batched_validate_and_rerandomize_root_children(
                     cs_odd,
                     &parameters.even_parameters,
                     num_indices,
                     re_randomized_child_sum,
-                    Some(&children),
+                    children,
                     x_coords,
                     even_rerandomization_scalar
                 )
             },
-            _ => unreachable!("Caller shouldn't be passing such combination")
         }
     }
 }

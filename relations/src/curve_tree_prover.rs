@@ -9,10 +9,11 @@ use ark_ec::{
     models::short_weierstrass::{SWCurveConfig, Projective}, short_weierstrass::Affine, CurveGroup,
 };
 use ark_ff::PrimeField;
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, SerializationError, Valid, Validate, Write, Read};
 use ark_std::{
     fmt::{Debug, Formatter},
     vec::Vec,
+    vec
 };
 use core::ops::Mul;
 use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
@@ -107,6 +108,87 @@ impl<
         })
     }
 
+    /// Produce witnesses for multiple paths that share the same root.
+    /// This is optimized for batch operations, storing shared root children x-coordinates once.
+    pub fn get_paths_to_leaves_for_proof(
+        &self,
+        leaf_indices: &[usize],
+        tree_index: usize,
+    ) -> Result<WitnessPathWithSameRoot<L, P0, P1>, Error> {
+        if leaf_indices.is_empty() {
+            return Err(Error::NeedNonZeroNumberOfPaths);
+        }
+
+        let num_leaves = leaf_indices.len();
+        let mut even_internal_nodes = vec![vec![]; num_leaves];
+        let mut odd_internal_nodes = vec![vec![]; num_leaves];
+
+        match self {
+            Self::Even(ct) => {
+                if let CurveTreeNode::InnerNode(inner_node) = ct {
+                    let mut child_nodes_to_randomize = Vec::with_capacity(num_leaves);
+                    let mut children = Vec::with_capacity(num_leaves);
+                    for leaf_index in leaf_indices {
+                        let child_node_index_to_rerandomize = ct.child_index(*leaf_index).unwrap();
+                        let child_node_to_randomize = inner_node.get_child(child_node_index_to_rerandomize)?;
+                        child_nodes_to_randomize.push(child_node_to_randomize.commitment(tree_index));
+                        children.push((*leaf_index, child_node_to_randomize));
+                    }
+                    let root_children = RootChildren::Even {
+                        x_coords: inner_node.x_coord_children[tree_index],
+                        child_nodes_to_randomize,
+                    };
+                    for (i, (leaf_index, child_node)) in children.into_iter().enumerate() {
+                        child_node.generate_witness_node_for_this_and_children(
+                            leaf_index,
+                            tree_index,
+                            &mut odd_internal_nodes[i],
+                            &mut even_internal_nodes[i],
+                        )?
+                    }
+                    Ok(WitnessPathWithSameRoot {
+                        root_children,
+                        even_internal_nodes,
+                        odd_internal_nodes,
+                    })
+                } else {
+                    unreachable!()
+                }
+            }
+            Self::Odd(ct) => {
+                if let CurveTreeNode::InnerNode(inner_node) = ct {
+                    let mut child_nodes_to_randomize = Vec::with_capacity(num_leaves);
+                    let mut children = Vec::with_capacity(num_leaves);
+                    for leaf_index in leaf_indices {
+                        let child_node_index_to_rerandomize = ct.child_index(*leaf_index).unwrap();
+                        let child_node_to_randomize = inner_node.get_child(child_node_index_to_rerandomize)?;
+                        child_nodes_to_randomize.push(child_node_to_randomize.commitment(tree_index));
+                        children.push((*leaf_index, child_node_to_randomize));
+                    }
+                    let root_children = RootChildren::Odd {
+                        x_coords: inner_node.x_coord_children[tree_index],
+                        child_nodes_to_randomize,
+                    };
+                    for (i, (leaf_index, child_node)) in children.into_iter().enumerate() {
+                        child_node.generate_witness_node_for_this_and_children(
+                            leaf_index,
+                            tree_index,
+                            &mut even_internal_nodes[i],
+                            &mut odd_internal_nodes[i],
+                        )?
+                    }
+                    Ok(WitnessPathWithSameRoot {
+                        root_children,
+                        even_internal_nodes,
+                        odd_internal_nodes,
+                    })
+                } else {
+                    unreachable!()
+                }
+            }
+        }
+    }
+
     /// Commits to the root and rerandomizations of the path to the leaf specified by `index`
     /// and proves the Select and rerandomize relation for each level.
     /// Returns the rerandomized commitments on the path to (and including) the selected leaf and the rerandomization scalar of the selected leaf.
@@ -154,6 +236,86 @@ pub struct CurveTreeWitnessPath<const L: usize, P0: SWCurveConfig + Copy, P1: SW
     pub odd_internal_nodes: Vec<WitnessNode<L, P1, P0>>,
 }
 
+/// Root children information including x-coordinates and selected child nodes for multiple paths
+#[derive(Clone, Zeroize, ZeroizeOnDrop)]
+pub enum RootChildren<const L: usize, P0: SWCurveConfig + Copy, P1: SWCurveConfig + Copy> {
+    /// Root is an even-level node
+    Even {
+        /// x-coordinates of all children of the root (shared across all paths)
+        x_coords: [P0::ScalarField; L],
+        /// The child nodes selected by each path (one per path)
+        child_nodes_to_randomize: Vec<Affine<P1>>,
+    },
+    /// Root is an odd-level node
+    Odd {
+        /// x-coordinates of all children of the root (shared across all paths)
+        x_coords: [P1::ScalarField; L],
+        /// The child nodes selected by each path (one per path)
+        child_nodes_to_randomize: Vec<Affine<P0>>,
+    },
+}
+
+/// Multiple witness paths that share the same root.
+#[derive(Clone, CanonicalSerialize, CanonicalDeserialize, Zeroize, ZeroizeOnDrop)]
+pub struct WitnessPathWithSameRoot<const L: usize, P0: SWCurveConfig + Copy, P1: SWCurveConfig + Copy> {
+    /// Root's children (x-coords and selected children for all paths)
+    pub root_children: RootChildren<L, P0, P1>,
+    /// Witness nodes for each path, excluding root's children
+    pub even_internal_nodes: Vec<Vec<WitnessNode<L, P0, P1>>>,
+    /// Witness nodes for each path, excluding root's children
+    pub odd_internal_nodes: Vec<Vec<WitnessNode<L, P1, P0>>>,
+}
+
+impl<const L: usize, P0: SWCurveConfig + Copy, P1: SWCurveConfig + Copy> WitnessPathWithSameRoot<L, P0, P1> {
+    /// Returns the number of paths in this witness
+    pub fn num_indices(&self) -> u32 {
+        self.even_internal_nodes.len() as u32
+    }
+
+    /// Converts this batch witness structure into individual [`CurveTreeWitnessPath`] objects
+    pub fn to_individual_paths(&self) -> Vec<CurveTreeWitnessPath<L, P0, P1>> {
+        let num_paths = self.even_internal_nodes.len();
+        let mut paths = Vec::with_capacity(num_paths);
+
+        match &self.root_children {
+            RootChildren::Even { x_coords, child_nodes_to_randomize } => {
+                for i in 0..num_paths {
+                    let root_witness = WitnessNode {
+                        x_coord_children: *x_coords,
+                        child_node_to_randomize: child_nodes_to_randomize[i],
+                    };
+                    
+                    let mut even_internal_nodes = vec![root_witness];
+                    even_internal_nodes.extend(self.even_internal_nodes[i].clone());
+                    
+                    paths.push(CurveTreeWitnessPath {
+                        even_internal_nodes,
+                        odd_internal_nodes: self.odd_internal_nodes[i].clone(),
+                    });
+                }
+            }
+            RootChildren::Odd { x_coords, child_nodes_to_randomize } => {
+                for i in 0..num_paths {
+                    let root_witness = WitnessNode {
+                        x_coord_children: *x_coords,
+                        child_node_to_randomize: child_nodes_to_randomize[i],
+                    };
+                    
+                    let mut odd_internal_nodes = vec![root_witness];
+                    odd_internal_nodes.extend(self.odd_internal_nodes[i].clone());
+                    
+                    paths.push(CurveTreeWitnessPath {
+                        even_internal_nodes: self.even_internal_nodes[i].clone(),
+                        odd_internal_nodes,
+                    });
+                }
+            }
+        }
+
+        paths
+    }
+}
+
 /// Variables allocated for the x-coordinates of the selected children of root
 #[derive(Clone)]
 pub enum RootChildrenCoordsVars<F0: PrimeField, F1: PrimeField> {
@@ -170,7 +332,7 @@ impl<
         P1: SWCurveConfig<BaseField = F0, ScalarField = F1> + Copy,
     > CurveTreeWitnessPath<L, P0, P1>
 {
-    fn root_is_even(&self) -> bool {
+    pub fn root_is_even(&self) -> bool {
         // The leaf is even and included in the internal even nodes.
         // If the number of internal even and odd nodes is equal,
         // then the first odd node is the parent of the first even node and a child of the even root.
@@ -246,6 +408,7 @@ impl<
         )
     }
 
+    // TODO: Use the optimized path
     pub fn select_and_rerandomize_prover_gadget_for_common_root<R: Rng>(
         paths: &[Self],
         even_prover: &mut Prover<MerlinTranscript, Affine<P0>>,
@@ -253,31 +416,6 @@ impl<
         parameters: &SelRerandParameters<P0, P1>,
         rng: &mut R,
     ) -> Result<(Vec<SelectAndRerandomizePath<L, P0, P1>>, Vec<P0::ScalarField>), Error> {
-        let selected_children_x_coords = Self::process_root_nodes_for_given_paths_with_common_root(
-            &paths,
-            even_prover,
-            odd_prover,
-            parameters,
-        )?;
-        Self::process_non_root_nodes_for_given_paths_with_common_root(
-            &paths,
-            even_prover,
-            odd_prover,
-            selected_children_x_coords,
-            parameters,
-            rng,
-        )
-    }
-
-    /// Allocate x-coordinates of children of root and enforce set-membership constraint on the selected child of root.
-    /// Returns x-coordinates of selected children of the root node.
-    /// Used when proving for multiple paths with a common root
-    pub fn process_root_nodes_for_given_paths_with_common_root(
-        paths: &[Self],
-        even_prover: &mut Prover<MerlinTranscript, Affine<P0>>,
-        odd_prover: &mut Prover<MerlinTranscript, Affine<P1>>,
-        parameters: &SelRerandParameters<P0, P1>,
-    ) -> Result<RootChildrenCoordsVars<F0, F1>, Error> {
         let is_root_even = paths[0].root_is_even();
         // Check all paths are consistent
         for path in &paths[1..] {
@@ -292,28 +430,35 @@ impl<
                 }
             }
         }
-        
-        if is_root_even {
+
+        let selected_children_x_coords = if is_root_even {
             // For each path get the child node of root
             let witness_nodes_of_root = paths.iter().map(|p| &p.even_internal_nodes[0]).collect::<Vec<_>>();
             let delta = parameters.odd_parameters.delta;
-            let x_coords_selected_children = Self::_process_root_nodes_for_given_paths_with_common_root(
+            let x_coords_selected_children = Self::process_root_nodes_for_given_paths_with_common_root(
                 witness_nodes_of_root,
                 even_prover,
                 delta,
             )?;
-            Ok(RootChildrenCoordsVars::Even(x_coords_selected_children))
+            RootChildrenCoordsVars::Even(x_coords_selected_children)
         } else {
             let witness_nodes_of_root = paths.iter().map(|p| &p.odd_internal_nodes[0]).collect::<Vec<_>>();
             let delta = parameters.even_parameters.delta;
-            let x_coords_selected_children = CurveTreeWitnessPath::<L, P1, P0>::_process_root_nodes_for_given_paths_with_common_root(
+            let x_coords_selected_children = CurveTreeWitnessPath::<L, P1, P0>::process_root_nodes_for_given_paths_with_common_root(
                 witness_nodes_of_root,
                 odd_prover,
                 delta,
             )?;
-            Ok(RootChildrenCoordsVars::Odd(x_coords_selected_children))
-        }
-
+            RootChildrenCoordsVars::Odd(x_coords_selected_children)
+        };
+        Self::process_non_root_nodes_for_given_paths_with_common_root(
+            &paths,
+            even_prover,
+            odd_prover,
+            selected_children_x_coords,
+            parameters,
+            rng,
+        )
     }
 
     /// Used when proving for multiple paths with a common root. Called after process_root_nodes_for_given_paths_with_common_root.
@@ -327,7 +472,7 @@ impl<
         rng: &mut R,
     ) -> Result<(Vec<SelectAndRerandomizePath<L, P0, P1>>, Vec<P0::ScalarField>), Error> {
         if paths.is_empty() {
-            return Err(Error::PathsLengthMustBeGreaterThanZero);
+            return Err(Error::NeedNonZeroNumberOfPaths);
         }
         let is_root_even = paths[0].root_is_even();
 
@@ -448,7 +593,10 @@ impl<
         )
     }
 
-    fn _process_root_nodes_for_given_paths_with_common_root(
+    /// Allocate x-coordinates of children of root and enforce set-membership constraint on the selected child of root.
+    /// Returns x-coordinates of selected children of the root node.
+    /// Used when proving for multiple paths with a common root
+    fn process_root_nodes_for_given_paths_with_common_root(
         mut witness_nodes_of_root: Vec<&WitnessNode<L, P0, P1>>,
         prover: &mut Prover<MerlinTranscript, Affine<P0>>,
         delta: Affine<P1>,
@@ -696,6 +844,74 @@ impl<F0: PrimeField, F1: PrimeField> RootChildrenCoordsVars<F0, F1> {
                 );
             }
         }
+        Ok(())
+    }
+}
+
+impl<const L: usize, P0: SWCurveConfig + Copy, P1: SWCurveConfig + Copy> CanonicalSerialize
+for RootChildren<L, P0, P1>
+{
+    fn serialize_with_mode<W: Write>(
+        &self,
+        mut writer: W,
+        compress: Compress,
+    ) -> Result<(), SerializationError> {
+        match self {
+            RootChildren::Even { x_coords, child_nodes_to_randomize } => {
+                0u8.serialize_with_mode(&mut writer, compress)?;
+                x_coords.serialize_with_mode(&mut writer, compress)?;
+                child_nodes_to_randomize.serialize_with_mode(&mut writer, compress)?;
+            }
+            RootChildren::Odd { x_coords, child_nodes_to_randomize } => {
+                1u8.serialize_with_mode(&mut writer, compress)?;
+                x_coords.serialize_with_mode(&mut writer, compress)?;
+                child_nodes_to_randomize.serialize_with_mode(&mut writer, compress)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn serialized_size(&self, compress: Compress) -> usize {
+        1 + match self {
+            RootChildren::Even { x_coords, child_nodes_to_randomize } => {
+                x_coords.serialized_size(compress) + child_nodes_to_randomize.serialized_size(compress)
+            }
+            RootChildren::Odd { x_coords, child_nodes_to_randomize } => {
+                x_coords.serialized_size(compress) + child_nodes_to_randomize.serialized_size(compress)
+            }
+        }
+    }
+}
+
+impl<const L: usize, P0: SWCurveConfig + Copy, P1: SWCurveConfig + Copy> CanonicalDeserialize
+for RootChildren<L, P0, P1>
+{
+    fn deserialize_with_mode<R: Read>(
+        mut reader: R,
+        compress: Compress,
+        validate: Validate,
+    ) -> Result<Self, SerializationError> {
+        let variant = u8::deserialize_with_mode(&mut reader, compress, validate)?;
+        match variant {
+            0 => {
+                let x_coords = <[P0::ScalarField; L]>::deserialize_with_mode(&mut reader, compress, validate)?;
+                let child_nodes_to_randomize = Vec::<Affine<P1>>::deserialize_with_mode(&mut reader, compress, validate)?;
+                Ok(RootChildren::Even { x_coords, child_nodes_to_randomize })
+            }
+            1 => {
+                let x_coords = <[P1::ScalarField; L]>::deserialize_with_mode(&mut reader, compress, validate)?;
+                let child_nodes_to_randomize = Vec::<Affine<P0>>::deserialize_with_mode(&mut reader, compress, validate)?;
+                Ok(RootChildren::Odd { x_coords, child_nodes_to_randomize })
+            }
+            _ => Err(SerializationError::InvalidData),
+        }
+    }
+}
+
+impl<const L: usize, P0: SWCurveConfig + Copy, P1: SWCurveConfig + Copy> Valid
+for RootChildren<L, P0, P1>
+{
+    fn check(&self) -> Result<(), SerializationError> {
         Ok(())
     }
 }

@@ -508,38 +508,9 @@ impl<
         sr_parameters: &SelRerandParameters<P0, P1>,
         curve_tree: &CurveTree<L, 1, P0, P1>,
     ) -> (VerificationTuple<Affine<P0>>, VerificationTuple<Affine<P1>>) {
-        #[cfg(feature = "parallel")]
-        let (spend_commitments_0, spend_commitments_1) = {
-            // todo this might not be worth the overhead
-            rayon::join(
-                || {
-                    let mut path = self.randomized_path_0.clone();
-                    curve_tree.add_root_to_randomized_path(&mut path);
-                    path
-                },
-                || {
-                    let mut path = self.randomized_path_1.clone();
-                    curve_tree.add_root_to_randomized_path(&mut path);
-                    path
-                },
-            )
-        };
-        #[cfg(not(feature = "parallel"))]
-        let (spend_commitments_0, spend_commitments_1) = {
-            (
-                {
-                    let mut path = self.randomized_path_0.clone();
-                    curve_tree.add_root_to_randomized_path(&mut path);
-                    path
-                },
-                {
-                    let mut path = self.randomized_path_1.clone();
-                    curve_tree.add_root_to_randomized_path(&mut path);
-                    path
-                },
-            )
-        };
-
+        let spend_commitments_0 = self.randomized_path_0.clone();
+        let spend_commitments_1 = self.randomized_path_1.clone();
+        
         #[cfg(feature = "parallel")]
         let (even_vt, odd_vt) = {
             rayon::join(

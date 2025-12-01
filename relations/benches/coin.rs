@@ -293,24 +293,16 @@ fn bench_pour_with_parameters<
                     }
                     #[cfg(feature = "parallel")]
                     {
-                        let proofs_and_commitment_paths = proofs.par_iter().map(|proof| {
-                            let mut path_0 = proof.randomized_path_0.clone();
-                            let mut path_1 = proof.randomized_path_1.clone();
-                            curve_tree.add_root_to_randomized_path(&mut path_0);
-                            curve_tree.add_root_to_randomized_path(&mut path_1);
-                            (proof, path_0, path_1)
-                        });
-                        let proofs_and_commitment_paths_clone = proofs_and_commitment_paths.clone();
                         rayon::join(
                             || {
                                 // even verification tuples
-                                let event_vts: Vec<_> = proofs_and_commitment_paths
-                                    .map(|(proof, path0, path1)| {
+                                let event_vts: Vec<_> = proofs.par_iter()
+                                    .map(|proof| {
                                         proof.even_verification_gadget(
                                             b"select_and_rerandomize",
                                             &sr_params,
-                                            &path0,
-                                            &path1,
+                                            &proof.randomized_path_0,
+                                            &proof.randomized_path_1,
                                             &curve_tree,
                                         )
                                     })
@@ -324,13 +316,13 @@ fn bench_pour_with_parameters<
                             },
                             || {
                                 // odd verification tuples
-                                let odd_vts: Vec<_> = proofs_and_commitment_paths_clone
-                                    .map(|(proof, path0, path1)| {
+                                let odd_vts: Vec<_> = proofs.par_iter()
+                                    .map(|proof| {
                                         proof.odd_verification_gadget(
                                             b"select_and_rerandomize",
                                             &sr_params,
-                                            &path0,
-                                            &path1,
+                                            &proof.randomized_path_0,
+                                            &proof.randomized_path_1,
                                             &curve_tree,
                                         )
                                     })

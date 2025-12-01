@@ -23,10 +23,10 @@ fn range_proof_prove(c: &mut Criterion, n: usize) {
         SelRerandParameters::<PallasConfig, VestaConfig>::new(generators_length, generators_length)
             .expect("Failed to create SelRerandParameters");
 
-    let value: u64 = if n <= 32 {
-        (rng.gen::<u32>() as u64) % (1u64 << n)
+    let value: u128 = if n <= 64 {
+        (rng.gen::<u64>() as u128) % (1u128 << n)
     } else {
-        rng.gen::<u64>() % (1u64 << n)
+        rng.gen::<u128>() % (1u128 << n)
     };
     let blinding = VestaScalar::rand(&mut rng);
 
@@ -56,10 +56,10 @@ fn range_proof_verify(c: &mut Criterion, n: usize) {
         SelRerandParameters::<PallasConfig, VestaConfig>::new(generators_length, generators_length)
             .expect("Failed to create SelRerandParameters");
 
-    let value: u64 = if n <= 32 {
-        (rng.gen::<u32>() as u64) % (1u64 << n)
+    let value: u128 = if n <= 64 {
+        (rng.gen::<u64>() as u128) % (1u128 << n)
     } else {
-        rng.gen::<u64>() % (1u64 << n)
+        rng.gen::<u128>() % (1u128 << n)
     };
 
     let mut transcript = MerlinTranscript::new(b"range_proof");
@@ -88,7 +88,7 @@ fn range_proof_verify(c: &mut Criterion, n: usize) {
                 &proof,
                 &sr_params.odd_parameters.pc_gens,
                 &sr_params.odd_parameters.bp_gens,
-            );
+            ).unwrap();
             black_box(result)
         })
     });
@@ -126,6 +126,22 @@ fn range_proof_verify_n36(c: &mut Criterion) {
     range_proof_verify(c, 36);
 }
 
+fn range_proof_verify_n40(c: &mut Criterion) {
+    range_proof_verify(c, 40);
+}
+
+fn range_proof_verify_n50(c: &mut Criterion) {
+    range_proof_verify(c, 50);
+}
+
+fn range_proof_verify_n58(c: &mut Criterion) {
+    range_proof_verify(c, 58);
+}
+
+fn range_proof_verify_n64(c: &mut Criterion) {
+    range_proof_verify(c, 64);
+}
+
 criterion_group!(
     range_proof_benches,
     range_proof_prove_n30,
@@ -135,7 +151,11 @@ criterion_group!(
     range_proof_prove_n34,
     range_proof_verify_n34,
     range_proof_prove_n36,
-    range_proof_verify_n36
+    range_proof_verify_n36,
+    range_proof_verify_n40,
+    range_proof_verify_n50,
+    range_proof_verify_n58,
+    range_proof_verify_n64,
 );
 
 criterion_main!(range_proof_benches);

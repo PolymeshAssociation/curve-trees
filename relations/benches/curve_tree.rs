@@ -122,7 +122,7 @@ fn curve_tree_verify<const L: usize>(c: &mut Criterion, height: usize) {
             let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
             let mut vesta_verifier = Verifier::new(vesta_transcript);
 
-            let _ = path_commitments.select_and_rerandomize_verifier_gadget(
+            path_commitments.select_and_rerandomize_verifier_gadget(
                 &root,
                 &mut pallas_verifier,
                 &mut vesta_verifier,

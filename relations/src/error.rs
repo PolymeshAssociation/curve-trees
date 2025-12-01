@@ -54,9 +54,9 @@ pub enum Error {
     #[error("Mismatched commitment lengths: expected {expected}, got {got}")]
     InconsistentCommitmentLengths { expected: usize, got: usize },
     
-    /// Paths length must be greater than 0
-    #[error("Paths length must be greater than 0")]
-    PathsLengthMustBeGreaterThanZero,
+    /// Paths count must be greater than 0
+    #[error("Paths count must be greater than 0")]
+    NeedNonZeroNumberOfPaths,
 
     /// Root type mismatch
     #[error("Root type mismatch: expected {expected}, got {got}")]

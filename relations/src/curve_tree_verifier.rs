@@ -4,189 +4,12 @@ use crate::error::Error;
 use crate::single_level_select_and_rerandomize::*;
 use crate::curve_tree_prover::{allocate_children_of_root_and_enforce_membership, CurveTreeWitnessPath, RootChildrenCoordsVars};
 use crate::curve_tree::{
-    CurveTree, CurveTreeNode, Root, SelRerandParameters, SelectAndRerandomizePath,
+    Root, SelRerandParameters, SelectAndRerandomizePath,
 };
 use ark_ec::{models::short_weierstrass::SWCurveConfig, short_weierstrass::Affine};
 use ark_ff::PrimeField;
 use core::borrow::BorrowMut;
 use dock_crypto_utils::transcript::{MerlinTranscript};
-use ark_std::{vec::Vec};
-
-impl<
-        const L: usize,
-        const M: usize,
-        F0: PrimeField,
-        F1: PrimeField,
-        P0: SWCurveConfig<BaseField = F1, ScalarField = F0> + Copy,
-        P1: SWCurveConfig<BaseField = F0, ScalarField = F1> + Copy,
-    > CurveTree<L, M, P0, P1>
-{
-    /// Adds the root to a randomized path provided by the prover. The "root" here is the commitment to the x-coordinates
-    /// of the children of root node.
-    pub fn add_root_to_randomized_path(
-        &self,
-        randomized_path: &mut SelectAndRerandomizePath<L, P0, P1>,
-    ) {
-        match self {
-            Self::Odd(ct) => {
-                assert_eq!(
-                    randomized_path.even_commitments.len(),
-                    randomized_path.odd_commitments.len() + 1
-                );
-                randomized_path.odd_commitments.insert(0, ct.commitment(0));
-            }
-            Self::Even(ct) => {
-                assert_eq!(
-                    randomized_path.even_commitments.len(),
-                    randomized_path.odd_commitments.len()
-                );
-                randomized_path.even_commitments.insert(0, ct.commitment(0));
-            }
-        };
-    }
-}
-
-impl<
-        const L: usize,
-        const M: usize,
-        F0: PrimeField,
-        F1: PrimeField,
-        P0: SWCurveConfig<BaseField = F1, ScalarField = F0> + Copy,
-        P1: SWCurveConfig<BaseField = F0, ScalarField = F1> + Copy,
-    > CurveTree<L, M, P0, P1>
-{
-    pub fn select_and_rerandomize_verifier_gadget<T: BorrowMut<MerlinTranscript>>(
-        &self,
-        even_verifier: &mut Verifier<T, Affine<P0>>,
-        odd_verifier: &mut Verifier<T, Affine<P1>>,
-        mut randomized_path: SelectAndRerandomizePath<L, P0, P1>,
-        parameters: &SelRerandParameters<P0, P1>,
-    ) -> Affine<P0> {
-        self.add_root_to_randomized_path(&mut randomized_path);
-        // The even and odd commitments include the root and the selected leaf, their sum should equal the height of the tree.
-        debug_assert_eq!(
-            self.height(),
-            randomized_path.even_commitments.len() + randomized_path.odd_commitments.len()
-        );
-
-        randomized_path.even_verifier_gadget_old(even_verifier, parameters, self);
-        randomized_path.odd_verifier_gadget_old(odd_verifier, parameters, self);
-
-        randomized_path.get_rerandomized_leaf_old()
-    }
-}
-
-impl<
-        const L: usize,
-        F: PrimeField,
-        P0: SWCurveConfig<BaseField = F> + Copy,
-        P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = F> + Copy,
-    > SelectAndRerandomizePath<L, P0, P1>
-{
-    /// Get the public rerandomization of the selected (leaf) commitment
-    pub fn get_rerandomized_leaf_old(&self) -> Affine<P0> {
-        self.even_commitments.last().unwrap().clone()
-    }
-
-    pub fn even_verifier_gadget_old<const M: usize, T: BorrowMut<MerlinTranscript>>(
-        &self,
-        even_verifier: &mut Verifier<T, Affine<P0>>,
-        parameters: &SelRerandParameters<P0, P1>,
-        ct: &CurveTree<L, M, P0, P1>,
-    ) {
-        // Since the path now contains the root as well
-        let root_is_odd = self.even_commitments.len() == self.odd_commitments.len();
-        if !root_is_odd {
-            assert_eq!(self.even_commitments.len(), self.odd_commitments.len() + 1);
-        }
-
-        // Last item of self.even_commitments.len() is for leaf
-        for parent_index in 0..(self.even_commitments.len() - 1) {
-            let odd_index = if root_is_odd {
-                parent_index + 1
-            } else {
-                parent_index
-            };
-            let variables = if parent_index == 0 && !root_is_odd {
-                // Root's children are not re-randomized
-                let children = match &ct {
-                    CurveTree::Even(root) => {
-                        if let CurveTreeNode::InnerNode(inner_node) = root {
-                            inner_node.x_coord_children[0]
-                        } else {
-                            unreachable!("Root of a curve tree can't be a leaf")
-                        }
-                    }
-                    _ => panic!(),
-                };
-                children.map(constant).to_vec()
-            } else {
-                let variables = even_verifier.commit_vec(L, self.even_commitments[parent_index]);
-                variables
-                    .iter()
-                    .map(|v| LinearCombination::<P0::ScalarField>::from(*v))
-                    .collect()
-            };
-            single_level_select_and_rerandomize(
-                even_verifier,
-                &parameters.odd_parameters,
-                &self.odd_commitments[odd_index],
-                variables,
-                None,
-                None,
-            );
-        }
-    }
-
-    pub fn odd_verifier_gadget_old<const M: usize, T: BorrowMut<MerlinTranscript>>(
-        &self,
-        odd_verifier: &mut Verifier<T, Affine<P1>>,
-        parameters: &SelRerandParameters<P0, P1>,
-        ct: &CurveTree<L, M, P0, P1>,
-    ) {
-        // Since the path now contains the root as well
-        let root_is_odd = self.even_commitments.len() == self.odd_commitments.len();
-        if !root_is_odd {
-            assert_eq!(self.even_commitments.len(), self.odd_commitments.len() + 1);
-        }
-        for parent_index in 0..self.odd_commitments.len() {
-            let even_index = if root_is_odd {
-                parent_index
-            } else {
-                parent_index + 1
-            };
-            let child = self.even_commitments[even_index];
-            let variables = if parent_index == 0 && root_is_odd {
-                // Root's children are not re-randomized
-                let children = match &ct {
-                    CurveTree::Odd(root) => {
-                        if let CurveTreeNode::InnerNode(inner_node) = root {
-                            inner_node.x_coord_children[0]
-                        } else {
-                            unreachable!("Root of a curve tree can't be a leaf")
-                        }
-                    }
-                    _ => panic!(),
-                };
-                children.map(|c| constant(c)).to_vec()
-            } else {
-                let variables = odd_verifier.commit_vec(L, self.odd_commitments[parent_index]);
-                variables
-                    .iter()
-                    .map(|v| LinearCombination::<P1::ScalarField>::from(*v))
-                    .collect()
-            };
-            single_level_select_and_rerandomize(
-                odd_verifier,
-                &parameters.even_parameters,
-                &child,
-                variables,
-                None,
-                None,
-            );
-        }
-    }
-}
 
 impl<
         const L: usize,
@@ -201,7 +24,7 @@ impl<
         even_verifier: &mut Verifier<T, Affine<P0>>,
         odd_verifier: &mut Verifier<T, Affine<P1>>,
         parameters: &SelRerandParameters<P0, P1>,
-    ) -> Affine<P0> {
+    ) {
         let root_is_even = match root {
             Root::Even(root) => {
                 let child = &self.odd_commitments[0];
@@ -229,24 +52,7 @@ impl<
             },
         };
 
-        let verify_even = |even_verifier: &mut Verifier<T, Affine<P0>>| {
-            self.even_verifier_gadget_for_non_root_nodes(root_is_even, even_verifier, &parameters.odd_parameters);
-        };
-
-        let verify_odd = |odd_verifier: &mut Verifier<T, Affine<P1>>| {
-            self.odd_verifier_gadget_for_non_root_nodes(root_is_even, odd_verifier, &parameters.even_parameters);
-        };
-
-        #[cfg(not(feature = "parallel"))]
-        verify_even(even_verifier);
-
-        #[cfg(not(feature = "parallel"))]
-        verify_odd(odd_verifier);
-
-        #[cfg(feature = "parallel")]
-        rayon::join(|| verify_even(even_verifier), || verify_odd(odd_verifier));
-
-        self.get_rerandomized_leaf()
+        self.process_non_root_nodes(even_verifier, odd_verifier, root_is_even, parameters);
     }
 
     pub fn select_and_rerandomize_verifier_gadget_for_common_root<T: BorrowMut<MerlinTranscript>>(
@@ -255,7 +61,7 @@ impl<
         odd_verifier: &mut Verifier<T, Affine<P1>>,
         root: &Root<L, 1, P0, P1>,
         parameters: &SelRerandParameters<P0, P1>,
-    ) -> Result<Vec<Affine<P0>>, Error> {
+    ) -> Result<(), Error> {
         // First, process the root node as its common
         let root_children_coords = Self::process_root_nodes_for_given_paths_with_common_root(
             paths,
@@ -272,7 +78,8 @@ impl<
             parameters,
             root_children_coords,
             root,
-        )
+        )?;
+        Ok(())
     }
 
     /// Used after calling [`root_level_select_and_rerandomize`]
@@ -378,12 +185,11 @@ impl<
         parameters: &SelRerandParameters<P0, P1>,
         mut root_children_coords: RootChildrenCoordsVars<P0::ScalarField, P1::ScalarField>,
         root: &Root<L, 1, P0, P1>,
-    ) -> Result<Vec<Affine<P0>>, Error> {
+    ) -> Result<(), Error> {
         if paths.is_empty() {
-            return Err(Error::PathsLengthMustBeGreaterThanZero);
+            return Err(Error::NeedNonZeroNumberOfPaths);
         }
         let is_root_even = root.is_even();
-        let mut rerandomized_leaves = Vec::with_capacity(paths.len());
 
         for path in paths {
             root_children_coords.validate_and_re_randomize_child(
@@ -399,29 +205,37 @@ impl<
             )?;
 
             // Process non-root nodes
-            let verify_even = |even_verifier: &mut Verifier<T, Affine<P0>>| {
-                path.even_verifier_gadget_for_non_root_nodes(is_root_even, even_verifier, &parameters.odd_parameters);
-            };
-
-            let verify_odd = |odd_verifier: &mut Verifier<T, Affine<P1>>| {
-                path.odd_verifier_gadget_for_non_root_nodes(is_root_even, odd_verifier, &parameters.even_parameters);
-            };
-
-            #[cfg(not(feature = "parallel"))]
-            verify_even(even_verifier);
-
-            #[cfg(not(feature = "parallel"))]
-            verify_odd(odd_verifier);
-
-            #[cfg(feature = "parallel")]
-            rayon::join(|| verify_even(even_verifier), || verify_odd(odd_verifier));
-
-            rerandomized_leaves.push(path.get_rerandomized_leaf());
+            path.process_non_root_nodes(even_verifier, odd_verifier, is_root_even, parameters);
         }
 
-        Ok(rerandomized_leaves)
+        Ok(())
     }
 
+    pub fn process_non_root_nodes<T: BorrowMut<MerlinTranscript>>(
+        &self,
+        even_verifier: &mut Verifier<T, Affine<P0>>,
+        odd_verifier: &mut Verifier<T, Affine<P1>>,
+        root_is_even: bool,
+        parameters: &SelRerandParameters<P0, P1>,
+    ) {
+        let verify_even = |even_verifier: &mut Verifier<T, Affine<P0>>| {
+            self.even_verifier_gadget_for_non_root_nodes(root_is_even, even_verifier, &parameters.odd_parameters);
+        };
+
+        let verify_odd = |odd_verifier: &mut Verifier<T, Affine<P1>>| {
+            self.odd_verifier_gadget_for_non_root_nodes(root_is_even, odd_verifier, &parameters.even_parameters);
+        };
+
+        #[cfg(not(feature = "parallel"))]
+        verify_even(even_verifier);
+
+        #[cfg(not(feature = "parallel"))]
+        verify_odd(odd_verifier);
+
+        #[cfg(feature = "parallel")]
+        rayon::join(|| verify_even(even_verifier), || verify_odd(odd_verifier));
+    }
+    
     /// Get the public rerandomization of the selected (leaf) commitment
     pub fn get_rerandomized_leaf(&self) -> Affine<P0> {
         self.even_commitments.last().unwrap().clone()

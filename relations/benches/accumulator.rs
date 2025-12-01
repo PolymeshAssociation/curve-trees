@@ -110,7 +110,7 @@ fn bench_accumulator_with_parameters<
             rerandomization,
             &sr_params.even_parameters.bp_gens,
         );
-        assert_eq!(leaf_commitment, path.get_rerandomized_leaf_old()); // sanity check
+        assert_eq!(leaf_commitment, path.get_rerandomized_leaf()); // sanity check
 
         select(
             &mut pallas_prover,
@@ -176,26 +176,25 @@ fn bench_accumulator_with_parameters<
                 b.iter(|| {
                     #[cfg(feature = "parallel")]
                     {
-                        let srvs = proofs.par_iter().map(|path| {
-                            let mut path = path.clone();
-                            curve_tree.add_root_to_randomized_path(&mut path);
-                            path
-                        });
-                        let srvs_clone = srvs.clone();
+                        let root = curve_tree.root_node();
                         rayon::join(
                             || {
-                                let pallas_verification_scalars_and_points: Vec<_> = srvs
-                                    .map(|srv| {
+                                let pallas_verification_scalars_and_points: Vec<_> = proofs.par_iter()
+                                    .map(|path| {
                                         let pallas_transcript = MerlinTranscript::new(b"acc");
                                         let mut pallas_verifier = Verifier::new(pallas_transcript);
-                                        srv.even_verifier_gadget_old(
+                                        let vesta_transcript = MerlinTranscript::new(b"acc");
+                                        let mut vesta_verifier = Verifier::new(vesta_transcript);
+                                        path.select_and_rerandomize_verifier_gadget(
+                                            &root,
                                             &mut pallas_verifier,
+                                            &mut vesta_verifier,
                                             &sr_params,
-                                            &curve_tree,
                                         );
+                                        let rerandomized_leaf = path.get_rerandomized_leaf();
                                         let leaf_vars = pallas_verifier.commit_vec(
                                             leaf_width,
-                                            path.get_rerandomized_leaf_old(),
+                                            rerandomized_leaf,
                                         );
                                         select(
                                             &mut pallas_verifier,
@@ -218,14 +217,17 @@ fn bench_accumulator_with_parameters<
                                 .unwrap()
                             },
                             || {
-                                let vesta_verification_scalars_and_points: Vec<_> = srvs_clone
-                                    .map(|srv| {
+                                let vesta_verification_scalars_and_points: Vec<_> = proofs.par_iter()
+                                    .map(|path| {
+                                        let pallas_transcript = MerlinTranscript::new(b"acc");
+                                        let mut pallas_verifier = Verifier::new(pallas_transcript);
                                         let vesta_transcript = MerlinTranscript::new(b"acc");
                                         let mut vesta_verifier = Verifier::new(vesta_transcript);
-                                        srv.odd_verifier_gadget_old(
+                                        let _ = path.select_and_rerandomize_verifier_gadget(
+                                            &root,
+                                            &mut pallas_verifier,
                                             &mut vesta_verifier,
                                             &sr_params,
-                                            &curve_tree,
                                         );
 
                                         let vesta_vt = vesta_verifier

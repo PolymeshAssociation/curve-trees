@@ -142,12 +142,13 @@ pub fn check_naive<
 
             let clock = Instant::now();
 
-            let rerandomized_leaf = path_commitments.select_and_rerandomize_verifier_gadget(
+            path_commitments.select_and_rerandomize_verifier_gadget(
                 &root,
                 &mut pallas_verifier,
                 &mut vesta_verifier,
                 &sr_params,
             );
+            let rerandomized_leaf = path_commitments.get_rerandomized_leaf();
 
             verify_naive(
                 &mut pallas_verifier,
@@ -277,12 +278,13 @@ pub fn check<
 
             let clock = Instant::now();
 
-            let rerandomized_leaf = path_commitments.select_and_rerandomize_verifier_gadget(
+            path_commitments.select_and_rerandomize_verifier_gadget(
                 &root,
                 &mut pallas_verifier,
                 &mut vesta_verifier,
                 &sr_params,
             );
+            let rerandomized_leaf = path_commitments.get_rerandomized_leaf();
 
             let vesta_res = vesta_verifier.verify(
                 &vesta_proof,

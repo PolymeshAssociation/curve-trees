@@ -213,119 +213,62 @@ fn bench_select_and_rerandomize_with_parameters<
         #[cfg(feature = "detailed_benchmarks")]
         group.bench_function("verification_gadget", |b| {
             b.iter(|| {
-                // Common part
-                let mut path = path.clone();
-                curve_tree.add_root_to_randomized_path(&mut path);
-
-                let even_verification_gadget = || {
-                    let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
-                    let mut pallas_verifier = Verifier::new(pallas_transcript);
-                    path.even_verifier_gadget_old(&mut pallas_verifier, &sr_params, &curve_tree);
-                };
-
-                let odd_verification_gadget = || {
-                    let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
-                    let mut vesta_verifier = Verifier::new(vesta_transcript);
-                    path.odd_verifier_gadget_old(&mut vesta_verifier, &sr_params, &curve_tree);
-                };
-
-                #[cfg(not(feature = "parallel"))]
-                {
-                    even_verification_gadget();
-                    odd_verification_gadget()
-                }
-                #[cfg(feature = "parallel")]
-                {
-                    rayon::join(even_verification_gadget, odd_verification_gadget);
-                }
+                let root = curve_tree.root_node();
+                let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
+                let mut pallas_verifier = Verifier::new(pallas_transcript);
+                let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
+                let mut vesta_verifier = Verifier::new(vesta_transcript);
+                path.select_and_rerandomize_verifier_gadget(&root, &mut pallas_verifier, &mut vesta_verifier, &sr_params);
             })
         });
 
         #[cfg(feature = "detailed_benchmarks")]
         group.bench_function("verification_tuples", |b| {
             b.iter(|| {
-                // Common part
-                let mut path = path.clone();
-                curve_tree.add_root_to_randomized_path(&mut path);
-
-                let even_verification_gadget = || {
-                    let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
-                    let mut pallas_verifier = Verifier::new(pallas_transcript);
-                    path.even_verifier_gadget_old(&mut pallas_verifier, &sr_params, &curve_tree);
-                    let _ = pallas_verifier
-                        .verification_scalars_and_points(&pallas_proof)
-                        .unwrap();
-                };
-
-                let odd_verification_gadget = || {
-                    let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
-                    let mut vesta_verifier = Verifier::new(vesta_transcript);
-                    path.odd_verifier_gadget_old(&mut vesta_verifier, &sr_params, &curve_tree);
-                    let _ = vesta_verifier
-                        .verification_scalars_and_points(&vesta_proof)
-                        .unwrap();
-                };
-
-                #[cfg(not(feature = "parallel"))]
-                {
-                    even_verification_gadget();
-                    odd_verification_gadget()
-                }
-                #[cfg(feature = "parallel")]
-                {
-                    rayon::join(even_verification_gadget, odd_verification_gadget);
-                }
+                let root = curve_tree.root_node();
+                let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
+                let mut pallas_verifier = Verifier::new(pallas_transcript);
+                let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
+                let mut vesta_verifier = Verifier::new(vesta_transcript);
+                path.select_and_rerandomize_verifier_gadget(&root, &mut pallas_verifier, &mut vesta_verifier, &sr_params);
+                let _ = pallas_verifier
+                    .verification_scalars_and_points(&pallas_proof)
+                    .unwrap();
+                let _ = vesta_verifier
+                    .verification_scalars_and_points(&vesta_proof)
+                    .unwrap();
             })
         });
         #[cfg(feature = "detailed_benchmarks")]
         group.bench_function("verify_single", |b| {
             b.iter(|| {
-                // Common part
-                let mut path = path.clone();
-                curve_tree.add_root_to_randomized_path(&mut path);
+                let root = curve_tree.root_node();
+                let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
+                let mut pallas_verifier = Verifier::new(pallas_transcript);
+                let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
+                let mut vesta_verifier = Verifier::new(vesta_transcript);
+                path.select_and_rerandomize_verifier_gadget(&root, &mut pallas_verifier, &mut vesta_verifier, &sr_params);
+                let pallas_vt = pallas_verifier
+                    .verification_scalars_and_points(&pallas_proof)
+                    .unwrap();
 
-                let even_verification_gadget = || {
-                    let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
-                    let mut pallas_verifier = Verifier::new(pallas_transcript);
-                    path.even_verifier_gadget_old(&mut pallas_verifier, &sr_params, &curve_tree);
-                    let pallas_vt = pallas_verifier
-                        .verification_scalars_and_points(&pallas_proof)
-                        .unwrap();
+                let res = batch_verify(
+                    vec![pallas_vt],
+                    &sr_params.even_parameters.pc_gens,
+                    &sr_params.even_parameters.bp_gens,
+                );
+                assert_eq!(res, Ok(()));
 
-                    let res = batch_verify(
-                        vec![pallas_vt],
-                        &sr_params.even_parameters.pc_gens,
-                        &sr_params.even_parameters.bp_gens,
-                    );
-                    assert_eq!(res, Ok(()))
-                };
+                let vesta_vt = vesta_verifier
+                    .verification_scalars_and_points(&vesta_proof)
+                    .unwrap();
 
-                let odd_verification_gadget = || {
-                    let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
-                    let mut vesta_verifier = Verifier::new(vesta_transcript);
-                    path.odd_verifier_gadget_old(&mut vesta_verifier, &sr_params, &curve_tree);
-
-                    let vesta_vt = vesta_verifier
-                        .verification_scalars_and_points(&vesta_proof)
-                        .unwrap();
-
-                    let res = batch_verify(
-                        vec![vesta_vt],
-                        &sr_params.odd_parameters.pc_gens,
-                        &sr_params.odd_parameters.bp_gens,
-                    );
-                    assert_eq!(res, Ok(()))
-                };
-
-                #[cfg(not(feature = "parallel"))]
-                {
-                    even_verification_gadget();
-                    odd_verification_gadget()
-                }
-                #[cfg(feature = "parallel")]
-                {
-                    rayon::join(even_verification_gadget, odd_verification_gadget);
-                }
+                let res = batch_verify(
+                    vec![vesta_vt],
+                    &sr_params.odd_parameters.pc_gens,
+                    &sr_params.odd_parameters.bp_gens,
+                );
+                assert_eq!(res, Ok(()))
             })
         });
     }
@@ -343,23 +286,22 @@ fn bench_select_and_rerandomize_with_parameters<
                 b.iter(|| {
                     #[cfg(feature = "parallel")]
                     {
-                        let srvs = proofs.par_iter().map(|path| {
-                            let mut path = path.clone();
-                            curve_tree.add_root_to_randomized_path(&mut path);
-                            path
-                        });
-                        let srvs_clone = srvs.clone();
+                        let root = curve_tree.root_node();
                         rayon::join(
                             || {
-                                let pallas_verification_scalars_and_points: Vec<_> = srvs
-                                    .map(|srv| {
+                                let pallas_verification_scalars_and_points: Vec<_> = proofs.par_iter()
+                                    .map(|path| {
                                         let pallas_transcript =
                                             MerlinTranscript::new(b"select_and_rerandomize");
                                         let mut pallas_verifier = Verifier::new(pallas_transcript);
-                                        srv.even_verifier_gadget_old(
+                                        let vesta_transcript =
+                                            MerlinTranscript::new(b"select_and_rerandomize");
+                                        let mut vesta_verifier = Verifier::new(vesta_transcript);
+                                        path.select_and_rerandomize_verifier_gadget(
+                                            &root,
                                             &mut pallas_verifier,
+                                            &mut vesta_verifier,
                                             &sr_params,
-                                            &curve_tree,
                                         );
                                         let pallas_vt = pallas_verifier
                                             .verification_scalars_and_points(&pallas_proof)
@@ -375,15 +317,19 @@ fn bench_select_and_rerandomize_with_parameters<
                                 .unwrap()
                             },
                             || {
-                                let vesta_verification_scalars_and_points: Vec<_> = srvs_clone
-                                    .map(|srv| {
+                                let vesta_verification_scalars_and_points: Vec<_> = proofs.par_iter()
+                                    .map(|path| {
+                                        let pallas_transcript =
+                                            MerlinTranscript::new(b"select_and_rerandomize");
+                                        let mut pallas_verifier = Verifier::new(pallas_transcript);
                                         let vesta_transcript =
                                             MerlinTranscript::new(b"select_and_rerandomize");
                                         let mut vesta_verifier = Verifier::new(vesta_transcript);
-                                        srv.odd_verifier_gadget_old(
+                                        path.select_and_rerandomize_verifier_gadget(
+                                            &root,
+                                            &mut pallas_verifier,
                                             &mut vesta_verifier,
                                             &sr_params,
-                                            &curve_tree,
                                         );
 
                                         let vesta_vt = vesta_verifier
@@ -403,37 +349,29 @@ fn bench_select_and_rerandomize_with_parameters<
                     }
                     #[cfg(not(feature = "parallel"))]
                     {
+                        let root = curve_tree.root_node();
                         let mut pallas_verification_scalars_and_points =
                             Vec::with_capacity(proofs.len());
                         let mut vesta_verification_scalars_and_points =
                             Vec::with_capacity(proofs.len());
                         for path in proofs {
-                            let mut srv = path.clone();
-                            curve_tree.add_root_to_randomized_path(&mut srv);
                             {
                                 let pallas_transcript =
                                     MerlinTranscript::new(b"select_and_rerandomize");
                                 let mut pallas_verifier = Verifier::new(pallas_transcript);
-                                srv.even_verifier_gadget_old(
+                                let vesta_transcript =
+                                    MerlinTranscript::new(b"select_and_rerandomize");
+                                let mut vesta_verifier = Verifier::new(vesta_transcript);
+                                path.select_and_rerandomize_verifier_gadget(
+                                    &root,
                                     &mut pallas_verifier,
+                                    &mut vesta_verifier,
                                     &sr_params,
-                                    &curve_tree,
                                 );
                                 let pallas_vt = pallas_verifier
                                     .verification_scalars_and_points(&pallas_proof)
                                     .unwrap();
                                 pallas_verification_scalars_and_points.push(pallas_vt);
-                            }
-
-                            {
-                                let vesta_transcript =
-                                    MerlinTranscript::new(b"select_and_rerandomize");
-                                let mut vesta_verifier = Verifier::new(vesta_transcript);
-                                srv.odd_verifier_gadget_old(
-                                    &mut vesta_verifier,
-                                    &sr_params,
-                                    &curve_tree,
-                                );
 
                                 let vesta_vt = vesta_verifier
                                     .verification_scalars_and_points(&vesta_proof)

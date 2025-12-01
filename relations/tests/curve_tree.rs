@@ -198,12 +198,13 @@ fn test_curve_tree_inner<
         let odd_transcript = MerlinTranscript::new(b"select_and_rerandomize");
         let mut odd_verifier = Verifier::new(odd_transcript);
 
-        let rerandomized_leaf = path_commitments.select_and_rerandomize_verifier_gadget(
+        path_commitments.select_and_rerandomize_verifier_gadget(
             &root,
             &mut even_verifier,
             &mut odd_verifier,
             &sr_params,
         );
+        let rerandomized_leaf = path_commitments.get_rerandomized_leaf();
         odd_verifier
             .verify(
                 &vesta_proof,
@@ -324,14 +325,13 @@ pub fn test_curve_tree_with_parameters_new<
             let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
             let mut vesta_verifier = Verifier::new(vesta_transcript);
 
-            let rerandomized_leaf = path_commitments.select_and_rerandomize_verifier_gadget(
-                &root,
-                &mut pallas_verifier,
-                &mut vesta_verifier,
-                &sr_params,
-            );
-
-            verify(
+        path_commitments.select_and_rerandomize_verifier_gadget(
+            &root,
+            &mut pallas_verifier,
+            &mut vesta_verifier,
+            &sr_params,
+        );
+        let rerandomized_leaf = path_commitments.get_rerandomized_leaf();            verify(
                 pallas_verifier,
                 vesta_verifier,
                 &pallas_proof,
@@ -441,12 +441,13 @@ pub fn test_curve_tree_get_update<
             let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
             let mut vesta_verifier = Verifier::new(vesta_transcript);
 
-            let rerandomized_leaf = path_commitments.select_and_rerandomize_verifier_gadget(
+            path_commitments.select_and_rerandomize_verifier_gadget(
                 &root,
                 &mut pallas_verifier,
                 &mut vesta_verifier,
                 &sr_params,
             );
+            let rerandomized_leaf = path_commitments.get_rerandomized_leaf();
             let vesta_res = vesta_verifier.verify(
                 &vesta_proof,
                 &sr_params.odd_parameters.pc_gens,
@@ -687,13 +688,13 @@ pub fn check_combined_vs_common_root_proofs_with_parameters<
 
     let mut rerandomized_leaves = vec![];
     for path_commitments in &path_commitments_list {
-        let rl = path_commitments.select_and_rerandomize_verifier_gadget(
+        path_commitments.select_and_rerandomize_verifier_gadget(
             &curve_tree.root_node(),
             &mut pallas_verifier,
             &mut vesta_verifier,
             &sr_params,
         );
-        rerandomized_leaves.push(rl);
+        rerandomized_leaves.push(path_commitments.get_rerandomized_leaf());
     }
 
     vesta_verifier
@@ -764,13 +765,14 @@ pub fn check_combined_vs_common_root_proofs_with_parameters<
     let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
     let mut vesta_verifier = Verifier::new(vesta_transcript);
     
-    let rerandomized_leaves = SelectAndRerandomizePath::select_and_rerandomize_verifier_gadget_for_common_root(
+    SelectAndRerandomizePath::select_and_rerandomize_verifier_gadget_for_common_root(
         &all_path_commitments,
         &mut pallas_verifier,
         &mut vesta_verifier,
         &curve_tree.root_node(),
         &sr_params,
     ).unwrap();
+    let rerandomized_leaves: Vec<_> = all_path_commitments.iter().map(|p| p.get_rerandomized_leaf()).collect();
 
     vesta_verifier
         .verify(
@@ -794,5 +796,89 @@ pub fn check_combined_vs_common_root_proofs_with_parameters<
             curve_tree.get_leaf(i).unwrap()
                 + (sr_params.even_parameters.pc_gens.B_blinding * all_leaf_rerandomizations[i])
         )
+    }
+}
+
+#[test]
+pub fn test_common_root_paths() {
+    check_common_root_paths::<8, PallasBase, PallasConfig, VestaConfig>(4, 12, 5);
+    check_common_root_paths::<8, PallasBase, PallasConfig, VestaConfig>(3, 13, 5);
+}
+
+pub fn check_common_root_paths<
+    const L: usize,
+    F: PrimeField,
+    P0: SWCurveConfig<BaseField = F> + Copy,
+    P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = P0::BaseField> + Copy,
+>(
+    depth: usize,
+    generators_length_log_2: usize,
+    num_paths: usize,
+) {
+    let mut rng = thread_rng();
+    let generators_length = 1 << generators_length_log_2;
+
+    let sr_params = SelRerandParameters::<P0, P1>::new(generators_length, generators_length)
+        .expect("Failed to create SelRerandParameters");
+
+    let mut set = Vec::<Affine<P0>>::new();
+    for _ in 0..num_paths {
+        set.push(Affine::<P0>::rand(&mut rng));
+    }
+
+    let curve_tree = CurveTree::<L, 1, P0, P1>::from_leaves(&set, &sr_params, Some(depth));
+    assert_eq!(curve_tree.height(), depth);
+
+    let leaf_indices: Vec<usize> = (0..num_paths).collect();
+    
+    let mut witness_paths = Vec::new();
+    for &i in &leaf_indices {
+        let path = curve_tree.get_path_to_leaf_for_proof(i, 0).unwrap();
+        witness_paths.push(path);
+    }
+
+    let witness_paths_with_same_root = curve_tree.get_paths_to_leaves_for_proof(&leaf_indices, 0).unwrap();
+    
+    assert_eq!(witness_paths_with_same_root.num_indices(), num_paths as u32);
+
+    let reconstructed_paths = witness_paths_with_same_root.to_individual_paths();
+    assert_eq!(reconstructed_paths.len(), num_paths);
+
+    for (i, (original, reconstructed)) in witness_paths.iter().zip(reconstructed_paths.iter()).enumerate() {
+        assert_eq!(original.even_internal_nodes.len(), reconstructed.even_internal_nodes.len());
+        assert_eq!(original.odd_internal_nodes.len(), reconstructed.odd_internal_nodes.len());
+
+        for (j, (orig_node, recon_node)) in original.even_internal_nodes.iter().zip(reconstructed.even_internal_nodes.iter()).enumerate() {
+            assert_eq!(orig_node.x_coord_children, recon_node.x_coord_children,
+                "Path {}, even node {}: x_coord_children mismatch", i, j);
+            assert_eq!(orig_node.child_node_to_randomize, recon_node.child_node_to_randomize,
+                "Path {}, even node {}: child_node_to_randomize mismatch", i, j);
+        }
+
+        for (j, (orig_node, recon_node)) in original.odd_internal_nodes.iter().zip(reconstructed.odd_internal_nodes.iter()).enumerate() {
+            assert_eq!(orig_node.x_coord_children, recon_node.x_coord_children,
+                "Path {}, odd node {}: x_coord_children mismatch", i, j);
+            assert_eq!(orig_node.child_node_to_randomize, recon_node.child_node_to_randomize,
+                "Path {}, odd node {}: child_node_to_randomize mismatch", i, j);
+        }
+    }
+
+    let root_is_even = witness_paths[0].root_is_even();
+
+    for path in &witness_paths[1..] {
+        assert_eq!(path.even_internal_nodes.len(), witness_paths[0].even_internal_nodes.len());
+        assert_eq!(path.odd_internal_nodes.len(), witness_paths[0].odd_internal_nodes.len());
+    }
+
+    if root_is_even {
+        let root_x_coords = &witness_paths[0].even_internal_nodes[0].x_coord_children;
+        for path in &witness_paths[1..] {
+            assert_eq!(&path.even_internal_nodes[0].x_coord_children, root_x_coords);
+        }
+    } else {
+        let root_x_coords = &witness_paths[0].odd_internal_nodes[0].x_coord_children;
+        for path in &witness_paths[1..] {
+            assert_eq!(&path.odd_internal_nodes[0].x_coord_children, root_x_coords);
+        }
     }
 }
