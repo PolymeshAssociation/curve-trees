@@ -103,7 +103,7 @@ fn bench_accumulator_with_parameters<
             &mut vesta_prover,
             &sr_params,
             &mut rand::thread_rng(),
-        );
+        ).unwrap();
 
         let (leaf_commitment, leaf_vars) = pallas_prover.commit_vec(
             &leaf_elements,

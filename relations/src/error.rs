@@ -69,10 +69,14 @@ pub enum Error {
     /// Invalid root type for path
     #[error("Invalid root type for path")]
     InvalidRootTypeForPath,
+
+    /// Cannot prove for more indices than the maximum supported batch size
+    #[error("Cannot prove for more indices than the maximum supported batch size: got {0}, expected at most {1}")]
+    MoreIndicesThanSupportedBatchSize(u32, u32),
 }
 
-impl From<ark_serialize::SerializationError> for Error {
-    fn from(err: ark_serialize::SerializationError) -> Self {
+impl From<SerializationError> for Error {
+    fn from(err: SerializationError) -> Self {
         Error::SerializationError(err)
     }
 }

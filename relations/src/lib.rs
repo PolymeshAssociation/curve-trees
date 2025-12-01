@@ -23,6 +23,8 @@ pub mod single_level_select_and_rerandomize;
 // Prove that a commitment is a rerandomization of a commitment contained in a Curve Tree
 pub mod curve_tree;
 
+pub mod utils;
+
 // Prover logic for membership proofs
 pub mod batched_curve_tree_prover;
 pub mod curve_tree_prover;
@@ -41,5 +43,4 @@ pub mod error;
 pub mod lean_curve_tree;
 pub mod partial_curve_tree;
 pub mod ped_comm_group_elems;
-
 // TODO: Rename generics types to be more descriptive

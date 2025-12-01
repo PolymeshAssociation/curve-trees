@@ -5,6 +5,7 @@ use dock_crypto_utils::transcript::MerlinTranscript;
 use rand::Rng;
 
 use crate::curve_tree::*;
+use crate::error::Error;
 use crate::range_proof::*;
 use crate::single_level_select_and_rerandomize::*;
 
@@ -116,10 +117,10 @@ impl<
         odd_prover: &mut Prover<MerlinTranscript, Affine<P1>>,
         parameters: &SelRerandParameters<P0, P1>,
         curve_tree: &CurveTree<L, 1, P0, P1>,
-    ) -> (
+    ) -> Result<(
         SelectAndRerandomizePath<L, P0, P1>,
         Variable<P0::ScalarField>,
-    ) {
+    ), Error> {
         // TODO: Use batching technique.
         let (path, rerandomization) = curve_tree.select_and_rerandomize_prover_gadget(
             index,
@@ -128,7 +129,7 @@ impl<
             odd_prover,
             parameters,
             &mut rand::thread_rng(),
-        );
+        )?;
 
         // Todo: Avoid using vector commitment for efficiency. Can just subtract tag*G_tag from the coin outside the circuit.
         // But we will need to change the generator of the value as well. To do that we need to prove knowledge of opening when
@@ -142,7 +143,7 @@ impl<
 
         even_prover.constrain(variables[1] - self.tag);
 
-        (path, variables[0])
+        Ok((path, variables[0]))
     }
 }
 
@@ -220,14 +221,14 @@ pub fn prove_pour<
         &mut odd_prover,
         sr_parameters,
         curve_tree,
-    );
+    ).unwrap();
     let (path_1, spent_amount_var_1) = input_1.coin_aux.prove_spend(
         input_1.index,
         &mut even_prover,
         &mut odd_prover,
         sr_parameters,
         curve_tree,
-    );
+    ).unwrap();
 
     // enforce equal amount spent and minted
     even_prover.constrain(
@@ -853,7 +854,7 @@ mod tests {
             &mut vesta_prover,
             &sr_params,
             &curve_tree,
-        );
+        ).unwrap();
 
         let pallas_proof = pallas_prover
             .prove(&sr_params.even_parameters.bp_gens)
@@ -948,7 +949,7 @@ mod tests {
             &mut vesta_prover,
             &sr_params,
             &curve_tree,
-        );
+        ).unwrap();
 
         let pallas_proof = pallas_prover
             .prove(&sr_params.even_parameters.bp_gens)

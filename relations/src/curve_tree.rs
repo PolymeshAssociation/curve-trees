@@ -191,14 +191,17 @@ impl<
     //todo add a function to add a single/several commitments
 
     /// Get leaf at index `leaf_index`
-    pub fn get_leaf(&self, leaf_index: usize) -> Affine<P0> {
+    pub fn get_leaf(&self, leaf_index: usize) -> Result<Affine<P0>, Error> {
         let mut leaf = None;
         match self {
-            Self::Even(node) => Self::parse_even_node_for_leaf(node, leaf_index, &mut leaf),
-            Self::Odd(node) => Self::parse_odd_node_for_leaf(node, leaf_index, &mut leaf),
+            Self::Even(node) => Self::parse_even_node_for_leaf(node, leaf_index, &mut leaf)?,
+            Self::Odd(node) => Self::parse_odd_node_for_leaf(node, leaf_index, &mut leaf)?,
         }
-        assert!(leaf.is_some());
-        leaf.unwrap()
+        if let Some(l) = leaf {
+            Ok(l)
+        } else {
+            Err(Error::LeafDoesntExistAtIndex(leaf_index as u64))
+        }
     }
 
     /// Update value of leaf at index `leaf_index` to `new_leaf_value`
@@ -251,12 +254,12 @@ impl<
         node: &CurveTreeNode<L, M, P1, P0>,
         leaf_index: usize,
         leaf: &mut Option<Affine<P0>>,
-    ) {
+    ) -> Result<(), Error> {
         match node {
             CurveTreeNode::Leaf(_) => unreachable!("Cannot have leaf at odd level"),
             CurveTreeNode::InnerNode(inner_node) => {
                 let child_index = node.child_index(leaf_index).unwrap();
-                let child = inner_node.get_child(child_index);
+                let child = inner_node.get_child(child_index)?;
                 Self::parse_even_node_for_leaf(child, leaf_index, leaf)
             }
         }
@@ -266,12 +269,15 @@ impl<
         node: &CurveTreeNode<L, M, P0, P1>,
         leaf_index: usize,
         leaf: &mut Option<Affine<P0>>,
-    ) {
+    ) -> Result<(), Error> {
         match node {
-            CurveTreeNode::Leaf(l) => *leaf = Some(*l),
+            CurveTreeNode::Leaf(l) => {
+                *leaf = Some(*l);
+                Ok(())
+            }
             CurveTreeNode::InnerNode(inner_node) => {
                 let child_index = node.child_index(leaf_index).unwrap();
-                let child = inner_node.get_child(child_index);
+                let child = inner_node.get_child(child_index)?;
                 Self::parse_odd_node_for_leaf(child, leaf_index, leaf)
             }
         }
@@ -291,7 +297,7 @@ impl<
             }
             CurveTreeNode::InnerNode(inner_node) => {
                 let child_node_index_to_update = child_node_index_to_update.unwrap();
-                let mut child_node_to_update = inner_node.get_child_mut(child_node_index_to_update);
+                let mut child_node_to_update = inner_node.get_child_mut(child_node_index_to_update).unwrap();
                 Self::update_odd_node(
                     &mut child_node_to_update,
                     leaf_index,
@@ -323,7 +329,7 @@ impl<
         match node {
             CurveTreeNode::InnerNode(inner_node) => {
                 let child_node_index_to_update = child_node_index_to_update.unwrap();
-                let mut child_node_to_update = inner_node.get_child_mut(child_node_index_to_update);
+                let mut child_node_to_update = inner_node.get_child_mut(child_node_index_to_update).unwrap();
                 Self::update_even_node(
                     &mut child_node_to_update,
                     leaf_index,
@@ -348,7 +354,8 @@ impl<
 
 /// A rerandomized path in the tree going from root to leaf (excluding both root and leaf). Given to the verifier to verify the proof
 /// The last element in `odd_commitments` is the rerandomized parent of the selected leaf.
-/// The last element in `even_commitments` is the rerandomized parent of the last element in `odd_commitments`, etc.
+/// The last element in `even_commitments` is the randomized leaf, and second last item is the rerandomized
+/// parent of the last element in `odd_commitments`, etc.
 #[derive(Clone, PartialEq, Eq, Debug, CanonicalSerialize, CanonicalDeserialize)]
 pub struct SelectAndRerandomizePath<const L: usize, P0: SWCurveConfig, P1: SWCurveConfig> {
     /// Randomized nodes at the odd level, starting from the root.
@@ -358,18 +365,18 @@ pub struct SelectAndRerandomizePath<const L: usize, P0: SWCurveConfig, P1: SWCur
     pub even_commitments: Vec<Affine<P0>>,
 }
 
-#[derive(Clone, CanonicalSerialize, CanonicalDeserialize)]
 /// A rerandomized multi path in the tree.
-/// The elements in `selected_commitments` are the selected and rerandomized commitments.
+/// The elements in `selected_commitments` are the selected and rerandomized commitments (leaves).
 /// The last element in `odd_commitments` is the rerandomized parent of the selected leaves.
 /// The last element in `even_commitments` is the rerandomized parent of the last element in `odd_commitments`, etc.
+#[derive(Clone, PartialEq, Eq, Debug, CanonicalSerialize, CanonicalDeserialize)]
 pub struct SelectAndRerandomizeMultiPath<
     const L: usize,
     const M: usize,
     P0: SWCurveConfig,
     P1: SWCurveConfig,
 > {
-    pub selected_commitments: [Affine<P0>; M],
+    pub selected_commitments: Vec<Affine<P0>>,
     pub odd_commitments: Vec<Affine<P1>>,
     pub even_commitments: Vec<Affine<P0>>,
 }
@@ -390,6 +397,15 @@ impl<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCurveConfig> core:
         match self {
             Self::Even(n) => fmt.debug_tuple("Even").field(&n).finish(),
             Self::Odd(n) => fmt.debug_tuple("Odd").field(&n).finish(),
+        }
+    }
+}
+
+impl<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCurveConfig> Root<L, M, P0, P1> {
+    pub fn is_even(&self) -> bool {
+        match self {
+            Self::Even(_) => true,
+            Self::Odd(_) => false,
         }
     }
 }
@@ -474,32 +490,20 @@ impl<
         P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = P0::BaseField> + Copy,
     > InnerNode<L, M, P0, P1>
 {
-    // TODO: Get rid of panics
-
-    pub fn get_child(&self, index: usize) -> &CurveTreeNode<L, M, P1, P0> {
-        // if let Some(child) = &self.children[index] {
-        //     Ok(child)
-        // } else {
-        //     Err(Error::ChildDoesntExistAtIndex(index as u64))
-        // }
-        let child = match &self.children[index] {
-            None => panic!("Child index out of bounds. Local index: {}", index),
-            Some(child) => child,
-        };
-        child
+    pub fn get_child(&self, index: usize) -> Result<&CurveTreeNode<L, M, P1, P0>, Error> {
+        if let Some(child) = &self.children[index] {
+            Ok(child)
+        } else {
+            Err(Error::ChildDoesntExistAtIndex(index as u64))
+        }
     }
 
-    pub fn get_child_mut(&mut self, index: usize) -> &mut CurveTreeNode<L, M, P1, P0> {
-        // if let Some(child) = &mut self.children[index] {
-        //     Ok(child)
-        // } else {
-        //     Err(Error::ChildDoesntExistAtIndex(index as u64))
-        // }
-        let child = match &mut self.children[index] {
-            None => panic!("Child index out of bounds. Local index: {}", index),
-            Some(child) => child,
-        };
-        child
+    pub fn get_child_mut(&mut self, index: usize) -> Result<&mut CurveTreeNode<L, M, P1, P0>, Error> {
+        if let Some(child) = &mut self.children[index] {
+            Ok(child)
+        } else {
+            Err(Error::ChildDoesntExistAtIndex(index as u64))
+        }
     }
 
     pub fn update_x_coord_and_commitment(

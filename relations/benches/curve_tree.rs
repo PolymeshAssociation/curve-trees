@@ -86,7 +86,7 @@ fn setup_curve_tree_data<const L: usize>(
     let mut vesta_prover: Prover<_, Affine<VestaParameters>> =
         Prover::new(&SRParamsPallasLeaf.odd_parameters.pc_gens, vesta_transcript);
 
-    let path = curve_tree.get_path_to_leaf_for_proof(0, 0);
+    let path = curve_tree.get_path_to_leaf_for_proof(0, 0).unwrap();
     let (path_commitments, _) = path.select_and_rerandomize_prover_gadget(
         &mut pallas_prover,
         &mut vesta_prover,
@@ -193,7 +193,7 @@ fn curve_tree_prove<const L: usize>(c: &mut Criterion, height: usize) {
             let mut vesta_prover: Prover<_, Affine<VestaParameters>> =
                 Prover::new(&SRParamsPallasLeaf.odd_parameters.pc_gens, vesta_transcript);
 
-            let path = curve_tree.get_path_to_leaf_for_proof(0, 0);
+            let path = curve_tree.get_path_to_leaf_for_proof(0, 0).unwrap();
             let (path_commitments, _) = path.select_and_rerandomize_prover_gadget(
                 &mut pallas_prover,
                 &mut vesta_prover,

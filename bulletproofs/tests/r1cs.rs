@@ -9,7 +9,7 @@ use ark_std::UniformRand;
 use std::time::Instant;
 
 use ark_pallas::Affine;
-use bulletproofs::r1cs::verifier::batch_verify_with_given_randomness;
+use bulletproofs::r1cs::verifier::{batch_verify_same_size_with_rng, batch_verify_with_given_randomness};
 use bulletproofs::r1cs::*;
 use bulletproofs::{BulletproofGens, PedersenGens};
 use dock_crypto_utils::randomized_mult_checker::RandomizedMultChecker;
@@ -272,7 +272,11 @@ fn kshuffle_batch_helper(k: usize, n: usize) {
     assert!(batch_verify(vsps.clone(), &pc_gens, &bp_gens).is_ok());
     println!("batch_verify: {:?}", start.elapsed());
 
-    let mut rng = rand::thread_rng();
+    let mut rng = thread_rng();
+
+    let start = Instant::now();
+    assert!(batch_verify_same_size_with_rng(vsps.clone(), &pc_gens, &bp_gens, &mut rng).is_ok());
+    println!("batch_verify_same_size_with_rng: {:?}", start.elapsed());
 
     let r = Scalar::rand(&mut rng);
     let start = Instant::now();

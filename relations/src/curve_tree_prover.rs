@@ -38,10 +38,10 @@ impl<
         tree_index: usize,
         current_level_witness_nodes: &mut Vec<WitnessNode<L, P0, P1>>,
         other_level_witness_nodes: &mut Vec<WitnessNode<L, P1, P0>>,
-    ) {
+    ) -> Result<(), Error> {
         if let Self::InnerNode(inner_node) = &self {
             let child_node_index_to_rerandomize = self.child_index(leaf_index).unwrap();
-            let child_node_to_rerandomize = inner_node.get_child(child_node_index_to_rerandomize);
+            let child_node_to_rerandomize = inner_node.get_child(child_node_index_to_rerandomize)?;
 
             current_level_witness_nodes.push(WitnessNode {
                 x_coord_children: inner_node.x_coord_children[tree_index],
@@ -54,8 +54,9 @@ impl<
                 tree_index,
                 other_level_witness_nodes,
                 current_level_witness_nodes,
-            );
+            )?;
         }
+        Ok(())
     }
 }
 
@@ -77,7 +78,7 @@ impl<
         &self,
         leaf_index: usize,
         tree_index: usize,
-    ) -> CurveTreeWitnessPath<L, P0, P1> {
+    ) -> Result<CurveTreeWitnessPath<L, P0, P1>, Error> {
         let mut even_internal_nodes: Vec<WitnessNode<L, P0, P1>> = Vec::new();
         let mut odd_internal_nodes: Vec<WitnessNode<L, P1, P0>> = Vec::new();
 
@@ -87,23 +88,23 @@ impl<
                 tree_index,
                 &mut even_internal_nodes,
                 &mut odd_internal_nodes,
-            ),
+            )?,
             Self::Odd(ct) => ct.generate_witness_node_for_this_and_children(
                 leaf_index,
                 tree_index,
                 &mut odd_internal_nodes,
                 &mut even_internal_nodes,
-            ),
+            )?,
         }
 
         debug_assert_eq!(
             self.height(),
             even_internal_nodes.len() + odd_internal_nodes.len()
         );
-        CurveTreeWitnessPath {
+        Ok(CurveTreeWitnessPath {
             even_internal_nodes,
             odd_internal_nodes,
-        }
+        })
     }
 
     /// Commits to the root and rerandomizations of the path to the leaf specified by `index`
@@ -117,9 +118,9 @@ impl<
         odd_prover: &mut Prover<MerlinTranscript, Affine<P1>>,
         parameters: &SelRerandParameters<P0, P1>,
         rng: &mut R,
-    ) -> (SelectAndRerandomizePath<L, P0, P1>, P0::ScalarField) {
-        let witness = self.get_path_to_leaf_for_proof(leaf_index, tree_index);
-        witness.select_and_rerandomize_prover_gadget(even_prover, odd_prover, parameters, rng)
+    ) -> Result<(SelectAndRerandomizePath<L, P0, P1>, P0::ScalarField), Error> {
+        let witness = self.get_path_to_leaf_for_proof(leaf_index, tree_index)?;
+        Ok(witness.select_and_rerandomize_prover_gadget(even_prover, odd_prover, parameters, rng))
     }
 }
 
@@ -153,8 +154,9 @@ pub struct CurveTreeWitnessPath<const L: usize, P0: SWCurveConfig + Copy, P1: SW
     pub odd_internal_nodes: Vec<WitnessNode<L, P1, P0>>,
 }
 
+/// Variables allocated for the x-coordinates of the selected children of root
 #[derive(Clone)]
-pub enum RootChildrenCoords<F0: PrimeField, F1: PrimeField> {
+pub enum RootChildrenCoordsVars<F0: PrimeField, F1: PrimeField> {
     Even(Vec<LinearCombination<F0>>),
     Odd(Vec<LinearCombination<F1>>),
 }
@@ -195,8 +197,8 @@ impl<
         rng: &mut R,
     ) -> (SelectAndRerandomizePath<L, P0, P1>, P0::ScalarField) {
         let (
-            odd_rerandomized_nodes,
             even_rerandomized_nodes,
+            odd_rerandomized_nodes,
             even_rerandomization_scalars,
             odd_rerandomization_scalars,
             re_randomization_of_leaf,
@@ -204,29 +206,35 @@ impl<
 
         let root_is_even = self.root_is_even();
 
+        // Select and rerandomize for root node. The set of children of root is public
         if root_is_even {
             self.even_internal_nodes[0].root_level_select_and_rerandomize_prover_gadget(
                 even_prover,
                 &parameters.odd_parameters,
+                &odd_rerandomized_nodes[0],
                 odd_rerandomization_scalars[0],
+                &self.even_internal_nodes[0].x_coord_children
             );
         } else {
             self.odd_internal_nodes[0].root_level_select_and_rerandomize_prover_gadget(
                 odd_prover,
                 &parameters.even_parameters,
+                &even_rerandomized_nodes[0],
                 even_rerandomization_scalars[0],
+                &self.odd_internal_nodes[0].x_coord_children
             );
         }
 
+        // Select and rerandomize for non-root nodes
         self.select_and_rerandomize_prover_gadget_non_root_nodes(
             even_prover,
             odd_prover,
-            parameters,
             root_is_even,
             &even_rerandomized_nodes,
             &odd_rerandomized_nodes,
             even_rerandomization_scalars,
             odd_rerandomization_scalars,
+            parameters,
         );
 
         (
@@ -238,85 +246,84 @@ impl<
         )
     }
 
-    /// Allocate x-coordinates of children of root and enforce set-membership constraint
+    pub fn select_and_rerandomize_prover_gadget_for_common_root<R: Rng>(
+        paths: &[Self],
+        even_prover: &mut Prover<MerlinTranscript, Affine<P0>>,
+        odd_prover: &mut Prover<MerlinTranscript, Affine<P1>>,
+        parameters: &SelRerandParameters<P0, P1>,
+        rng: &mut R,
+    ) -> Result<(Vec<SelectAndRerandomizePath<L, P0, P1>>, Vec<P0::ScalarField>), Error> {
+        let selected_children_x_coords = Self::process_root_nodes_for_given_paths_with_common_root(
+            &paths,
+            even_prover,
+            odd_prover,
+            parameters,
+        )?;
+        Self::process_non_root_nodes_for_given_paths_with_common_root(
+            &paths,
+            even_prover,
+            odd_prover,
+            selected_children_x_coords,
+            parameters,
+            rng,
+        )
+    }
+
+    /// Allocate x-coordinates of children of root and enforce set-membership constraint on the selected child of root.
+    /// Returns x-coordinates of selected children of the root node.
+    /// Used when proving for multiple paths with a common root
     pub fn process_root_nodes_for_given_paths_with_common_root(
         paths: &[Self],
         even_prover: &mut Prover<MerlinTranscript, Affine<P0>>,
         odd_prover: &mut Prover<MerlinTranscript, Affine<P1>>,
         parameters: &SelRerandParameters<P0, P1>,
-    ) -> Result<RootChildrenCoords<F0, F1>, Error> {
+    ) -> Result<RootChildrenCoordsVars<F0, F1>, Error> {
         let is_root_even = paths[0].root_is_even();
-
-        if is_root_even {
-            let mut child_nodes_to_randomize = Vec::with_capacity(paths.len());
-            let x_coords_root_children = paths[0].even_internal_nodes[0].x_coord_children;
-
-            child_nodes_to_randomize.push(paths[0].even_internal_nodes[0].child_node_to_randomize + parameters.odd_parameters.delta);
-
-            for path in &paths[1..] {
-                let this_root_is_even = path.root_is_even();
+        // Check all paths are consistent
+        for path in &paths[1..] {
+            let this_root_is_even = path.root_is_even();
+            if is_root_even {
                 if !this_root_is_even {
-                    return Err(Error::InvalidRootTypeForPath);
+                    return Err(Error::RootTypeMismatch { expected: "even".to_string(), got: "odd".to_string() });
                 }
-                if x_coords_root_children != path.even_internal_nodes[0].x_coord_children {
-                    return Err(Error::MismatchedXCoordsChildren);
-                }
-                child_nodes_to_randomize.push(path.even_internal_nodes[0].child_node_to_randomize + parameters.odd_parameters.delta);
-            }
-
-            let child_nodes_to_randomize = Projective::normalize_batch(&child_nodes_to_randomize);
-            let c = even_prover.transcript().challenge_scalar(b"challenge-for-multi_select");
-            let x_coords_children = child_nodes_to_randomize.iter().map(|c| {
-                even_prover.allocate(Some(c.x)).unwrap().into()
-            }).collect::<Vec<_>>();
-            multi_select_public_set_ext_challenge(
-                even_prover,
-                x_coords_children.clone(),
-                &x_coords_root_children,
-                c
-            );
-            Ok(RootChildrenCoords::Even(x_coords_children))
-        } else {
-            let mut child_nodes_to_randomize = Vec::with_capacity(paths.len());
-            let x_coords_root_children = paths[0].odd_internal_nodes[0].x_coord_children;
-
-            child_nodes_to_randomize.push(paths[0].odd_internal_nodes[0].child_node_to_randomize + parameters.even_parameters.delta);
-
-            for path in &paths[1..] {
-                let this_root_is_even = path.root_is_even();
+            } else {
                 if this_root_is_even {
-                    return Err(Error::InvalidRootTypeForPath);
+                    return Err(Error::RootTypeMismatch { expected: "odd".to_string(), got: "even".to_string() });
                 }
-                if x_coords_root_children != path.odd_internal_nodes[0].x_coord_children {
-                    return Err(Error::MismatchedXCoordsChildren);
-                }
-                child_nodes_to_randomize.push(path.odd_internal_nodes[0].child_node_to_randomize + parameters.even_parameters.delta);
             }
-
-            let child_nodes_to_randomize = Projective::normalize_batch(&child_nodes_to_randomize);
-            let c = odd_prover.transcript().challenge_scalar(b"challenge-for-multi_select");
-            let x_coords_children = child_nodes_to_randomize.iter().map(|c| {
-                odd_prover.allocate(Some(c.x)).unwrap().into()
-            }).collect::<Vec<_>>();
-            multi_select_public_set_ext_challenge(
+        }
+        
+        if is_root_even {
+            // For each path get the child node of root
+            let witness_nodes_of_root = paths.iter().map(|p| &p.even_internal_nodes[0]).collect::<Vec<_>>();
+            let delta = parameters.odd_parameters.delta;
+            let x_coords_selected_children = Self::_process_root_nodes_for_given_paths_with_common_root(
+                witness_nodes_of_root,
+                even_prover,
+                delta,
+            )?;
+            Ok(RootChildrenCoordsVars::Even(x_coords_selected_children))
+        } else {
+            let witness_nodes_of_root = paths.iter().map(|p| &p.odd_internal_nodes[0]).collect::<Vec<_>>();
+            let delta = parameters.even_parameters.delta;
+            let x_coords_selected_children = CurveTreeWitnessPath::<L, P1, P0>::_process_root_nodes_for_given_paths_with_common_root(
+                witness_nodes_of_root,
                 odd_prover,
-                x_coords_children.clone(),
-                &x_coords_root_children,
-                c
-            );
-            Ok(RootChildrenCoords::Odd(x_coords_children))
+                delta,
+            )?;
+            Ok(RootChildrenCoordsVars::Odd(x_coords_selected_children))
         }
 
     }
 
-    /// Called after process_root_nodes_for_given_paths_with_common_root.
-    /// Returns the rerandomization scalars of leaves for each path
+    /// Used when proving for multiple paths with a common root. Called after process_root_nodes_for_given_paths_with_common_root.
+    /// Returns the rerandomization scalars of leaves for each path.
     pub fn process_non_root_nodes_for_given_paths_with_common_root<R: Rng>(
         paths: &[Self],
         even_prover: &mut Prover<MerlinTranscript, Affine<P0>>,
         odd_prover: &mut Prover<MerlinTranscript, Affine<P1>>,
+        mut selected_root_children_x_coords: RootChildrenCoordsVars<F0, F1>,
         parameters: &SelRerandParameters<P0, P1>,
-        mut root_children_coords: RootChildrenCoords<F0, F1>,
         rng: &mut R,
     ) -> Result<(Vec<SelectAndRerandomizePath<L, P0, P1>>, Vec<P0::ScalarField>), Error> {
         if paths.is_empty() {
@@ -325,85 +332,62 @@ impl<
         let is_root_even = paths[0].root_is_even();
 
         let mut randomized_paths = Vec::with_capacity(paths.len());
-        let mut scalars = Vec::with_capacity(paths.len());
+        let mut re_randomization_of_leaves = Vec::with_capacity(paths.len());
 
         for path in paths {
             // Randomize nodes for this path
             let (
-                odd_rerandomized_nodes,
                 even_rerandomized_nodes,
+                odd_rerandomized_nodes,
                 even_rerandomization_scalars,
                 odd_rerandomization_scalars,
                 re_randomization_of_leaf,
             ) = path.randomize_nodes(parameters, rng);
 
-            // Validate root node using the batched coordinates
-            match &mut root_children_coords {
-                RootChildrenCoords::Even(coords) => {
-                    if !is_root_even {
-                        return Err(Error::RootTypeMismatch { expected: "even".to_string(), got: "odd".to_string() });
-                    }
-                    even_prover.transcript().append(b"rerandomized_child", &odd_rerandomized_nodes[0]);
-                    let x_var = coords.remove(0);
-                    let child_plus_delta = Some((path.even_internal_nodes[0].child_node_to_randomize + parameters.odd_parameters.delta).into_affine());
-                    validate_point_and_re_randomize(
-                        even_prover,
-                        &parameters.odd_parameters,
-                        &odd_rerandomized_nodes[0],
-                        x_var,
-                        child_plus_delta,
-                        Some(odd_rerandomization_scalars[0]),
-                    );
-                }
-                RootChildrenCoords::Odd(coords) => {
-                    if is_root_even {
-                        return Err(Error::RootTypeMismatch { expected: "odd".to_string(), got: "even".to_string() });
-                    }
-                    odd_prover.transcript().append(b"rerandomized_child", &even_rerandomized_nodes[0]);
-                    let x_var = coords.remove(0);
-                    let child_plus_delta = Some((path.odd_internal_nodes[0].child_node_to_randomize + parameters.even_parameters.delta).into_affine());
-                    validate_point_and_re_randomize(
-                        odd_prover,
-                        &parameters.even_parameters,
-                        &even_rerandomized_nodes[0],
-                        x_var,
-                        child_plus_delta,
-                        Some(even_rerandomization_scalars[0]),
-                    );
-                }
-            }
+            // Enforce re-randomization relation on child of root
+            selected_root_children_x_coords.validate_and_re_randomize_child(
+                even_prover,
+                odd_prover,
+                &even_rerandomized_nodes[0],
+                &odd_rerandomized_nodes[0],
+                Some(&path),
+                Some(even_rerandomization_scalars[0]),
+                Some(odd_rerandomization_scalars[0]),
+                is_root_even,
+                parameters,
+            )?;
 
             // Process non-root nodes
             path.select_and_rerandomize_prover_gadget_non_root_nodes(
                 even_prover,
                 odd_prover,
-                parameters,
                 is_root_even,
                 &even_rerandomized_nodes,
                 &odd_rerandomized_nodes,
                 even_rerandomization_scalars,
                 odd_rerandomization_scalars,
+                parameters,
             );
 
             randomized_paths.push(SelectAndRerandomizePath {
                 odd_commitments: odd_rerandomized_nodes,
                 even_commitments: even_rerandomized_nodes,
             });
-            scalars.push(re_randomization_of_leaf);
+            re_randomization_of_leaves.push(re_randomization_of_leaf);
         }
 
-        Ok((randomized_paths, scalars))
+        Ok((randomized_paths, re_randomization_of_leaves))
     }
 
-    /// Randomizes the nodes in the witness path and returns the randomized nodes and scalars.
+    /// Randomizes the nodes in the witness path and returns the randomized nodes and randomizers.
     /// Returns: (odd_rerandomized_nodes, even_rerandomized_nodes, even_rerandomization_scalars, odd_rerandomization_scalars, re_randomization_of_leaf)
     fn randomize_nodes<R: Rng>(
         &self,
         parameters: &SelRerandParameters<P0, P1>,
         rng: &mut R,
     ) -> (
-        Vec<Affine<P1>>,
         Vec<Affine<P0>>,
+        Vec<Affine<P1>>,
         Vec<P0::ScalarField>,
         Vec<P1::ScalarField>,
         P0::ScalarField,
@@ -432,6 +416,8 @@ impl<
             odd_rerandomized_nodes.push((even.child_node_to_randomize + blinding).into());
         }
 
+        // For each node on odd levels in the witness path, randomize its child (even level node, including leaf)
+        // by adding `B_blinding * r_1`
         let mut re_randomization_of_leaf = F0::default();
         for (i, odd) in self.odd_internal_nodes.iter().enumerate() {
             let rerandomization = F0::rand(rng);
@@ -454,11 +440,40 @@ impl<
         }
 
         (
-            odd_rerandomized_nodes,
             even_rerandomized_nodes,
+            odd_rerandomized_nodes,
             even_rerandomization_scalars,
             odd_rerandomization_scalars,
             re_randomization_of_leaf,
+        )
+    }
+
+    fn _process_root_nodes_for_given_paths_with_common_root(
+        mut witness_nodes_of_root: Vec<&WitnessNode<L, P0, P1>>,
+        prover: &mut Prover<MerlinTranscript, Affine<P0>>,
+        delta: Affine<P1>,
+    ) -> Result<Vec<LinearCombination<F0>>, Error> {
+        let mut child_nodes_to_randomize = Vec::with_capacity(witness_nodes_of_root.len());
+
+        let first_child = witness_nodes_of_root.remove(0);
+        let all_x_coords_root_children = first_child.x_coord_children;
+
+        // For children of root node, these might be same or different, add delta to them
+        child_nodes_to_randomize.push(first_child.child_node_to_randomize + delta);
+
+        for node in witness_nodes_of_root {
+            if all_x_coords_root_children != node.x_coord_children {
+                return Err(Error::MismatchedXCoordsChildren);
+            }
+            child_nodes_to_randomize.push(node.child_node_to_randomize + delta);
+        }
+
+        let child_nodes_to_randomize = Projective::normalize_batch(&child_nodes_to_randomize);
+        allocate_children_of_root_and_enforce_membership(
+            prover,
+            child_nodes_to_randomize.len(),
+            Some(child_nodes_to_randomize),
+            &all_x_coords_root_children,
         )
     }
 
@@ -467,18 +482,19 @@ impl<
         &self,
         even_prover: &mut Prover<MerlinTranscript, Affine<P0>>,
         odd_prover: &mut Prover<MerlinTranscript, Affine<P1>>,
-        parameters: &SelRerandParameters<P0, P1>,
         root_is_even: bool,
         even_rerandomized_nodes: &[Affine<P0>],
         odd_rerandomized_nodes: &[Affine<P1>],
         mut even_rerandomization_scalars: Vec<P0::ScalarField>,
         mut odd_rerandomization_scalars: Vec<P1::ScalarField>,
+        parameters: &SelRerandParameters<P0, P1>,
     ) {
         let even_length = self.even_internal_nodes.len();
         let odd_length = self.odd_internal_nodes.len();
 
         let prove_even = |prover: &mut Prover<MerlinTranscript, Affine<P0>>| {
             for i in 0..even_length {
+                // Because root is already processed in the function called before this
                 let index = if root_is_even {i+1} else {i};
                 if self.even_internal_nodes.len() == index {
                     continue;
@@ -488,6 +504,7 @@ impl<
                     &parameters.odd_parameters,
                     &even_rerandomized_nodes[i],
                     even_rerandomization_scalars[i],
+                    &odd_rerandomized_nodes[index],
                     odd_rerandomization_scalars[index],
                 );
             }
@@ -495,6 +512,7 @@ impl<
 
         let prove_odd = |prover: &mut Prover<MerlinTranscript, Affine<P1>>| {
             for i in 0..odd_length {
+                // Because root is already processed in the function called before this
                 let index = if !root_is_even {i+1} else {i};
                 if self.odd_internal_nodes.len() == index {
                     continue;
@@ -504,6 +522,7 @@ impl<
                     &parameters.even_parameters,
                     &odd_rerandomized_nodes[i],
                     odd_rerandomization_scalars[i],
+                    &even_rerandomized_nodes[index],
                     even_rerandomization_scalars[index],
                 );
             }
@@ -538,6 +557,7 @@ impl<
         child_level_parameters: &SingleLayerParameters<P1>,
         self_node_rerandomized: &Affine<P0>,
         self_rerandomization_scalar: P0::ScalarField,
+        rerandomized_child: &Affine<P1>,
         child_rerandomization_scalar: P1::ScalarField,
     ) {
         // In this case this (`self`) is a non-root inner node and the children (and the scalar used for rerandomizing) are part of the witness.
@@ -552,22 +572,9 @@ impl<
         self.single_level_select_and_rerandomize_prover_gadget_helper(
             prover,
             child_level_parameters,
+            rerandomized_child,
             child_rerandomization_scalar,
             children,
-        );
-    }
-
-    pub fn root_level_select_and_rerandomize_prover_gadget(
-        &self,
-        prover: &mut Prover<MerlinTranscript, Affine<P0>>,
-        child_level_parameters: &SingleLayerParameters<P1>,
-        child_rerandomization_scalar: P1::ScalarField,
-    ) {
-        self.root_level_select_and_rerandomize_prover_gadget_helper(
-            prover,
-            child_level_parameters,
-            child_rerandomization_scalar,
-            &self.x_coord_children,
         );
     }
 
@@ -576,44 +583,119 @@ impl<
         &self,
         prover: &mut Prover<MerlinTranscript, Affine<P0>>,
         parameters: &SingleLayerParameters<P1>,
+        rerandomized_child: &Affine<P1>,
         child_rerandomization_scalar: P1::ScalarField,
         all_children_vars: Vec<LinearCombination<<P0>::ScalarField>>,
     ) {
-        // Randomize the child node
         let child_commitment = self.child_node_to_randomize;
-        let blinding = parameters.pc_gens.B_blinding * child_rerandomization_scalar;
-        let rerandomized_child = child_commitment + blinding.into_affine();
 
         single_level_select_and_rerandomize(
             prover,
             parameters,
-            &rerandomized_child.into(),
+            rerandomized_child,
             all_children_vars,
             Some((child_commitment + parameters.delta).into_affine()),
             Some(child_rerandomization_scalar),
         );
     }
 
-    /// Proves the select and rerandomize for one of the children represented by the variables.
-    pub fn root_level_select_and_rerandomize_prover_gadget_helper(
+    /// Proves the select and rerandomize for children of the root node.
+    pub fn root_level_select_and_rerandomize_prover_gadget(
         &self,
         prover: &mut Prover<MerlinTranscript, Affine<P0>>,
         parameters: &SingleLayerParameters<P1>,
+        rerandomized_child: &Affine<P1>,
         child_rerandomization_scalar: P1::ScalarField,
         children_of_root: &[P0::ScalarField],
     ) {
-        // Randomize the child node
         let child_commitment = self.child_node_to_randomize;
-        let blinding = parameters.pc_gens.B_blinding * child_rerandomization_scalar;
-        let rerandomized_child = child_commitment + blinding.into_affine();
-
         root_level_select_and_rerandomize(
             prover,
             parameters,
-            &rerandomized_child.into(),
+            rerandomized_child,
             children_of_root,
             Some((child_commitment + parameters.delta).into_affine()),
             Some(child_rerandomization_scalar),
         );
+    }
+}
+
+pub(crate) fn allocate_children_of_root_and_enforce_membership<P: SWCurveConfig, Cs: ConstraintSystem<P::BaseField>>(
+    cs: &mut Cs,
+    num_selected_children: usize,
+    child_nodes_to_randomize: Option<Vec<Affine<P>>>,
+    all_x_coords_root_children: &[P::BaseField],
+) -> Result<Vec<LinearCombination<P::BaseField>>, Error> {
+    let x_coords_selected_children = match child_nodes_to_randomize {
+        Some(child_nodes_to_randomize) => child_nodes_to_randomize.into_iter().map(|c| {
+            cs.allocate(Some(c.x)).unwrap().into()
+        }).collect::<Vec<_>>(),
+        _ => (0..num_selected_children).map(|_| cs.allocate(None).unwrap().into()).collect::<Vec<_>>(),
+    };
+    let c = cs.transcript().challenge_scalar(b"challenge-for-multi_select");
+    multi_select_public_set_ext_challenge(
+        cs,
+        x_coords_selected_children.clone(),
+        &all_x_coords_root_children,
+        c
+    );
+    Ok(x_coords_selected_children)
+}
+
+impl<F0: PrimeField, F1: PrimeField> RootChildrenCoordsVars<F0, F1> {
+    pub fn validate_and_re_randomize_child<
+        const L: usize,
+        P0: SWCurveConfig<BaseField = F1, ScalarField = F0> + Copy,
+        P1: SWCurveConfig<BaseField = F0, ScalarField = F1> + Copy,
+        Cs0: ConstraintSystem<F0>, Cs1: ConstraintSystem<F1>
+    >(
+        &mut self,
+        cs_even: &mut Cs0,
+        cs_odd: &mut Cs1,
+        even_rerandomized_child: &Affine<P0>,
+        odd_rerandomized_child: &Affine<P1>,
+        path: Option<&CurveTreeWitnessPath<L, P0, P1>>,
+        even_child_rerandomization_scalar: Option<P0::ScalarField>,
+        odd_child_rerandomization_scalar: Option<P1::ScalarField>,
+        is_root_even: bool,
+        parameters: &SelRerandParameters<P0, P1>,
+    ) -> Result<(), Error> {
+        match self {
+            Self::Even(coords) => {
+                if !is_root_even {
+                    return Err(Error::RootTypeMismatch { expected: "even".to_string(), got: "odd".to_string() });
+                }
+                let rerandomized_child = odd_rerandomized_child;
+                cs_even.transcript().append(b"rerandomized_child", rerandomized_child);
+                let x_var = coords.remove(0);
+                let child_plus_delta = path.map(|p| (p.even_internal_nodes[0].child_node_to_randomize + parameters.odd_parameters.delta).into_affine());
+                validate_point_and_re_randomize(
+                    cs_even,
+                    &parameters.odd_parameters,
+                    rerandomized_child,
+                    x_var,
+                    child_plus_delta,
+                    odd_child_rerandomization_scalar,
+                );
+            }
+            Self::Odd(coords) => {
+                if is_root_even {
+                    return Err(Error::RootTypeMismatch { expected: "odd".to_string(), got: "even".to_string() });
+                }
+                let rerandomized_child = even_rerandomized_child;
+                cs_odd.transcript().append(b"rerandomized_child", rerandomized_child);
+                let x_var = coords.remove(0);
+                let child_plus_delta = path.map(|p| (p.odd_internal_nodes[0].child_node_to_randomize + parameters.even_parameters.delta).into_affine());
+                validate_point_and_re_randomize(
+                    cs_odd,
+                    &parameters.even_parameters,
+                    rerandomized_child,
+                    x_var,
+                    child_plus_delta,
+                    even_child_rerandomization_scalar,
+                );
+            }
+        }
+        Ok(())
     }
 }

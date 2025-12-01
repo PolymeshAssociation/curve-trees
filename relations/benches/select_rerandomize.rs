@@ -139,7 +139,7 @@ fn bench_select_and_rerandomize_with_parameters<
             &mut vesta_prover,
             &sr_params,
             &mut rand::thread_rng(),
-        );
+        ).unwrap();
         if print {
             log::debug!(
                 "{}_Constraints: {}",

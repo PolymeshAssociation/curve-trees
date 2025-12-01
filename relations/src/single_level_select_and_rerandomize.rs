@@ -100,7 +100,7 @@ impl<P: SWCurveConfig + Copy> SingleLayerParameters<P> {
         let gens = self
             .bp_gens
             .share(0)
-            .G((count * (generator_set_index + 1)) as u32)
+            .G(count * (generator_set_index + 1))
             .skip((count * generator_set_index) as usize);
         let g = gens.copied().sum::<<Affine<P> as AffineRepr>::Group>();
 
@@ -166,7 +166,7 @@ pub fn single_level_select_and_rerandomize<
     );
 }
 
-/// Circuit for the root level select and rerandomize relation.
+/// Circuit for the root level node's select and rerandomize relation.
 /// Similar to single_level_select_and_rerandomize but uses select_public_set instead of select since root's children are public.
 pub fn root_level_select_and_rerandomize<
     Fb: PrimeField,
@@ -218,6 +218,7 @@ pub fn validate_point_and_re_randomize<
     // Note that empty branches are encoded as 0 which works because x=0 does not satisfy the curve equation for any of the curves used.
     let y_var = cs.allocate(child_plus_delta.map(|xy| xy.y)).unwrap();
     let y_lc: LinearCombination<_> = y_var.into();
+    // TODO: Reconsider if this is needed since the x-coordinate has already been selected from the set of siblings.
     curve_check(
         cs,
         x_lc.clone(),
@@ -250,34 +251,89 @@ pub fn single_level_batched_select_and_rerandomize<
     Fs: Field,
     C2: SWCurveConfig<BaseField = Fs, ScalarField = Fb> + Copy,
     Cs: ConstraintSystem<Fs>,
-    const M: usize, // The number of parallel selections
 >(
     cs: &mut Cs, // Prover or verifier
     parameters: &SingleLayerParameters<C2>,
+    num_indices: u32, // The number of parallel selections
     sum_of_rerandomized: &Affine<C2>, // The public rerandomization of the sum of selected children
-    children: Vec<LinearCombination<Fs>>, // Variables representing members of the combined and rerandomized parent vector commitment (i.e. the rerandomized sum of M parents)
-    children_plus_delta: Option<&[Affine<C2>; M]>, // Witnesses of the commitments being selected and rerandomized
-    randomness_offset: Option<Fb>, // The scalar used for randomizing, i.e. \sum selected_witnesses + randomness_offset * H = sum_of_rerandomized + M * Delta
+    all_children: Vec<LinearCombination<Fs>>, // Variables representing members of the combined and rerandomized parent vector commitment (i.e. the rerandomized sum of num_indices parents)
+    selected_children_plus_delta: Option<&[Affine<C2>]>, // Witnesses of the commitments being selected and rerandomized
+    child_rerandomization_scalar: Option<Fb>, // The scalar used for randomizing, i.e. \sum selected_witnesses + child_rerandomization_scalar * H = sum_of_rerandomized + num_indices * Delta
 ) -> Result<(), Error> {
+    single_level_batched_select_and_rerandomize_inner(
+        cs,
+        parameters,
+        num_indices,
+        sum_of_rerandomized,
+        all_children,
+        selected_children_plus_delta,
+        child_rerandomization_scalar,
+        |cs, x, chunk| select(cs, x, chunk.iter().cloned()),
+    )
+}
+
+pub fn root_level_batched_select_and_rerandomize<
+    Fb: PrimeField,
+    Fs: Field,
+    C2: SWCurveConfig<BaseField = Fs, ScalarField = Fb> + Copy,
+    Cs: ConstraintSystem<Fs>,
+>(
+    cs: &mut Cs, // Prover or verifier
+    parameters: &SingleLayerParameters<C2>,
+    num_indices: u32, // The number of parallel selections
+    sum_of_rerandomized: &Affine<C2>, // The public rerandomization of the sum of selected children
+    all_children: Vec<Fs>, // x-coordinates of all children of root, combined.
+    selected_children_plus_delta: Option<&[Affine<C2>]>, // Witnesses of the commitments being selected and rerandomized
+    child_rerandomization_scalar: Option<Fb>, // The scalar used for randomizing, i.e. \sum selected_witnesses + child_rerandomization_scalar * H = sum_of_rerandomized + num_indices * Delta
+) -> Result<(), Error> {
+    single_level_batched_select_and_rerandomize_inner(
+        cs,
+        parameters,
+        num_indices,
+        sum_of_rerandomized,
+        all_children,
+        selected_children_plus_delta,
+        child_rerandomization_scalar,
+        |cs, x, chunk| select_public_set(cs, x, chunk),
+    )
+}
+
+fn single_level_batched_select_and_rerandomize_inner<
+    Fb: PrimeField,
+    Fs: Field,
+    C2: SWCurveConfig<BaseField = Fs, ScalarField = Fb> + Copy,
+    Cs: ConstraintSystem<Fs>,
+    C, F
+>(
+    cs: &mut Cs, // Prover or verifier
+    parameters: &SingleLayerParameters<C2>,
+    num_indices: u32, // The number of parallel selections
+    sum_of_rerandomized: &Affine<C2>, // The public rerandomization of the sum of selected children
+    all_children: Vec<C>,
+    selected_children_plus_delta: Option<&[Affine<C2>]>, // Witnesses of the commitments being selected and rerandomized
+    child_rerandomization_scalar: Option<Fb>, // The scalar used for randomizing, i.e. \sum selected_witnesses + child_rerandomization_scalar * H = sum_of_rerandomized + num_indices * Delta
+    select_fn: F
+) -> Result<(), Error>
+where F: Fn(&mut Cs, LinearCombination<Fs>, &[C]) -> () {
     // Initialize the accumulated sum of the selected children to dummy values.
     let mut sum_of_selected = PointRepresentation {
         x: Variable::One(PhantomData).into(),
         y: Variable::One(PhantomData).into(),
-        point: children_plus_delta.map(|_| Affine::<C2>::zero()),
+        point: None,
     };
     // Split the variables of the vector commitments into chunks corresponding to the M parents.
-    let chunks = children.chunks_exact(children.len() / M);
+    let chunks = all_children.chunks_exact(all_children.len() / num_indices as usize);
     for (i, chunk) in chunks.enumerate() {
-        let ith_selected_witness = children_plus_delta.map(|xy| xy[i]);
-        let x_var = cs.allocate(ith_selected_witness.map(|xy| xy.x)).unwrap();
-        let y_var = cs.allocate(ith_selected_witness.map(|xy| xy.y)).unwrap();
+        let ith_selected_witness = selected_children_plus_delta.map(|xy| xy[i]);
+        let x_var = cs.allocate(ith_selected_witness.map(|xy| xy.x))?;
+        let y_var = cs.allocate(ith_selected_witness.map(|xy| xy.y))?;
         let ith_selected = PointRepresentation {
             x: x_var.into(),
             y: y_var.into(),
             point: ith_selected_witness,
         };
         // Show that the parent is committed to the ith child's x-coordinate
-        select(cs, x_var.into(), chunk.iter().cloned());
+        select_fn(cs, x_var.into(), chunk);
 
         // Proof that the opened x coordinate with the witnessed y is a point on the curve
         // Note that empty branches are encoded as 0 which works because x=0 does not satisfy the curve equation for any of the curves used.
@@ -298,9 +354,9 @@ pub fn single_level_batched_select_and_rerandomize<
             sum_of_selected = checked_curve_addition_helper(cs, sum_of_selected, ith_selected);
         }
     }
-    // Add M*Delta to the public sum of the children
+    // Add num_indices*Delta to the public sum of the children
     let shifted_rerandomized =
-        (*sum_of_rerandomized + (parameters.delta * C2::ScalarField::from(M as u32))).into_affine();
+        (*sum_of_rerandomized + (parameters.delta * C2::ScalarField::from(num_indices))).into_affine();
     // Show that `rerandomized`, is a rerandomization of sum of the selected children
     re_randomize(
         cs,
@@ -308,7 +364,73 @@ pub fn single_level_batched_select_and_rerandomize<
         sum_of_selected,
         constant(shifted_rerandomized.x),
         constant(shifted_rerandomized.y),
-        randomness_offset,
+        child_rerandomization_scalar,
+    )?;
+
+    Ok(())
+}
+
+pub fn single_level_batched_validate_and_rerandomize_root_children<
+    Fb: PrimeField,
+    Fs: Field,
+    C2: SWCurveConfig<BaseField = Fs, ScalarField = Fb> + Copy,
+    Cs: ConstraintSystem<Fs>,
+>(
+    cs: &mut Cs, // Prover or verifier
+    parameters: &SingleLayerParameters<C2>,
+    num_indices: u32, // The number of parallel selections
+    sum_of_rerandomized: &Affine<C2>, // The public rerandomization of the sum of selected children
+    selected_children_plus_delta: Option<&[Affine<C2>]>, // Witnesses of the commitments being selected and rerandomized
+    selected_children_x_coords: Vec<LinearCombination<Fs>>,
+    child_rerandomization_scalar: Option<Fb>, // The scalar used for randomizing, i.e. \sum selected_witnesses + child_rerandomization_scalar * H = sum_of_rerandomized + num_indices * Delta
+) -> Result<(), Error> {
+    // Initialize the accumulated sum of the selected children to dummy values.
+    let mut sum_of_selected = PointRepresentation {
+        x: Variable::One(PhantomData).into(),
+        y: Variable::One(PhantomData).into(),
+        point: None,
+    };
+    assert_eq!(num_indices as usize, selected_children_x_coords.len());
+    for (i, x_var) in selected_children_x_coords.into_iter().enumerate() {
+        let ith_selected_witness = selected_children_plus_delta.map(|xy| xy[i]);
+        let y_var: LinearCombination<_> = cs.allocate(ith_selected_witness.map(|xy| xy.y))?.into();
+        let ith_selected = PointRepresentation {
+            x: x_var.clone(),
+            y: y_var.clone(),
+            point: ith_selected_witness,
+        };
+
+        // Proof that the opened x coordinate with the witnessed y is a point on the curve
+        // Note that empty branches are encoded as 0 which works because x=0 does not satisfy the curve equation for any of the curves used.
+        curve_check(
+            cs,
+            x_var.clone(),
+            y_var.clone(),
+            parameters.coeff_a,
+            parameters.coeff_b,
+        );
+
+        // Update the cumulated sum of selected children
+        if i == 0 {
+            // In the first iteration, the sum is the first selected child.
+            sum_of_selected = ith_selected;
+        } else {
+            // In the consecutive iterations, add the ith selected child to the accumulated sum
+            sum_of_selected = checked_curve_addition_helper(cs, sum_of_selected, ith_selected);
+        }
+    }
+
+    // Add num_indices*Delta to the public sum of the children
+    let shifted_rerandomized =
+        (*sum_of_rerandomized + (parameters.delta * C2::ScalarField::from(num_indices))).into_affine();
+    // Show that `rerandomized`, is a rerandomization of sum of the selected children
+    re_randomize(
+        cs,
+        &parameters.tables,
+        sum_of_selected,
+        constant(shifted_rerandomized.x),
+        constant(shifted_rerandomized.y),
+        child_rerandomization_scalar,
     )?;
 
     Ok(())
@@ -491,6 +613,7 @@ mod tests {
             single_level_batched_select_and_rerandomize(
                 &mut prover,
                 &sr_params.even_parameters,
+                M as u32,
                 &rerandomized_sum,
                 xs_vars.into_iter().map(|x| x.into()).collect(),
                 Some(&[
@@ -510,9 +633,10 @@ mod tests {
         single_level_batched_select_and_rerandomize(
             &mut verifier,
             &sr_params.even_parameters,
+            M as u32,
             &rerandomized_sum,
             xs_vars.into_iter().map(|x| x.into()).collect(),
-            None::<&[Affine<P0>; M]>,
+            None,
             None,
         )
         .expect("Failed to run single_level_batched_select_and_rerandomize");

@@ -1087,8 +1087,8 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
             op_x *= x;
         }
 
-        #[cfg(debug_assertions)]
-        log::debug!("prover: x = {}", x);
+        // #[cfg(debug_assertions)]
+        // println!("prover: x = {}", x);
 
         t_blinding_poly.coeff()[op_degree] = wV
             .iter()

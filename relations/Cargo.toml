@@ -6,6 +6,8 @@ edition = "2021"
 [dependencies]
 sha3 = { version = "0.10.6", default-features = false }
 rand = { version = "0.8", default-features = false }
+rand_core = { version = "0.6", default-features = false }
+rand_chacha = { version = "0.3", default-features = false }
 log = { version = "0.4.27", default-features = false }
 thiserror = { version = "2", default-features = false }
 bulletproofs = { path = "../bulletproofs", default-features = false }
@@ -38,8 +40,8 @@ no_std = []
 std = ["rand/std", "thiserror/std", "bulletproofs/std", "ark-serialize/std"]
 
 asm = ["ark-ff/asm", "bulletproofs/asm"]
-parallel = [ "rayon" ]
-parallel_full = [ "parallel", "bulletproofs/parallel_full" ]
+parallel = ["std", "rayon" ]
+parallel_full = [ "parallel", "bulletproofs/parallel_full", "dock_crypto_utils/parallel_full" ]
 bench_prover = []
 detailed_benchmarks = []
 usenix = ["bench_prover"]
@@ -74,6 +76,10 @@ harness = false
 
 [[bench]]
 name = "select"
+harness = false
+
+[[bench]]
+name = "batched_curve_tree"
 harness = false
 
 # TODO: Uncomment

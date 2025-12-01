@@ -94,7 +94,7 @@ pub fn check_naive<
             Prover::new(&sr_params.odd_parameters.pc_gens, vesta_transcript);
 
         let clock = Instant::now();
-        let path = curve_tree.get_path_to_leaf_for_proof(*leaf_index, 0);
+        let path = curve_tree.get_path_to_leaf_for_proof(*leaf_index, 0).unwrap();
         let (path_commitments, re_randomization_of_leaf) = path
             .select_and_rerandomize_prover_gadget(
                 &mut pallas_prover,
@@ -116,7 +116,7 @@ pub fn check_naive<
         )
         .expect("Failed to prove naive");
 
-        let (pallas_proof, vesta_proof) = prove(pallas_prover, vesta_prover, &sr_params).unwrap();
+        let (pallas_proof, vesta_proof) = prove(pallas_prover, vesta_prover, &sr_params, &mut rng).unwrap();
 
         prover_time += clock.elapsed();
 
@@ -173,7 +173,7 @@ pub fn check_naive<
             assert!(pallas_res.is_ok());
             assert_eq!(
                 rerandomized_leaf.into_group(),
-                curve_tree.get_leaf(*leaf_index)
+                curve_tree.get_leaf(*leaf_index).unwrap()
                     + (sr_params.even_parameters.pc_gens.B_blinding * re_randomization_of_leaf)
             )
         }
@@ -255,7 +255,7 @@ pub fn check<
                 &mut vesta_prover,
                 &sr_params,
                 &mut rng,
-            );
+            ).unwrap();
 
         assert_eq!(
             path_commitments.get_rerandomized_leaf(),
@@ -265,7 +265,7 @@ pub fn check<
 
         // TODO:
 
-        let (pallas_proof, vesta_proof) = prove(pallas_prover, vesta_prover, &sr_params).unwrap();
+        let (pallas_proof, vesta_proof) = prove(pallas_prover, vesta_prover, &sr_params, &mut rng).unwrap();
 
         prover_time += clock.elapsed();
 
@@ -300,7 +300,7 @@ pub fn check<
             assert!(pallas_res.is_ok());
             assert_eq!(
                 rerandomized_leaf.into_group(),
-                curve_tree.get_leaf(*leaf_index)
+                curve_tree.get_leaf(*leaf_index).unwrap()
                     + (sr_params.even_parameters.pc_gens.B_blinding * re_randomization_of_leaf)
             )
         }
