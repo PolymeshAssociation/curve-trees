@@ -8,7 +8,7 @@ resolver = "2"
 
 [patch.crates-io]
 #dock_crypto_utils = { path = "../crypto/utils" }
-dock_crypto_utils = { git = "https://github.com/PolymeshAssociation/crypto", branch = "main" }
+dock_crypto_utils = { git = "https://github.com/PolymeshAssociation/crypto", branch = "dart-v0" }
 
 ## Polymesh changes.
 #ark-serialize = { path = "../arkworks-algebra/serialize" }
@@ -19,13 +19,13 @@ dock_crypto_utils = { git = "https://github.com/PolymeshAssociation/crypto", bra
 #ark-secp256k1 = { path = "../arkworks-algebra/curves/secp256k1" }
 #ark-secq256k1 = { path = "../arkworks-algebra/curves/secq256k1" }
 
-ark-serialize = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
-ark-ec = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
-ark-ff = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
-ark-pallas = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
-ark-vesta = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
-ark-secp256k1 = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
-ark-secq256k1 = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+ark-serialize = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "dart-v0" }
+ark-ec = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "dart-v0" }
+ark-ff = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "dart-v0" }
+ark-pallas = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "dart-v0" }
+ark-vesta = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "dart-v0" }
+ark-secp256k1 = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "dart-v0" }
+ark-secq256k1 = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "dart-v0" }
 
 [workspace.dependencies]
 dock_crypto_utils = { version = "0.22.0", default-features = false }
