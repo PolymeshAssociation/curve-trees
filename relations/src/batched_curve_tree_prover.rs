@@ -4,7 +4,7 @@ use crate::curve_tree_prover::{CurveTreeWitnessPath, WitnessNode};
 use crate::error::Error;
 use crate::single_level_select_and_rerandomize::*;
 
-use crate::curve_tree::{CurveTree, SelRerandParameters, SelectAndRerandomizeMultiPath};
+use crate::curve_tree::{CurveTree, CurveTreeNode, SelRerandParameters, SelectAndRerandomizeMultiPath};
 use ark_ec::{
     models::short_weierstrass::{Projective, SWCurveConfig},
     short_weierstrass::Affine,
@@ -108,6 +108,162 @@ impl<
             odd_internal_nodes,
         })
     }
+
+    /// Produce optimized witnesses for multiple multi-paths sharing the same root.
+    /// Takes a flat slice of leaf indices and chunks them into groups of M.
+    pub fn get_optmz_paths_to_leaves(
+        &self,
+        indices: &[u32],
+    ) -> Result<WitnessMultiPathForSameRoot<L, M, P0, P1>, Error> {
+        if indices.is_empty() {
+            return Err(Error::NeedNonZeroNumberOfPaths);
+        }
+
+        let num_indices_per_path = M.min(indices.len());
+        
+        match self {
+            Self::Even(ct) => {
+                if let CurveTreeNode::InnerNode(inner_node) = ct {
+                    let mut x_coords = Vec::with_capacity(num_indices_per_path);
+                    for root_index in 0..num_indices_per_path {
+                        x_coords.push(inner_node.x_coord_children[root_index]);
+                    }
+
+                    let mut child_nodes_to_randomize = Vec::with_capacity(indices.len());
+                    let mut root_children_nodes = vec![];
+                    for (i, leaf_index) in indices.into_iter().enumerate() {
+                        let root_index = i % M;
+                        let child_node_index = ct.child_index(*leaf_index as usize).unwrap();
+                        let child_node = inner_node.get_child(child_node_index)?;
+                        child_nodes_to_randomize.push(child_node.commitment(root_index));
+                        root_children_nodes.push(child_node);
+                    }
+
+                    let root_children = RootChildrenForMultiPath::Even {
+                        x_coords,
+                        child_nodes_to_randomize,
+                    };
+
+                    let mut all_other_level_internal_nodes = vec![];
+                    let mut all_current_level_internal_nodes = vec![];
+
+                    for (chunk_indices, root_children_nodes) in indices.chunks(M).zip(root_children_nodes.chunks(M)) {
+                        let mut multi_path_current_level_nodes = Vec::new();
+                        let mut multi_path_other_level_nodes = Vec::new();
+
+                        for (root_index, (leaf_index, child_node)) in chunk_indices.into_iter().zip(root_children_nodes.into_iter()).enumerate() {
+                            let mut current_level_witness_nodes = Vec::new();
+                            let mut other_level_witness_nodes = Vec::new();
+                            
+                            child_node.generate_witness_node_for_this_and_children(
+                                *leaf_index as usize,
+                                root_index,
+                                &mut current_level_witness_nodes,
+                                &mut other_level_witness_nodes,
+                            )?;
+
+                            if root_index == 0 {
+                                for _ in 0..other_level_witness_nodes.len() {
+                                    multi_path_other_level_nodes.push(Vec::with_capacity(chunk_indices.len()));
+                                }
+                                for _ in 0..current_level_witness_nodes.len() {
+                                    multi_path_current_level_nodes.push(Vec::with_capacity(chunk_indices.len()));
+                                }
+                            }
+
+                            for (level, node) in other_level_witness_nodes.into_iter().enumerate() {
+                                multi_path_other_level_nodes[level].push(node);
+                            }
+                            for (level, node) in current_level_witness_nodes.into_iter().enumerate() {
+                                multi_path_current_level_nodes[level].push(node);
+                            }
+                        }
+
+                        all_other_level_internal_nodes.push(multi_path_other_level_nodes);
+                        all_current_level_internal_nodes.push(multi_path_current_level_nodes);
+                    }
+
+                    Ok(WitnessMultiPathForSameRoot {
+                        root_children,
+                        even_internal_nodes: all_other_level_internal_nodes,
+                        odd_internal_nodes: all_current_level_internal_nodes,
+                    })
+                } else {
+                    unreachable!()
+                }
+            }
+            Self::Odd(ct) => {
+                if let CurveTreeNode::InnerNode(inner_node) = ct {
+                    let mut x_coords = Vec::with_capacity(num_indices_per_path);
+                    for root_index in 0..num_indices_per_path {
+                        x_coords.push(inner_node.x_coord_children[root_index]);
+                    }
+
+                    let mut child_nodes_to_randomize = Vec::with_capacity(indices.len());
+                    let mut root_children_nodes = vec![];
+                    for (i, leaf_index) in indices.into_iter().enumerate() {
+                        let root_index = i % M;
+                        let child_node_index = ct.child_index(*leaf_index as usize).unwrap();
+                        let child_node = inner_node.get_child(child_node_index)?;
+                        child_nodes_to_randomize.push(child_node.commitment(root_index));
+                        root_children_nodes.push(child_node);
+                    }
+
+                    let root_children = RootChildrenForMultiPath::Odd {
+                        x_coords,
+                        child_nodes_to_randomize,
+                    };
+
+                    let mut all_even_internal_nodes = vec![];
+                    let mut all_odd_internal_nodes = vec![];
+
+                    for (chunk_indices, root_children_nodes) in indices.chunks(M).zip(root_children_nodes.chunks(M)) {
+                        let mut multi_path_current_level_nodes = Vec::new();
+                        let mut multi_path_other_level_nodes = Vec::new();
+
+                        for (root_index, (leaf_index, child_node)) in chunk_indices.into_iter().zip(root_children_nodes.into_iter()).enumerate() {
+                            let mut current_level_witness_nodes = Vec::new();
+                            let mut other_level_witness_nodes = Vec::new();
+
+                            child_node.generate_witness_node_for_this_and_children(
+                                *leaf_index as usize,
+                                root_index,
+                                &mut current_level_witness_nodes,
+                                &mut other_level_witness_nodes,
+                            )?;
+
+                            if root_index == 0 {
+                                for _ in 0..other_level_witness_nodes.len() {
+                                    multi_path_other_level_nodes.push(Vec::with_capacity(chunk_indices.len()));
+                                }
+                                for _ in 0..current_level_witness_nodes.len() {
+                                    multi_path_current_level_nodes.push(Vec::with_capacity(chunk_indices.len()));
+                                }
+                            }
+
+                            for (level, node) in other_level_witness_nodes.into_iter().enumerate() {
+                                multi_path_other_level_nodes[level].push(node);
+                            }
+                            for (level, node) in current_level_witness_nodes.into_iter().enumerate() {
+                                multi_path_current_level_nodes[level].push(node);
+                            }
+                        }
+
+                        all_even_internal_nodes.push(multi_path_other_level_nodes);
+                        all_odd_internal_nodes.push(multi_path_current_level_nodes);
+                    }
+
+                    Ok(WitnessMultiPathForSameRoot {
+                        root_children,
+                        even_internal_nodes: all_odd_internal_nodes,
+                        odd_internal_nodes: all_even_internal_nodes,
+                    })
+                } else {
+                    unreachable!()
+                }
+            }
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -125,6 +281,117 @@ pub enum RootChildrenSelected<
 > {
     Even(Vec<Vec<Affine<P1>>>),
     Odd(Vec<Vec<Affine<P0>>>),
+}
+
+/// Root children data for batched multi-path witness with M trees
+#[derive(Clone)]
+pub enum RootChildrenForMultiPath<
+    const L: usize,
+    const M: usize,
+    P0: SWCurveConfig + Copy,
+    P1: SWCurveConfig + Copy,
+> {
+    Even {
+        /// x-coordinates of all L children for each tree (up to M trees)
+        x_coords: Vec<[P0::ScalarField; L]>,
+        /// Selected child nodes to randomize for each leaf index
+        child_nodes_to_randomize: Vec<Affine<P1>>,
+    },
+    Odd {
+        /// x-coordinates of all L children for each tree (up to M trees)
+        x_coords: Vec<[P1::ScalarField; L]>,
+        /// Selected child nodes to randomize for each leaf index
+        child_nodes_to_randomize: Vec<Affine<P0>>,
+    },
+}
+
+/// Optimized batch witness structure for multiple [`CurveTreeWitnessMultiPath`] objects sharing the same root.
+/// Stores each root's children x-coordinates once instead of duplicating them for each path (on same root).
+#[derive(Clone)]
+pub struct WitnessMultiPathForSameRoot<
+    const L: usize,
+    const M: usize,
+    P0: SWCurveConfig + Copy,
+    P1: SWCurveConfig + Copy,
+> {
+    /// Root children data (x-coords and selected children)
+    pub root_children: RootChildrenForMultiPath<L, M, P0, P1>,
+    /// Internal even level nodes for each multi-path (excluding root)
+    pub even_internal_nodes: Vec<Vec<Vec<WitnessNode<L, P0, P1>>>>,
+    /// Internal odd level nodes for each multi-path (excluding root)
+    pub odd_internal_nodes: Vec<Vec<Vec<WitnessNode<L, P1, P0>>>>,
+}
+
+impl<
+        const L: usize,
+        const M: usize,
+        P0: SWCurveConfig + Copy,
+        P1: SWCurveConfig + Copy,
+    > WitnessMultiPathForSameRoot<L, M, P0, P1>
+{
+    /// Returns the number of multi-paths in this batch
+    pub fn num_multi_paths(&self) -> usize {
+        self.odd_internal_nodes.len()
+    }
+
+    /// Converts this batch structure into individual `CurveTreeWitnessMultiPath` objects
+    pub fn to_individual_multi_paths(&self) -> Vec<CurveTreeWitnessMultiPath<L, M, P0, P1>> {
+        let num_multi_paths = self.num_multi_paths();
+        let mut multi_paths = Vec::with_capacity(num_multi_paths);
+
+        match &self.root_children {
+            RootChildrenForMultiPath::Even { x_coords, child_nodes_to_randomize } => {
+                for (path_idx, chunk) in child_nodes_to_randomize.chunks(M).enumerate() {
+                    let mut even_internal_nodes = Vec::new();
+                    let mut root_level_nodes = Vec::with_capacity(chunk.len());
+                    
+                    for (root_idx, &child_node) in chunk.iter().enumerate() {
+                        let root_witness = WitnessNode {
+                            x_coord_children: x_coords[root_idx],
+                            child_node_to_randomize: child_node,
+                        };
+                        root_level_nodes.push(root_witness);
+                    }
+                    even_internal_nodes.push(root_level_nodes);
+                    
+                    for level in &self.even_internal_nodes[path_idx] {
+                        even_internal_nodes.push(level.clone());
+                    }
+                    
+                    multi_paths.push(CurveTreeWitnessMultiPath {
+                        even_internal_nodes,
+                        odd_internal_nodes: self.odd_internal_nodes[path_idx].clone(),
+                    });
+                }
+            }
+            RootChildrenForMultiPath::Odd { x_coords, child_nodes_to_randomize } => {
+                for (path_idx, chunk) in child_nodes_to_randomize.chunks(M).enumerate() {
+                    let mut odd_internal_nodes = Vec::new();
+                    let mut root_level_nodes = Vec::with_capacity(chunk.len());
+                    
+                    for (root_idx, &child_node) in chunk.iter().enumerate() {
+                        let root_witness = WitnessNode {
+                            x_coord_children: x_coords[root_idx],
+                            child_node_to_randomize: child_node,
+                        };
+                        root_level_nodes.push(root_witness);
+                    }
+                    odd_internal_nodes.push(root_level_nodes);
+                    
+                    for level in &self.odd_internal_nodes[path_idx] {
+                        odd_internal_nodes.push(level.clone());
+                    }
+                    
+                    multi_paths.push(CurveTreeWitnessMultiPath {
+                        even_internal_nodes: self.even_internal_nodes[path_idx].clone(),
+                        odd_internal_nodes,
+                    });
+                }
+            }
+        }
+
+        multi_paths
+    }
 }
 
 /// A witness of at most M paths in M independently generated Curve Trees including siblings for all nodes on the paths.
@@ -153,7 +420,7 @@ impl<
         P1: SWCurveConfig<BaseField = F0, ScalarField = F1> + Copy,
     > CurveTreeWitnessMultiPath<L, M, P0, P1>
 {
-    fn root_is_even(&self) -> bool {
+    pub fn root_is_even(&self) -> bool {
         if self.even_internal_nodes.len() == self.odd_internal_nodes.len() {
             return true;
         }
@@ -850,5 +1117,121 @@ impl<
                 )
             },
         }
+    }
+}
+
+impl<const L: usize, const M: usize, P0: SWCurveConfig + Copy, P1: SWCurveConfig + Copy> CanonicalSerialize
+for RootChildrenForMultiPath<L, M, P0, P1>
+{
+    fn serialize_with_mode<W: std::io::Write>(
+        &self,
+        mut writer: W,
+        compress: ark_serialize::Compress,
+    ) -> Result<(), ark_serialize::SerializationError> {
+        match self {
+            RootChildrenForMultiPath::Even { x_coords, child_nodes_to_randomize } => {
+                0u8.serialize_with_mode(&mut writer, compress)?;
+                x_coords.serialize_with_mode(&mut writer, compress)?;
+                child_nodes_to_randomize.serialize_with_mode(&mut writer, compress)?;
+            }
+            RootChildrenForMultiPath::Odd { x_coords, child_nodes_to_randomize } => {
+                1u8.serialize_with_mode(&mut writer, compress)?;
+                x_coords.serialize_with_mode(&mut writer, compress)?;
+                child_nodes_to_randomize.serialize_with_mode(&mut writer, compress)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn serialized_size(&self, compress: ark_serialize::Compress) -> usize {
+        1 + match self {
+            RootChildrenForMultiPath::Even { x_coords, child_nodes_to_randomize } => {
+                x_coords.serialized_size(compress) + child_nodes_to_randomize.serialized_size(compress)
+            }
+            RootChildrenForMultiPath::Odd { x_coords, child_nodes_to_randomize } => {
+                x_coords.serialized_size(compress) + child_nodes_to_randomize.serialized_size(compress)
+            }
+        }
+    }
+}
+
+impl<const L: usize, const M: usize, P0: SWCurveConfig + Copy, P1: SWCurveConfig + Copy> CanonicalDeserialize
+for RootChildrenForMultiPath<L, M, P0, P1>
+{
+    fn deserialize_with_mode<R: std::io::Read>(
+        mut reader: R,
+        compress: ark_serialize::Compress,
+        validate: ark_serialize::Validate,
+    ) -> Result<Self, ark_serialize::SerializationError> {
+        let variant = u8::deserialize_with_mode(&mut reader, compress, validate)?;
+        match variant {
+            0 => {
+                let x_coords = Vec::<[P0::ScalarField; L]>::deserialize_with_mode(&mut reader, compress, validate)?;
+                let child_nodes_to_randomize = Vec::<Affine<P1>>::deserialize_with_mode(&mut reader, compress, validate)?;
+                Ok(RootChildrenForMultiPath::Even { x_coords, child_nodes_to_randomize })
+            }
+            1 => {
+                let x_coords = Vec::<[P1::ScalarField; L]>::deserialize_with_mode(&mut reader, compress, validate)?;
+                let child_nodes_to_randomize = Vec::<Affine<P0>>::deserialize_with_mode(&mut reader, compress, validate)?;
+                Ok(RootChildrenForMultiPath::Odd { x_coords, child_nodes_to_randomize })
+            }
+            _ => Err(ark_serialize::SerializationError::InvalidData),
+        }
+    }
+}
+
+impl<const L: usize, const M: usize, P0: SWCurveConfig + Copy, P1: SWCurveConfig + Copy> ark_serialize::Valid
+for RootChildrenForMultiPath<L, M, P0, P1>
+{
+    fn check(&self) -> Result<(), ark_serialize::SerializationError> {
+        Ok(())
+    }
+}
+
+impl<const L: usize, const M: usize, P0: SWCurveConfig + Copy, P1: SWCurveConfig + Copy> CanonicalSerialize
+for WitnessMultiPathForSameRoot<L, M, P0, P1>
+{
+    fn serialize_with_mode<W: std::io::Write>(
+        &self,
+        mut writer: W,
+        compress: ark_serialize::Compress,
+    ) -> Result<(), ark_serialize::SerializationError> {
+        self.root_children.serialize_with_mode(&mut writer, compress)?;
+        self.even_internal_nodes.serialize_with_mode(&mut writer, compress)?;
+        self.odd_internal_nodes.serialize_with_mode(&mut writer, compress)?;
+        Ok(())
+    }
+
+    fn serialized_size(&self, compress: ark_serialize::Compress) -> usize {
+        self.root_children.serialized_size(compress) +
+        self.even_internal_nodes.serialized_size(compress) +
+        self.odd_internal_nodes.serialized_size(compress)
+    }
+}
+
+impl<const L: usize, const M: usize, P0: SWCurveConfig + Copy, P1: SWCurveConfig + Copy> CanonicalDeserialize
+for WitnessMultiPathForSameRoot<L, M, P0, P1>
+{
+    fn deserialize_with_mode<R: std::io::Read>(
+        mut reader: R,
+        compress: ark_serialize::Compress,
+        validate: ark_serialize::Validate,
+    ) -> Result<Self, ark_serialize::SerializationError> {
+        let root_children = RootChildrenForMultiPath::deserialize_with_mode(&mut reader, compress, validate)?;
+        let even_internal_nodes = Vec::deserialize_with_mode(&mut reader, compress, validate)?;
+        let odd_internal_nodes = Vec::deserialize_with_mode(&mut reader, compress, validate)?;
+        Ok(WitnessMultiPathForSameRoot {
+            root_children,
+            even_internal_nodes,
+            odd_internal_nodes,
+        })
+    }
+}
+
+impl<const L: usize, const M: usize, P0: SWCurveConfig + Copy, P1: SWCurveConfig + Copy> ark_serialize::Valid
+for WitnessMultiPathForSameRoot<L, M, P0, P1>
+{
+    fn check(&self) -> Result<(), ark_serialize::SerializationError> {
+        Ok(())
     }
 }

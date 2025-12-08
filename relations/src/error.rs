@@ -73,6 +73,10 @@ pub enum Error {
     /// Cannot prove for more indices than the maximum supported batch size
     #[error("Cannot prove for more indices than the maximum supported batch size: got {0}, expected at most {1}")]
     MoreIndicesThanSupportedBatchSize(u32, u32),
+
+    /// Inconsistent number of indices across multi-paths
+    #[error("Inconsistent number of indices across multi-paths")]
+    InconsistentNumberOfIndices,
 }
 
 impl From<SerializationError> for Error {

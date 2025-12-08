@@ -10,7 +10,7 @@ use criterion::BenchmarkId;
 use criterion::Criterion;
 
 extern crate bulletproofs;
-use bulletproofs::r1cs::{batch_verify, Prover};
+use bulletproofs::r1cs::Prover;
 
 extern crate relations;
 use dock_crypto_utils::transcript::MerlinTranscript;
@@ -31,6 +31,7 @@ use blake2::Blake2s256 as Blake2s;
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
+use bulletproofs::r1cs::verifier::batch::batch_verify;
 
 #[cfg(feature = "usenix")]
 fn bench_pour(c: &mut Criterion) {

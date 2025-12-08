@@ -49,6 +49,20 @@ pub fn test_batched_curve_tree_less_than_batch() {
     test_batched_curve_tree_with_parameters::<256, 16, PallasBase, PallasConfig, VestaConfig>(3, 15, 16);
 }
 
+#[test]
+pub fn test_optimized_multi_paths() {
+    check_optimized_multi_paths::<8, 4, PallasBase, PallasConfig, VestaConfig>(4, 12, 3);
+    check_optimized_multi_paths::<8, 4, PallasBase, PallasConfig, VestaConfig>(4, 12, 4);
+    check_optimized_multi_paths::<8, 4, PallasBase, PallasConfig, VestaConfig>(4, 12, 5);
+    check_optimized_multi_paths::<8, 4, PallasBase, PallasConfig, VestaConfig>(4, 12, 8);
+    check_optimized_multi_paths::<8, 4, PallasBase, PallasConfig, VestaConfig>(4, 12, 9);
+    check_optimized_multi_paths::<8, 4, PallasBase, PallasConfig, VestaConfig>(3, 13, 3);
+    check_optimized_multi_paths::<8, 4, PallasBase, PallasConfig, VestaConfig>(3, 13, 4);
+    check_optimized_multi_paths::<8, 4, PallasBase, PallasConfig, VestaConfig>(3, 13,  5);
+    check_optimized_multi_paths::<8, 4, PallasBase, PallasConfig, VestaConfig>(3, 13, 8);
+    check_optimized_multi_paths::<8, 4, PallasBase, PallasConfig, VestaConfig>(3, 13, 9);
+}
+
 pub fn test_batched_curve_tree_with_parameters<
     const L: usize,
     const M: usize,
@@ -529,5 +543,84 @@ pub fn check_batched_combined_vs_common_root_proofs_with_parameters<
                 )
             }
         }
+    }
+}
+
+pub fn check_optimized_multi_paths<
+    const L: usize,
+    const M: usize,
+    F: PrimeField,
+    P0: SWCurveConfig<BaseField = F> + Copy,
+    P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = P0::BaseField> + Copy,
+>(
+    depth: usize,
+    generators_length_log_2: usize,
+    num_leaves: usize,
+) {
+    let mut rng = thread_rng();
+    let generators_length = 1 << generators_length_log_2;
+
+    let sr_params = SelRerandParameters::<P0, P1>::new(generators_length, generators_length)
+        .expect("Failed to create SelRerandParameters");
+
+    let mut set = Vec::with_capacity(num_leaves);
+    let mut leaf_indices = Vec::with_capacity(num_leaves);
+    for i in 0..num_leaves {
+        set.push(Affine::<P0>::rand(&mut rng));
+        leaf_indices.push(i as u32)
+    }
+
+    let curve_tree = CurveTree::<L, M, P0, P1>::from_leaves(&set, &sr_params, Some(depth));
+    assert_eq!(curve_tree.height(), depth);
+
+    let mut multi_paths = Vec::new();
+    for chunk in leaf_indices.chunks(M) {
+        let multi_path = curve_tree.get_paths_to_leaves(chunk).unwrap();
+        multi_paths.push(multi_path);
+    }
+
+    let optimized_multi_paths = curve_tree.get_optmz_paths_to_leaves(&leaf_indices).unwrap();
+
+    let num_multi_paths = (num_leaves + M - 1) / M;
+
+    assert_eq!(optimized_multi_paths.num_multi_paths(), multi_paths.len());
+
+    println!("For L={L}, M={M} and {num_multi_paths} paths, size = {} and optimized size = {}", multi_paths.compressed_size(), optimized_multi_paths.compressed_size());
+    
+    let reconstructed_multi_paths = optimized_multi_paths.to_individual_multi_paths();
+    assert_eq!(reconstructed_multi_paths.len(), num_multi_paths);
+
+    for (i, (original, reconstructed)) in multi_paths.iter().zip(reconstructed_multi_paths.iter()).enumerate() {
+        assert_eq!(original.even_internal_nodes.len(), reconstructed.even_internal_nodes.len(),
+            "Multi-path {}: even_internal_nodes length mismatch", i);
+        assert_eq!(original.odd_internal_nodes.len(), reconstructed.odd_internal_nodes.len(),
+            "Multi-path {}: odd_internal_nodes length mismatch", i);
+
+        for (level, (orig_level, recon_level)) in original.even_internal_nodes.iter().zip(reconstructed.even_internal_nodes.iter()).enumerate() {
+            assert_eq!(orig_level.len(), recon_level.len(),
+                "Multi-path {}, even level {}: nodes count mismatch", i, level);
+            for (tree_idx, (orig_node, recon_node)) in orig_level.iter().zip(recon_level.iter()).enumerate() {
+                assert_eq!(orig_node.x_coord_children, recon_node.x_coord_children,
+                    "Multi-path {}, even level {}, tree {}: x_coord_children mismatch", i, level, tree_idx);
+                assert_eq!(orig_node.child_node_to_randomize, recon_node.child_node_to_randomize,
+                    "Multi-path {}, even level {}, tree {}: child_node_to_randomize mismatch", i, level, tree_idx);
+            }
+        }
+
+        for (level, (orig_level, recon_level)) in original.odd_internal_nodes.iter().zip(reconstructed.odd_internal_nodes.iter()).enumerate() {
+            assert_eq!(orig_level.len(), recon_level.len(),
+                "Multi-path {}, odd level {}: nodes count mismatch", i, level);
+            for (tree_idx, (orig_node, recon_node)) in orig_level.iter().zip(recon_level.iter()).enumerate() {
+                assert_eq!(orig_node.x_coord_children, recon_node.x_coord_children,
+                    "Multi-path {}, odd level {}, tree {}: x_coord_children mismatch", i, level, tree_idx);
+                assert_eq!(orig_node.child_node_to_randomize, recon_node.child_node_to_randomize,
+                    "Multi-path {}, odd level {}, tree {}: child_node_to_randomize mismatch", i, level, tree_idx);
+            }
+        }
+    }
+
+    for multi_path in &multi_paths[1..] {
+        assert_eq!(multi_path.even_internal_nodes.len(), multi_paths[0].even_internal_nodes.len());
+        assert_eq!(multi_path.odd_internal_nodes.len(), multi_paths[0].odd_internal_nodes.len());
     }
 }

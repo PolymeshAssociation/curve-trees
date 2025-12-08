@@ -1,5 +1,7 @@
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
+pub use verifier::batch::add_verification_tuples_to_rmc;
+pub use verifier::batch::add_verification_tuples_to_rmc_0;
 
 pub mod constraint_system;
 pub mod linear_combination;
@@ -16,10 +18,11 @@ pub use self::metrics::Metrics;
 pub use self::proof::R1CSProof;
 pub use self::prover::Prover;
 #[cfg(feature = "std")]
-pub use self::verifier::batch_verify;
+pub use verifier::batch::batch_verify;
+pub use verifier::batch::batch_verify_with_rng;
 pub use self::verifier::{
-    add_verification_tuple_to_rmc, add_verification_tuples_to_rmc,
-    add_verification_tuples_to_rmc_0, batch_verify_with_rng, verify_given_verification_tuple,
+    add_verification_tuple_to_rmc,
+    verify_given_verification_tuple,
     VerificationTuple, Verifier,
 };
 

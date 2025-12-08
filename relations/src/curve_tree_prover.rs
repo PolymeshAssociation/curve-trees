@@ -241,16 +241,16 @@ pub struct CurveTreeWitnessPath<const L: usize, P0: SWCurveConfig + Copy, P1: SW
 pub enum RootChildren<const L: usize, P0: SWCurveConfig + Copy, P1: SWCurveConfig + Copy> {
     /// Root is an even-level node
     Even {
-        /// x-coordinates of all children of the root (shared across all paths)
+        /// x-coordinates of all children (odd level nodes) of the root (shared across all paths)
         x_coords: [P0::ScalarField; L],
-        /// The child nodes selected by each path (one per path)
+        /// The child nodes selected by each path (one per path). These are odd level nodes
         child_nodes_to_randomize: Vec<Affine<P1>>,
     },
     /// Root is an odd-level node
     Odd {
-        /// x-coordinates of all children of the root (shared across all paths)
+        /// x-coordinates of all children (even level nodes) of the root (shared across all paths)
         x_coords: [P1::ScalarField; L],
-        /// The child nodes selected by each path (one per path)
+        /// The child nodes selected by each path (one per path). These are even level nodes
         child_nodes_to_randomize: Vec<Affine<P0>>,
     },
 }
@@ -267,14 +267,15 @@ pub struct WitnessPathWithSameRoot<const L: usize, P0: SWCurveConfig + Copy, P1:
 }
 
 impl<const L: usize, P0: SWCurveConfig + Copy, P1: SWCurveConfig + Copy> WitnessPathWithSameRoot<L, P0, P1> {
+    
     /// Returns the number of paths in this witness
-    pub fn num_indices(&self) -> u32 {
-        self.even_internal_nodes.len() as u32
+    pub fn num_paths(&self) -> usize {
+        self.odd_internal_nodes.len()
     }
 
     /// Converts this batch witness structure into individual [`CurveTreeWitnessPath`] objects
     pub fn to_individual_paths(&self) -> Vec<CurveTreeWitnessPath<L, P0, P1>> {
-        let num_paths = self.even_internal_nodes.len();
+        let num_paths = self.num_paths();
         let mut paths = Vec::with_capacity(num_paths);
 
         match &self.root_children {

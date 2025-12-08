@@ -838,8 +838,10 @@ pub fn check_common_root_paths<
     }
 
     let witness_paths_with_same_root = curve_tree.get_paths_to_leaves_for_proof(&leaf_indices, 0).unwrap();
-    
-    assert_eq!(witness_paths_with_same_root.num_indices(), num_paths as u32);
+
+    println!("For L={L} and {num_paths} paths, size = {} and optimized size = {}", witness_paths.compressed_size(), witness_paths_with_same_root.compressed_size());
+
+    assert_eq!(witness_paths_with_same_root.num_paths(), num_paths);
 
     let reconstructed_paths = witness_paths_with_same_root.to_individual_paths();
     assert_eq!(reconstructed_paths.len(), num_paths);

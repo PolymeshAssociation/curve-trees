@@ -4,7 +4,7 @@ use ark_ff::PrimeField;
 use criterion::{BenchmarkId, Criterion};
 
 extern crate bulletproofs;
-use bulletproofs::r1cs::{batch_verify, Prover, Verifier};
+use bulletproofs::r1cs::{Prover, Verifier};
 
 extern crate relations;
 use relations::curve_tree::*;
@@ -23,6 +23,7 @@ use dock_crypto_utils::transcript::MerlinTranscript;
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
+use bulletproofs::r1cs::verifier::batch::batch_verify;
 
 fn bench_select_and_rerandomize_batches(c: &mut Criterion) {
     let threaded = {
