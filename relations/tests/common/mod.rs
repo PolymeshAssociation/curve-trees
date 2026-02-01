@@ -3,11 +3,12 @@ use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use bulletproofs::r1cs::{Prover, Verifier};
 use dock_crypto_utils::transcript::MerlinTranscript;
-use relations::curve_tree::{Root, SelRerandParameters};
+use relations::curve_tree::Root;
 use relations::curve_tree_prover::CurveTreeWitnessPath;
 pub use relations::utils::{prove, verify};
 use std::time::{Duration, Instant};
 use rand_core::CryptoRngCore;
+use relations::parameters::{SelRerandParameters, SelRerandProofParameters};
 
 #[allow(dead_code)]
 const PROOF_LABEL: &'static [u8; 22] = b"select_and_rerandomize";
@@ -25,6 +26,8 @@ pub fn check_proof<
     root: &Root<L, 1, P0, P1>,
     sr_params: &SelRerandParameters<P0, P1>,
 ) -> (Duration, Duration) {
+    let sr_proof_params = SelRerandProofParameters::try_from(sr_params.clone()).unwrap();
+
     let start = Instant::now();
     let pallas_transcript = MerlinTranscript::new(PROOF_LABEL);
     let mut pallas_prover: Prover<_, Affine<P0>> =
@@ -36,11 +39,11 @@ pub fn check_proof<
     let (path_commitments, re_randomization_of_leaf) = path.select_and_rerandomize_prover_gadget(
         &mut pallas_prover,
         &mut vesta_prover,
-        &sr_params,
+        &sr_proof_params,
         rng,
     );
 
-    let (pallas_proof, vesta_proof) = prove(pallas_prover, vesta_prover, &sr_params, rng).unwrap();
+    let (pallas_proof, vesta_proof) = prove(pallas_prover, vesta_prover, &sr_params.even_parameters.bp_gens, &sr_params.odd_parameters.bp_gens, rng).unwrap();
 
     let proving_time = start.elapsed();
 
@@ -55,7 +58,7 @@ pub fn check_proof<
             &root,
             &mut pallas_verifier,
             &mut vesta_verifier,
-            &sr_params,
+            &sr_proof_params,
         );
         let rerandomized_leaf = path_commitments.get_rerandomized_leaf();
 
@@ -64,7 +67,10 @@ pub fn check_proof<
             vesta_verifier,
             &pallas_proof,
             &vesta_proof,
-            sr_params,
+            &sr_params.even_parameters.pc_gens,
+            &sr_params.even_parameters.bp_gens,
+            &sr_params.odd_parameters.pc_gens,
+            &sr_params.odd_parameters.bp_gens,
             rng,
         )
         .unwrap();

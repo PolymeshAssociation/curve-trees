@@ -144,6 +144,16 @@ pub enum R1CSError {
         /// The description of the reasons for the error.
         description: String,
     },
+
+    /// Occurs when generation of an
+    /// [`R1CSProof`](::r1cs::R1CSProof) fails.
+    #[error("R1CSProof failed to generate with error: {0}")]
+    ProofGenerationError(String),
+
+    /// Occurs when verification of an
+    /// [`R1CSProof`](::r1cs::R1CSProof) fails.
+    #[error("R1CSProof failed to verify with error: {0}")]
+    VerificationErrorWithReason(String),
 }
 
 impl From<ProofError> for R1CSError {

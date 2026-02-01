@@ -5,7 +5,7 @@ use alloc::{borrow::ToOwned, boxed::Box, vec, vec::Vec};
 
 use ark_ec::{AffineRepr, CurveGroup, VariableBaseMSM};
 use ark_ff::Field;
-use ark_std::{One, UniformRand, Zero};
+use ark_std::{One, UniformRand, Zero, format};
 use core::borrow::BorrowMut;
 use dock_crypto_utils::transcript::MerlinTranscript;
 use rand_core::{CryptoRng, RngCore};
@@ -38,9 +38,9 @@ pub struct Prover<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> {
     transcript: T,
     pc_gens: &'g PedersenGens<C>,
     /// The constraints accumulated so far.
-    constraints: Vec<LinearCombination<C::ScalarField>>,
+    pub constraints: Vec<LinearCombination<C::ScalarField>>,
     /// Secret data
-    secrets: Secrets<C::ScalarField>,
+    pub secrets: Secrets<C::ScalarField>,
 
     /// This list holds closures that will be called in the second phase of the protocol,
     /// when non-randomized variables are committed.
@@ -57,19 +57,19 @@ unsafe impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Send for Prover<'
 /// Separate struct to implement Drop trait for (for zeroing),
 /// so that compiler does not prohibit us from moving the Transcript out of `prove()`.
 #[derive(ZeroizeOnDrop)]
-struct Secrets<F: Field> {
+pub struct Secrets<F: Field> {
     /// Stores assignments to the "left" of multiplication gates
-    a_L: Vec<F>,
+    pub(crate) a_L: Vec<F>,
     /// Stores assignments to the "right" of multiplication gates
     a_R: Vec<F>,
     /// Stores assignments to the "output" of multiplication gates
     a_O: Vec<F>,
     /// High-level witness data (value openings to V commitments)
-    v: Vec<F>,
+    pub(crate) v: Vec<F>,
     /// High-level witness data (blinding openings to V commitments)
     v_blinding: Vec<F>,
     /// Each item of the vector is pair with first element as the blinding and the next is the vector of elements committed in a Pedersen commitment
-    vec_open: Vec<(F, Vec<F>)>,
+    pub vec_open: Vec<(F, Vec<F>)>,
 }
 
 /// Prover in the randomizing phase.
@@ -186,6 +186,10 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> ConstraintSystem<C::Scal
         // (e.g. that variables are valid, that the linear combination evals to 0 for prover, etc).
         self.constraints.push(lc);
     }
+
+    fn evaluate(&self, lc: &LinearCombination<C::ScalarField>) -> Option<C::ScalarField> {
+        Some(self.eval(lc))
+    }
 }
 
 impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> RandomizableConstraintSystem<C::ScalarField>
@@ -248,6 +252,10 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> ConstraintSystem<C::Scal
 
     fn constrain(&mut self, lc: LinearCombination<C::ScalarField>) {
         self.prover.constrain(lc)
+    }
+
+    fn evaluate(&self, lc: &LinearCombination<C::ScalarField>) -> Option<C::ScalarField> {
+        Some(self.prover.eval(lc))
     }
 }
 
@@ -551,6 +559,10 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
         // op_degree = 2 + 2 * floor(#comm / 2)
         let op_degree = 2 + 2 * (ncomm / 2);
 
+        if util::T_LABELS.len() < (2 * (op_degree + 1) + 1) {
+            return Err(R1CSError::ProofGenerationError(format!("Not enough labels for t polynomial: {} {}", (2 * (op_degree + 1) + 1), util::T_LABELS.len())))
+        }
+        
         let ops = op_splits(op_degree);
         let veccom_ops = &ops[2..];
 
@@ -1046,7 +1058,7 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
         }
 
         let mut t_poly = util::VecPoly::inner_product(&l_poly, &r_poly);
-        assert_eq!(t_poly.deg(), 2 * (op_degree + 1));
+        debug_assert_eq!(t_poly.deg(), 2 * (op_degree + 1));
 
         // commit to t-poly
         let mut t_blinding_poly = util::Poly::zero(t_poly.deg());

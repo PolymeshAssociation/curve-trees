@@ -43,4 +43,10 @@ pub mod error;
 pub mod lean_curve_tree;
 pub mod partial_curve_tree;
 pub mod ped_comm_group_elems;
+pub mod prover;
+pub mod verifier;
+pub mod batched_prover;
+pub mod batched_verifier;
+pub mod parameters;
+
 // TODO: Rename generics types to be more descriptive

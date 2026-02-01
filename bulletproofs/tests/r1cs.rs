@@ -97,6 +97,11 @@ impl<C: AffineRepr> ShuffleProof<C> {
             .map(|v| prover.commit(*v, C::ScalarField::rand(&mut blinding_rng)))
             .unzip();
 
+        for i in 0..input.len() {
+            assert_eq!(prover.eval(&input_vars[i].into()), input[i]);
+            assert_eq!(prover.eval(&output_vars[i].into()), output[i]);
+        }
+
         ShuffleProof::<C>::gadget(&mut prover, input_vars, output_vars)?;
 
         let proof = prover.prove(&bp_gens)?;
@@ -391,6 +396,12 @@ fn example_gadget_proof<C: AffineRepr>(
         .map(|x| prover.commit(C::ScalarField::from(*x), C::ScalarField::rand(&mut rng)))
         .unzip();
 
+    assert_eq!(C::ScalarField::from(a1), prover.eval(&vars[0].into()));
+    assert_eq!(C::ScalarField::from(a2), prover.eval(&vars[1].into()));
+    assert_eq!(C::ScalarField::from(b1), prover.eval(&vars[2].into()));
+    assert_eq!(C::ScalarField::from(b2), prover.eval(&vars[3].into()));
+    assert_eq!(C::ScalarField::from(c1), prover.eval(&vars[4].into()));
+
     // 3. Build a CS
     example_gadget(
         &mut prover,
@@ -536,8 +547,11 @@ fn range_proof_helper<C: AffineRepr>(v_val: u64, n: usize) -> Result<(), R1CSErr
 
         let mut prover = Prover::new(&pc_gens, &mut prover_transcript);
 
-        let (com, var) = prover.commit(v_val.into(), C::ScalarField::rand(&mut rng));
-        assert!(range_proof(&mut prover, var.into(), Some(v_val), n).is_ok());
+        let v = v_val.into();
+        let (com, var) = prover.commit(v, C::ScalarField::rand(&mut rng));
+        let var = var.into();
+        assert_eq!(v, prover.eval(&var));
+        assert!(range_proof(&mut prover, var, Some(v_val), n).is_ok());
 
         let proof = prover.prove(&bp_gens)?;
 

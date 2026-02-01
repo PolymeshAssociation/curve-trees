@@ -1,8 +1,8 @@
-use crate::curve_tree::{Root, SelRerandParameters};
+use crate::curve_tree::Root;
 use crate::curve_tree_prover::{CurveTreeWitnessPath, WitnessNode};
 use crate::error::Error;
 use crate::lean_curve_tree::{DefaultNode, LeanCurveTree, Node};
-use crate::single_level_select_and_rerandomize::SingleLayerParameters;
+use crate::parameters::{SelRerandParametersRef, SingleLayerParameters};
 use ark_ec::short_weierstrass::{Affine, SWCurveConfig};
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
@@ -37,7 +37,7 @@ impl<
         P1: SWCurveConfig<BaseField = F0, ScalarField = F1> + Copy,
     > PartialCurveTree<L, P0, P1>
 {
-    pub fn new(height: u8, parameters: &SelRerandParameters<P0, P1>) -> Result<Self, Error> {
+    pub fn new(height: u8, parameters: &impl SelRerandParametersRef<P0, P1>) -> Result<Self, Error> {
         if height == 0 {
             return Err(Error::HeightCantBe0);
         }
@@ -124,7 +124,7 @@ impl<
     pub fn update_on_leaves(
         &mut self,
         leaves: Vec<Affine<P0>>,
-        parameters: &SelRerandParameters<P0, P1>,
+        parameters: &impl SelRerandParametersRef<P0, P1>,
     ) -> Result<(), Error> {
         if (self.next_leaf_index + leaves.len() as u64) > (L as u64).pow(self.height as u32) {
             return Err(Error::TreeWontSupportRequiredInsertions(
@@ -155,8 +155,8 @@ impl<
                         &mut self.odd_levels[i / 2],
                         child_node,
                         self.odd_level_default_nodes[i / 2].clone(),
-                        &parameters.odd_parameters,
-                        &parameters.even_parameters,
+                        parameters.odd_parameters(),
+                        parameters.even_parameters(),
                     )
                 } else {
                     let child_level = &self.odd_levels[i / 2];
@@ -167,8 +167,8 @@ impl<
                         &mut self.even_levels[i / 2],
                         child_node,
                         self.even_level_default_nodes[i / 2].clone(),
-                        &parameters.even_parameters,
-                        &parameters.odd_parameters,
+                        parameters.even_parameters(),
+                        parameters.odd_parameters(),
                     )
                 }
                 curr_idx /= L as u64;

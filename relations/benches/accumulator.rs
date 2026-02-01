@@ -23,6 +23,7 @@ use dock_crypto_utils::transcript::MerlinTranscript;
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
+use relations::parameters::SelRerandProofParameters;
 
 #[cfg(feature = "usenix")]
 fn bench_accumulator(c: &mut Criterion) {
@@ -72,6 +73,7 @@ fn bench_accumulator_with_parameters<
     let sr_params =
         SelRerandParameters::<P0, P1>::new(even_generators_length, odd_generators_length)
             .expect("Failed to create SelRerandParameters");
+    let sr_proof_params = SelRerandProofParameters::try_from(sr_params.clone()).unwrap();
 
     let leaf_elements: Vec<_> = (0..leaf_width)
         .map(|_| P0::ScalarField::rand(&mut rng))
@@ -101,7 +103,7 @@ fn bench_accumulator_with_parameters<
             0,
             &mut pallas_prover,
             &mut vesta_prover,
-            &sr_params,
+            &sr_proof_params,
             &mut rand::thread_rng(),
         ).unwrap();
 
@@ -167,6 +169,7 @@ fn bench_accumulator_with_parameters<
     let group_name = format!("{}_batch_verification", &prefix_string);
     let mut group = c.benchmark_group(group_name);
     use std::iter;
+    use relations::parameters::SelRerandParameters;
 
     for n in [1, 100] {
         group.bench_with_input(
@@ -189,7 +192,7 @@ fn bench_accumulator_with_parameters<
                                             &root,
                                             &mut pallas_verifier,
                                             &mut vesta_verifier,
-                                            &sr_params,
+                                            &sr_proof_params,
                                         );
                                         let rerandomized_leaf = path.get_rerandomized_leaf();
                                         let leaf_vars = pallas_verifier.commit_vec(
@@ -227,7 +230,7 @@ fn bench_accumulator_with_parameters<
                                             &root,
                                             &mut pallas_verifier,
                                             &mut vesta_verifier,
-                                            &sr_params,
+                                            &sr_proof_params,
                                         );
 
                                         let vesta_vt = vesta_verifier
@@ -260,7 +263,7 @@ fn bench_accumulator_with_parameters<
                                     let mut pallas_verifier = Verifier::new(pallas_transcript);
                                     srv.even_verifier_gadget(
                                         &mut pallas_verifier,
-                                        &sr_params,
+                                        &sr_proof_params,
                                         &curve_tree,
                                     );
                                     let leaf_vars = pallas_verifier
@@ -290,7 +293,7 @@ fn bench_accumulator_with_parameters<
                                     let mut vesta_verifier = Verifier::new(vesta_transcript);
                                     srv.odd_verifier_gadget(
                                         &mut vesta_verifier,
-                                        &sr_params,
+                                        &sr_proof_params,
                                         &curve_tree,
                                     );
 

@@ -1,69 +1,13 @@
 use crate::error::Error;
-use crate::single_level_select_and_rerandomize::*;
-
+use ark_dlog_gadget::dlog::DivisorComms;
 use ark_ec::AffineRepr;
 use ark_ec::{models::short_weierstrass::SWCurveConfig, short_weierstrass::Affine, CurveGroup};
 use ark_ff::PrimeField;
-use ark_pallas::PallasConfig;
 use ark_serialize::{
     CanonicalDeserialize, CanonicalSerialize, Compress, SerializationError, Valid, Validate, Write,
 };
 use ark_std::{boxed::Box, io::Read, vec, vec::Vec, Zero};
-use ark_vesta::VestaConfig;
-
-/// Parameters for multi level select and rerandomize over a 2-cycle of curves
-#[derive(Clone, CanonicalSerialize, CanonicalDeserialize)]
-pub struct SelRerandParameters<P0: SWCurveConfig + Copy, P1: SWCurveConfig + Copy> {
-    pub even_parameters: SingleLayerParameters<P0>,
-    pub odd_parameters: SingleLayerParameters<P1>,
-}
-
-impl<P0: SWCurveConfig + Copy, P1: SWCurveConfig + Copy> SelRerandParameters<P0, P1> {
-    pub fn new(even_generators_length: u32, odd_generators_length: u32) -> Result<Self, Error> {
-        Ok(SelRerandParameters {
-            even_parameters: SingleLayerParameters::<P0>::new(even_generators_length)?,
-            odd_parameters: SingleLayerParameters::<P1>::new(odd_generators_length)?,
-        })
-    }
-}
-
-impl SelRerandParameters<PallasConfig, VestaConfig> {
-    pub fn new_using_label(
-        label: &[u8],
-        even_generators_length: u32,
-        odd_generators_length: u32,
-    ) -> Result<Self, Error> {
-        Ok(SelRerandParameters {
-            even_parameters: SingleLayerParameters::<PallasConfig>::new_using_label(
-                label,
-                even_generators_length,
-            )?,
-            odd_parameters: SingleLayerParameters::<VestaConfig>::new_using_label(
-                label,
-                odd_generators_length,
-            )?,
-        })
-    }
-}
-
-impl SelRerandParameters<VestaConfig, PallasConfig> {
-    pub fn new_using_label(
-        label: &[u8],
-        even_generators_length: u32,
-        odd_generators_length: u32,
-    ) -> Result<Self, Error> {
-        Ok(SelRerandParameters {
-            even_parameters: SingleLayerParameters::<VestaConfig>::new_using_label(
-                label,
-                even_generators_length,
-            )?,
-            odd_parameters: SingleLayerParameters::<PallasConfig>::new_using_label(
-                label,
-                odd_generators_length,
-            )?,
-        })
-    }
-}
+use crate::parameters::{SelRerandParametersRef, SingleLayerParameters};
 
 pub enum CurveTree<
     const L: usize, // L is te branching factor, i.e. the number of children per branch
@@ -99,7 +43,7 @@ impl<
     /// Build a curve tree from a set of commitments
     pub fn from_leaves(
         set: &[Affine<P0>],
-        parameters: &SelRerandParameters<P0, P1>,
+        parameters: &impl SelRerandParametersRef<P0, P1>,
         height: Option<usize>, // resulting curve tree will have height at least `height`
     ) -> Self {
         if set.is_empty() {
@@ -125,8 +69,8 @@ impl<
                 for nodes in nodes_at_even_level.chunks(L) {
                     nodes_at_odd_level.push(CurveTreeNode::<L, M, P1, P0>::combine(
                         nodes.to_vec(),
-                        &parameters.odd_parameters,
-                        &parameters.even_parameters.delta,
+                        parameters.odd_parameters(),
+                        &parameters.even_parameters().delta,
                     ));
                 }
                 // This will hold nodes at the next even-level
@@ -136,8 +80,8 @@ impl<
                 for nodes in nodes_at_odd_level.chunks(L) {
                     nodes_at_even_level.push(CurveTreeNode::<L, M, P0, P1>::combine(
                         nodes.to_vec(),
-                        &parameters.even_parameters,
-                        &parameters.odd_parameters.delta,
+                        parameters.even_parameters(),
+                        &parameters.odd_parameters().delta,
                     ));
                 }
                 // This will hold nodes at the next odd-level
@@ -159,7 +103,7 @@ impl<
     pub fn increase_height(
         self,
         height: Option<usize>,
-        parameters: &SelRerandParameters<P0, P1>,
+        parameters: &impl SelRerandParametersRef<P0, P1>,
     ) -> Self {
         match height {
             None => self,
@@ -170,15 +114,15 @@ impl<
                         Self::Even(ct) => {
                             res = Self::Odd(CurveTreeNode::<L, M, P1, P0>::combine(
                                 vec![ct],
-                                &parameters.odd_parameters,
-                                &parameters.even_parameters.delta,
+                                parameters.odd_parameters(),
+                                &parameters.even_parameters().delta,
                             ));
                         }
                         Self::Odd(ct) => {
                             res = Self::Even(CurveTreeNode::<L, M, P0, P1>::combine(
                                 vec![ct],
-                                &parameters.even_parameters,
-                                &parameters.odd_parameters.delta,
+                                parameters.even_parameters(),
+                                &parameters.odd_parameters().delta,
                             ));
                         }
                     }
@@ -210,7 +154,7 @@ impl<
         leaf_index: usize,
         tree_index: usize,
         new_leaf_value: Affine<P0>,
-        parameters: &SelRerandParameters<P0, P1>,
+        parameters: &impl SelRerandParametersRef<P0, P1>,
     ) {
         match self {
             Self::Even(node) => {
@@ -288,7 +232,7 @@ impl<
         leaf_index: usize,
         tree_index: usize,
         new_leaf_value: Affine<P0>,
-        parameters: &SelRerandParameters<P0, P1>,
+        parameters: &impl SelRerandParametersRef<P0, P1>,
     ) {
         let child_node_index_to_update = node.child_index(leaf_index);
         match node {
@@ -311,8 +255,8 @@ impl<
                     tree_index,
                     child_node_index_to_update,
                     child_commitment,
-                    &parameters.even_parameters,
-                    &parameters.odd_parameters,
+                    parameters.even_parameters(),
+                    parameters.odd_parameters(),
                 );
             }
         }
@@ -323,7 +267,7 @@ impl<
         leaf_index: usize,
         tree_index: usize,
         new_leaf_value: Affine<P0>,
-        parameters: &SelRerandParameters<P0, P1>,
+        parameters: &impl SelRerandParametersRef<P0, P1>,
     ) {
         let child_node_index_to_update = node.child_index(leaf_index);
         match node {
@@ -343,8 +287,8 @@ impl<
                     tree_index,
                     child_node_index_to_update,
                     child_commitment,
-                    &parameters.odd_parameters,
-                    &parameters.even_parameters,
+                    parameters.odd_parameters(),
+                    parameters.even_parameters(),
                 );
             }
             _ => unreachable!("Cannot have leaf at odd level"),
@@ -380,6 +324,26 @@ pub struct SelectAndRerandomizeMultiPath<
     pub odd_commitments: Vec<Affine<P1>>,
     pub even_commitments: Vec<Affine<P0>>,
 }
+
+#[derive(Clone, PartialEq, Eq, Debug, CanonicalSerialize, CanonicalDeserialize)]
+pub struct SelectAndRerandomizePathWithDivisorComms<const L: usize, P0: SWCurveConfig, P1: SWCurveConfig> {
+    pub path: SelectAndRerandomizePath<L, P0, P1>,
+    pub even_divisor_comms: Vec<DivisorComms<Affine<P0>>>,
+    pub odd_divisor_comms: Vec<DivisorComms<Affine<P1>>>,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, CanonicalSerialize, CanonicalDeserialize)]
+pub struct SelectAndRerandomizeMultiPathWithDivisorComms<
+    const L: usize,
+    const M: usize,
+    P0: SWCurveConfig,
+    P1: SWCurveConfig,
+> {
+    pub path: SelectAndRerandomizeMultiPath<L, M, P0, P1>,
+    pub even_divisor_comms: Vec<DivisorComms<Affine<P0>>>,
+    pub odd_divisor_comms: Vec<DivisorComms<Affine<P1>>>,
+}
+
 /// A list of `L` potential nodes
 type Children<const L: usize, const M: usize, P0, P1> = [Option<CurveTreeNode<L, M, P1, P0>>; L];
 

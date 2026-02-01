@@ -251,6 +251,22 @@ fn get_num_windows<F: PrimeField>() -> usize {
     (lambda / 3) + 1
 }
 
+// pub fn re_randomize_new<
+//     F: Field,
+//     S: PrimeField,
+//     P: SWCurveConfig<BaseField = F, ScalarField = S>,
+//     Cs: ConstraintSystem<F>,
+// >(
+//     cs: &mut Cs,
+//     tables: &[Lookup3Bit<2, F>],
+//     commitment: PointRepresentation<F, Affine<P>>,
+//     re_randomized_commitment_x_coord: LinearCombination<F>,
+//     re_randomized_commitment_y_coord: LinearCombination<F>,
+//     randomness: Option<S>,
+// ) -> Result<(), Error> {
+//     todo!()
+// }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -260,11 +276,93 @@ mod tests {
 
     use ark_ec::CurveGroup;
     use ark_pallas::Affine as PallasA;
+    use ark_serialize::CanonicalSerialize;
     use ark_std::UniformRand;
     use ark_vesta::Affine as VestaA;
     use dock_crypto_utils::transcript::MerlinTranscript;
 
     type PallasScalar = <PallasA as AffineRepr>::ScalarField;
+
+    #[test]
+    fn test_scalar_mult_combined() {
+        let mut rng = rand::thread_rng();
+
+        let pc_gens = PedersenGens::<VestaA>::default();
+        let bp_gens = BulletproofGens::<VestaA>::new(1 << 13, 1);
+
+        let h = PallasA::rand(&mut rng);
+        let tables = build_tables(h).expect("Failed to build tables");
+
+        let mut modulus = <<PallasA as AffineRepr>::ScalarField as PrimeField>::MODULUS;
+        modulus.sub_with_borrow(&<PallasScalar as PrimeField>::BigInt::from(1u64));
+        let p_minus_1 = PallasScalar::from_bigint(modulus).unwrap();
+
+        const LABEL: &[u8; 11] = b"scalar-mult";
+
+        let mut proving_time = Duration::default();
+        let mut verifying_time = Duration::default();
+
+        let scalars = [
+            PallasScalar::one(), // lowest value
+            p_minus_1,           // highest value
+            // Some random values
+            PallasScalar::rand(&mut rng),
+            PallasScalar::rand(&mut rng),
+            PallasScalar::rand(&mut rng),
+        ];
+
+        let start = Instant::now();
+        let mut transcript = MerlinTranscript::new(LABEL);
+        let mut prover = Prover::new(&pc_gens, &mut transcript);
+
+        for r in scalars {
+            // println!("num constraints before mult = {:?}", prover.constraints.len());
+            let (res, x_lc, y_lc): (PallasA, _, _) =
+                scalar_mult(&mut prover, &tables, Some(r)).unwrap();
+
+            assert_eq!(res, (h * r).into_affine());
+
+            // println!("num constraints before curve check = {:?}", prover.constraints.len());
+            curve_check(
+                &mut prover,
+                x_lc,
+                y_lc,
+                PallasConfig::COEFF_A,
+                PallasConfig::COEFF_B,
+            );
+            // println!("num constraints after cc = {:?}", prover.constraints.len());
+        }
+
+        let proof = prover.prove(&bp_gens).unwrap();
+        proving_time += start.elapsed();
+
+        let start = Instant::now();
+        let mut transcript = MerlinTranscript::new(LABEL);
+        let mut verifier: Verifier<_, VestaA> = Verifier::new(&mut transcript);
+
+        for _ in 0..scalars.len() {
+            let (_, x_lc, y_lc): (PallasA, _, _) =
+                scalar_mult(&mut verifier, &tables, None).unwrap();
+
+            curve_check(
+                &mut verifier,
+                x_lc,
+                y_lc,
+                PallasConfig::COEFF_A,
+                PallasConfig::COEFF_B,
+            );
+        }
+
+        let num_constraints = verifier.constraints.len();
+        verifier.verify(&proof, &pc_gens, &bp_gens).unwrap();
+        verifying_time += start.elapsed();
+        let proof_size = proof.compressed_size();
+
+        println!(
+            "For {} iterations, proving time: {:?} and verifying time {:?} and proof size = {proof_size} bytes and {num_constraints} constraints",
+            scalars.len(), proving_time, verifying_time,
+        );
+    }
 
     #[test]
     fn test_scalar_mult() {
@@ -285,13 +383,16 @@ mod tests {
         let mut proving_time = Duration::default();
         let mut verifiying_time = Duration::default();
 
-        for r in [
+        let scalars = [
             PallasScalar::one(), // lowest value
             p_minus_1,           // highest value
             // Some random values
             PallasScalar::rand(&mut rng),
             PallasScalar::rand(&mut rng),
-        ] {
+            PallasScalar::rand(&mut rng),
+        ];
+        let mut proof_size = 0;
+        for r in scalars {
             let start = Instant::now();
             let proof = {
                 let mut transcript = MerlinTranscript::new(LABEL);
@@ -312,6 +413,9 @@ mod tests {
 
                 let proof = prover.prove(&bp_gens).unwrap();
                 proving_time += start.elapsed();
+                if proof_size == 0 {
+                    proof_size = proof.compressed_size();
+                }
                 proof
             };
 
@@ -334,8 +438,100 @@ mod tests {
             verifiying_time += start.elapsed();
         }
         println!(
-            "For 4 iterations, proving time: {:?} and verifying time {:?}",
-            proving_time, verifiying_time
+            "For {} iterations, proof size = {proof_size}, proving time: {:?} and verifying time {:?}",
+            scalars.len(), proving_time, verifiying_time
+        );
+    }
+
+    #[test]
+    fn test_re_randomize_combined() {
+        let mut rng = rand::thread_rng();
+
+        let pc_gens = PedersenGens::<VestaA>::default();
+        let bp_gens = BulletproofGens::<VestaA>::new(1 << 13, 1);
+
+        let h = PallasA::rand(&mut rng);
+        let tables = build_tables(h).expect("Failed to build tables");
+
+        let mut modulus = <<PallasA as AffineRepr>::ScalarField as PrimeField>::MODULUS;
+        modulus.sub_with_borrow(&<PallasScalar as PrimeField>::BigInt::from(1u64));
+        let p_minus_1 = PallasScalar::from_bigint(modulus).unwrap();
+
+        const LABEL: &'static [u8; 12] = b"RerandGadget";
+
+        let mut proving_time = Duration::default();
+        let mut verifying_time = Duration::default();
+
+        let scalars = [
+            PallasScalar::one(), // lowest value
+            p_minus_1,           // highest value
+            // Some random values
+            PallasScalar::rand(&mut rng),
+            PallasScalar::rand(&mut rng),
+            PallasScalar::rand(&mut rng),
+        ];
+
+        let start = Instant::now();
+        let mut transcript = MerlinTranscript::new(LABEL);
+        let mut prover = Prover::new(&pc_gens, &mut transcript);
+
+        for r in scalars {
+            let c = PallasA::rand(&mut rng);
+            let blinding = h * r;
+            let c_tilde = (c + blinding).into_affine();
+
+            let c_x_var = prover.allocate(Some(c.x)).unwrap();
+            let c_y_var = prover.allocate(Some(c.y)).unwrap();
+            let c_x_tilde_var = prover.allocate(Some(c_tilde.x)).unwrap();
+            let c_y_tilde_var = prover.allocate(Some(c_tilde.y)).unwrap();
+
+            re_randomize(
+                &mut prover,
+                &tables,
+                PointRepresentation {
+                    x: c_x_var.into(),
+                    y: c_y_var.into(),
+                    point: Some(c),
+                },
+                c_x_tilde_var.into(),
+                c_y_tilde_var.into(),
+                Some(r),
+            ).unwrap()
+        }
+
+        let proof = prover.prove(&bp_gens).unwrap();
+        proving_time += start.elapsed();
+
+        let start = Instant::now();
+        let mut transcript = MerlinTranscript::new(LABEL);
+        let mut verifier: Verifier<_, VestaA> = Verifier::new(&mut transcript);
+
+        for _ in 0..scalars.len() {
+            let c_x_var = verifier.allocate(None).unwrap();
+            let c_y_var = verifier.allocate(None).unwrap();
+            let c_x_tilde_var = verifier.allocate(None).unwrap();
+            let c_y_tilde_var = verifier.allocate(None).unwrap();
+
+            re_randomize::<_, _, PallasConfig, _>(
+                &mut verifier,
+                &tables,
+                PointRepresentation {
+                    x: c_x_var.into(),
+                    y: c_y_var.into(),
+                    point: None,
+                },
+                c_x_tilde_var.into(),
+                c_y_tilde_var.into(),
+                None,
+            ).unwrap();
+        }
+
+        verifier.verify(&proof, &pc_gens, &bp_gens).unwrap();
+        verifying_time += start.elapsed();
+
+        println!(
+            "For {} iterations, proving time: {:?} and verifying time {:?}",
+            scalars.len(), proving_time, verifying_time
         );
     }
 
@@ -355,18 +551,23 @@ mod tests {
 
         const LABEL: &'static [u8; 12] = b"RerandGadget";
 
-        for r in [
+        let mut proving_time = Duration::default();
+        let mut verifying_time = Duration::default();
+
+        let scalars = [
             PallasScalar::one(), // lowest value
             p_minus_1,           // highest value
             // Some random values
             PallasScalar::rand(&mut rng),
             PallasScalar::rand(&mut rng),
-        ] {
+        ];
+        for r in scalars {
             let c = PallasA::rand(&mut rng);
             let blinding = h * r;
             let c_tilde = (c + blinding).into_affine();
 
             let proof = {
+                let start = Instant::now();
                 let mut transcript = MerlinTranscript::new(LABEL);
                 let mut prover = Prover::new(&pc_gens, &mut transcript);
                 let c_x_var = prover.allocate(Some(c.x))?;
@@ -374,6 +575,7 @@ mod tests {
                 let c_x_tilde_var = prover.allocate(Some(c_tilde.x))?;
                 let c_y_tilde_var = prover.allocate(Some(c_tilde.y))?;
 
+                // println!("num constrainsts before rand = {:?}", prover.constraints.len());
                 re_randomize(
                     &mut prover,
                     &tables,
@@ -387,11 +589,14 @@ mod tests {
                     Some(r),
                 )
                 .expect("Failed to re-randomize");
+                // println!("num constrainsts after rand = {:?}", prover.constraints.len());
 
                 let proof = prover.prove(&bp_gens)?;
+                proving_time += start.elapsed();
                 proof
             };
 
+            let start = Instant::now();
             let mut transcript = MerlinTranscript::new(LABEL);
             let mut verifier: Verifier<_, VestaA> = Verifier::new(&mut transcript);
             let c_x_var = verifier.allocate(None)?;
@@ -414,7 +619,13 @@ mod tests {
             .expect("Failed to re-randomize");
 
             verifier.verify(&proof, &pc_gens, &bp_gens)?;
+            verifying_time += start.elapsed();
         }
+
+        println!(
+            "For {} iterations, proving time: {:?} and verifying time {:?}",
+            scalars.len(), proving_time, verifying_time
+        );
 
         Ok(())
     }

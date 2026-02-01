@@ -1,5 +1,5 @@
 use ark_ec::short_weierstrass::Affine;
-use ark_serialize::{CanonicalSerialize, Compress};
+use ark_serialize::{CanonicalSerialize};
 use ark_std::UniformRand;
 use bulletproofs::r1cs::*;
 use criterion::{criterion_group, criterion_main, Criterion};
@@ -7,7 +7,8 @@ use std::hint::black_box;
 use dock_crypto_utils::transcript::MerlinTranscript;
 use lazy_static::lazy_static;
 use rand::thread_rng;
-use relations::curve_tree::*;
+use relations::{curve_tree::*, parameters::SelRerandProofParameters};
+use relations::parameters::SelRerandParameters;
 
 type PallasParameters = ark_pallas::PallasConfig;
 type VestaParameters = ark_vesta::VestaConfig;
@@ -20,6 +21,9 @@ lazy_static! {
             generators_length,
         )
         .expect("Failed to create SelRerandParameters")
+    };
+    static ref SRProofParamsPallasLeaf: SelRerandProofParameters<PallasParameters, VestaParameters> = {
+        SelRerandProofParameters::try_from((*SRParamsPallasLeaf).clone()).unwrap()
     };
 }
 
@@ -69,7 +73,7 @@ fn setup_curve_tree_data<const L: usize>(
 
     let curve_tree = CurveTree::<L, 1, PallasParameters, VestaParameters>::from_leaves(
         &set,
-        &SRParamsPallasLeaf,
+        &*SRParamsPallasLeaf,
         Some(height),
     );
 
@@ -90,7 +94,7 @@ fn setup_curve_tree_data<const L: usize>(
     let (path_commitments, _) = path.select_and_rerandomize_prover_gadget(
         &mut pallas_prover,
         &mut vesta_prover,
-        &SRParamsPallasLeaf,
+        &SRProofParamsPallasLeaf,
         &mut rng,
     );
 
@@ -106,12 +110,12 @@ fn setup_curve_tree_data<const L: usize>(
 }
 
 fn curve_tree_verify<const L: usize>(c: &mut Criterion, height: usize) {
-    let (_curve_tree, root, path_commitments, pallas_proof, vesta_proof) =
+    let (_, root, path_commitments, pallas_proof, vesta_proof) =
         setup_curve_tree_data::<L>(height);
 
     println!(
         "Proof size for L={L}, height={height}: {} bytes",
-        pallas_proof.serialized_size(Compress::Yes) + vesta_proof.serialized_size(Compress::Yes)
+        pallas_proof.compressed_size() + vesta_proof.compressed_size()
     );
 
     let bench_name = format!("curve_tree_verify_{}_{}", L, height);
@@ -126,7 +130,7 @@ fn curve_tree_verify<const L: usize>(c: &mut Criterion, height: usize) {
                 &root,
                 &mut pallas_verifier,
                 &mut vesta_verifier,
-                &SRParamsPallasLeaf,
+                &SRProofParamsPallasLeaf,
             );
 
             #[cfg(feature = "parallel")]
@@ -161,7 +165,7 @@ fn curve_tree_verify<const L: usize>(c: &mut Criterion, height: usize) {
                 ),
             );
 
-            black_box((vesta_res, pallas_res))
+            black_box((vesta_res.unwrap(), pallas_res.unwrap()))
         })
     });
 }
@@ -176,7 +180,7 @@ fn curve_tree_prove<const L: usize>(c: &mut Criterion, height: usize) {
 
     let curve_tree = CurveTree::<L, 1, PallasParameters, VestaParameters>::from_leaves(
         &set,
-        &SRParamsPallasLeaf,
+        &*SRParamsPallasLeaf,
         Some(height),
     );
 
@@ -197,7 +201,7 @@ fn curve_tree_prove<const L: usize>(c: &mut Criterion, height: usize) {
             let (path_commitments, _) = path.select_and_rerandomize_prover_gadget(
                 &mut pallas_prover,
                 &mut vesta_prover,
-                &SRParamsPallasLeaf,
+                &SRProofParamsPallasLeaf,
                 &mut rng,
             );
 
@@ -205,6 +209,54 @@ fn curve_tree_prove<const L: usize>(c: &mut Criterion, height: usize) {
             black_box((path_commitments, result))
         })
     });
+}
+
+fn verify_32_7(c: &mut Criterion) {
+    curve_tree_verify::<32>(c, 7);
+}
+
+fn prove_32_7(c: &mut Criterion) {
+    curve_tree_prove::<32>(c, 7);
+}
+
+fn verify_64_5(c: &mut Criterion) {
+    curve_tree_verify::<64>(c, 5);
+}
+
+fn prove_64_5(c: &mut Criterion) {
+    curve_tree_prove::<64>(c, 5);
+}
+
+fn verify_64_6(c: &mut Criterion) {
+    curve_tree_verify::<64>(c, 6);
+}
+
+fn prove_64_6(c: &mut Criterion) {
+    curve_tree_prove::<64>(c, 6);
+}
+
+fn verify_128_4(c: &mut Criterion) {
+    curve_tree_verify::<128>(c, 4);
+}
+
+fn prove_128_4(c: &mut Criterion) {
+    curve_tree_prove::<128>(c, 4);
+}
+
+fn verify_128_5(c: &mut Criterion) {
+    curve_tree_verify::<128>(c, 5);
+}
+
+fn prove_128_5(c: &mut Criterion) {
+    curve_tree_prove::<128>(c, 5);
+}
+
+fn verify_256_4(c: &mut Criterion) {
+    curve_tree_verify::<256>(c, 4);
+}
+
+fn prove_256_4(c: &mut Criterion) {
+    curve_tree_prove::<256>(c, 4);
 }
 
 fn verify_512_4(c: &mut Criterion) {
@@ -249,6 +301,18 @@ fn prove_2000_3(c: &mut Criterion) {
 
 criterion_group!(
     curve_tree_benches,
+    verify_32_7,
+    prove_32_7,
+    verify_64_5,
+    prove_64_5,
+    verify_64_6,
+    prove_64_6,
+    verify_128_4,
+    prove_128_4,
+    verify_128_5,
+    prove_128_5,
+    verify_256_4,
+    prove_256_4,
     verify_512_4,
     prove_512_4,
     verify_1000_2,

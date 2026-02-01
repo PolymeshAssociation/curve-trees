@@ -8,7 +8,7 @@ use criterion::{criterion_group, criterion_main, Criterion};
 use std::hint::black_box;
 use dock_crypto_utils::transcript::MerlinTranscript;
 use rand::{thread_rng, Rng};
-use relations::curve_tree::SelRerandParameters;
+use relations::parameters::SelRerandParameters;
 use relations::range_proof::range_proof;
 
 type VestaA = ark_vesta::Affine;

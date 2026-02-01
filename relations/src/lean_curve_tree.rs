@@ -1,6 +1,6 @@
-use crate::curve_tree::{Root, RootNode, SelRerandParameters};
+use crate::curve_tree::{Root, RootNode};
 use crate::curve_tree_prover::{CurveTreeWitnessPath, WitnessNode};
-use crate::single_level_select_and_rerandomize::SingleLayerParameters;
+use crate::parameters::{SelRerandParametersRef, SingleLayerParameters};
 use ark_ec::short_weierstrass::{Affine, SWCurveConfig};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::PrimeField;
@@ -44,7 +44,7 @@ impl<
         P1: SWCurveConfig<BaseField = F0, ScalarField = F1> + Copy,
     > LeanCurveTree<L, P0, P1>
 {
-    pub fn new(height: u8, parameters: &SelRerandParameters<P0, P1>) -> Self {
+    pub fn new(height: u8, parameters: &impl SelRerandParametersRef<P0, P1>) -> Self {
         assert!(height > 0);
         let (odd_level_default_nodes, even_level_default_nodes) =
             Self::get_default_nodes(height, parameters);
@@ -82,7 +82,7 @@ impl<
         }
     }
 
-    pub fn insert(&mut self, leaf_value: Affine<P0>, parameters: &SelRerandParameters<P0, P1>) {
+    pub fn insert(&mut self, leaf_value: Affine<P0>, parameters: &impl SelRerandParametersRef<P0, P1>) {
         self.set_full_subtrees_to_default();
 
         let mut curr_idx = self.next_leaf_index;
@@ -105,8 +105,8 @@ impl<
                     node_to_update,
                     child_node,
                     default_x_coord,
-                    &parameters.odd_parameters,
-                    &parameters.even_parameters,
+                    parameters.odd_parameters(),
+                    parameters.even_parameters(),
                 )
             } else {
                 let node_to_update = &mut self.even_level_path_nodes[i / 2];
@@ -120,8 +120,8 @@ impl<
                     node_to_update,
                     child_node,
                     default_x_coord,
-                    &parameters.even_parameters,
-                    &parameters.odd_parameters,
+                    parameters.even_parameters(),
+                    parameters.odd_parameters(),
                 )
             }
             curr_idx /= L as u64;
@@ -135,7 +135,7 @@ impl<
     pub fn insert_and_return_path(
         &mut self,
         leaf_value: Affine<P0>,
-        parameters: &SelRerandParameters<P0, P1>,
+        parameters: &impl SelRerandParametersRef<P0, P1>,
     ) -> CurveTreeWitnessPath<L, P0, P1> {
         // TODO: Most of this contains duplication from above function which can likely be removed by passing a closure that calls node update function
         let mut even_witness_nodes = Vec::<WitnessNode<L, P0, P1>>::new();
@@ -163,8 +163,8 @@ impl<
                     node_to_update,
                     child_node,
                     default_x_coord,
-                    &parameters.odd_parameters,
-                    &parameters.even_parameters,
+                    parameters.odd_parameters(),
+                    parameters.even_parameters(),
                 ));
             } else {
                 let node_to_update = &mut self.even_level_path_nodes[i / 2];
@@ -178,8 +178,8 @@ impl<
                     node_to_update,
                     child_node,
                     default_x_coord,
-                    &parameters.even_parameters,
-                    &parameters.odd_parameters,
+                    parameters.even_parameters(),
+                    parameters.odd_parameters(),
                 ));
             }
             curr_idx /= L as u64;
@@ -216,7 +216,7 @@ impl<
 
     pub fn get_default_nodes(
         height: u8,
-        parameters: &SelRerandParameters<P0, P1>,
+        parameters: &impl SelRerandParametersRef<P0, P1>,
     ) -> (Vec<DefaultNode<P0, P1>>, Vec<DefaultNode<P1, P0>>) {
         let mut even_level_default_nodes = Vec::<DefaultNode<P1, P0>>::new();
         let mut odd_level_default_nodes = Vec::<DefaultNode<P0, P1>>::new();
@@ -229,15 +229,15 @@ impl<
                     } else {
                         even_level_default_nodes.last().unwrap().commitment.clone()
                     },
-                    parameters.even_parameters.delta,
-                    &parameters.odd_parameters,
+                    parameters.even_parameters().delta,
+                    parameters.odd_parameters(),
                 );
                 odd_level_default_nodes.push(node);
             } else {
                 let node = LeanCurveTree::<L, P1, P0>::combine_default(
                     odd_level_default_nodes.last().unwrap().commitment.clone(),
-                    parameters.odd_parameters.delta,
-                    &parameters.even_parameters,
+                    parameters.odd_parameters().delta,
+                    parameters.even_parameters(),
                 );
                 even_level_default_nodes.push(node);
             }

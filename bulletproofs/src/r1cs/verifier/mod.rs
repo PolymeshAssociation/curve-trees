@@ -5,7 +5,7 @@ use alloc::{boxed::Box, vec, vec::Vec};
 
 use ark_ec::{AffineRepr, VariableBaseMSM};
 use ark_ff::Field;
-use ark_std::{One, UniformRand, Zero};
+use ark_std::{One, UniformRand, Zero, format};
 use core::borrow::BorrowMut;
 use core::mem;
 use dock_crypto_utils::randomized_mult_checker::RandomizedMultChecker;
@@ -39,9 +39,9 @@ pub use batch::{batch_verify, batch_verify_with_given_randomness, batch_verify_w
 /// that instantiate the randomized constraints, and verifies the proof.
 pub struct Verifier<T: BorrowMut<MerlinTranscript>, C: AffineRepr> {
     transcript: T,
-    constraints: Vec<LinearCombination<C::ScalarField>>,
+    pub constraints: Vec<LinearCombination<C::ScalarField>>,
 
-    vec_comms: Vec<(C, usize)>,
+    pub vec_comms: Vec<(C, usize)>,
 
     /// Records the number of low-level variables allocated in the
     /// constraint system.
@@ -50,8 +50,8 @@ pub struct Verifier<T: BorrowMut<MerlinTranscript>, C: AffineRepr> {
     /// themselves, it doesn't record the assignments (they're all
     /// `Missing`), so the `num_vars` isn't kept implicitly in the
     /// variable assignments.
-    num_vars: usize,
-    V: Vec<C>,
+    pub(crate) num_vars: usize,
+    pub(crate) V: Vec<C>,
 
     /// This list holds closures that will be called in the second phase of the protocol,
     /// when non-randomized variables are committed.
@@ -166,6 +166,10 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> ConstraintSystem<C::ScalarFi
         // evals to 0 for prover, etc).
         self.constraints.push(lc);
     }
+
+    fn evaluate(&self, _: &LinearCombination<C::ScalarField>) -> Option<C::ScalarField> {
+        None
+    }
 }
 
 impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> RandomizableConstraintSystem<C::ScalarField>
@@ -228,6 +232,10 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> ConstraintSystem<C::ScalarFi
 
     fn constrain(&mut self, lc: LinearCombination<C::ScalarField>) {
         self.verifier.constrain(lc)
+    }
+
+    fn evaluate(&self, lc: &LinearCombination<C::ScalarField>) -> Option<C::ScalarField> {
+        self.verifier.evaluate(lc)
     }
 }
 
@@ -527,8 +535,12 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
         let op_aO = ops[1];
         let op_vec = &ops[2..];
 
-        // TODO: Throw error if proof.T does not have expected length.
-        debug_assert_eq!(t_poly_deg + 1, proof.T.len());
+        if proof.T.len() != (t_poly_deg + 1) {
+            return Err(R1CSError::VerificationErrorWithReason(format!("Invalid length for proof.T: {} {}", proof.T.len(), t_poly_deg + 1)))
+        }
+        if proof.T.len() > util::T_LABELS.len() {
+            return Err(R1CSError::VerificationErrorWithReason(format!("Not enough labels for proof.T: {} {}", proof.T.len(), util::T_LABELS.len())))
+        }
 
         transcript.validate_and_append_point(b"A_I1", &proof.A_I1)?;
         transcript.validate_and_append_point(b"A_O1", &proof.A_O1)?;
@@ -568,7 +580,6 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
                 continue;
             }
             // log::debug!("{}", &proof.T[d]);
-            // TODO: Throw error if index out of bounds.
             transcript.validate_and_append_point(util::T_LABELS[d], &proof.T[d])?;
         }
 
@@ -847,7 +858,9 @@ pub fn msm_check<C: AffineRepr>(
         pc_gens,
         bp_gens,
     )?;
+    // let start = std::time::Instant::now();
     let mega_check = C::Group::msm_unchecked(&b, &s);
+    // println!("msm_check took {:?}", start.elapsed());
     if !mega_check.is_zero() {
         return Err(R1CSError::VerificationError);
     }
@@ -889,7 +902,7 @@ fn bases_and_scalars<C: AffineRepr>(
         .chain(proof_independent_scalars)
         .collect::<Vec<_>>();
 
-    println!("bases_and_scalars {}", b.len());
+    // println!("bases_and_scalars {}", b.len());
 
     Ok((b, s))
 }

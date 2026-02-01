@@ -6,13 +6,14 @@ use ark_pallas::PallasConfig;
 use ark_std::UniformRand;
 use ark_vesta::VestaConfig;
 use rand::prelude::SliceRandom;
-use relations::curve_tree::{CurveTree, Root, SelRerandParameters};
+use relations::curve_tree::{CurveTree, Root};
 use relations::lean_curve_tree::LeanCurveTree;
 use std::collections::BTreeSet;
 use std::time::Duration;
 
 mod common;
 use common::check_proof;
+use relations::parameters::SelRerandParameters;
 
 #[test]
 pub fn insert_small() {

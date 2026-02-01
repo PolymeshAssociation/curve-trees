@@ -1,9 +1,9 @@
 mod common;
 
-use ark_ec::short_weierstrass::{Affine, SWCurveConfig};
+use ark_ec::short_weierstrass::{Affine, Projective, SWCurveConfig};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{PrimeField, Zero};
-use ark_pallas::{Fq as PallasBase, PallasConfig};
+use ark_pallas::{Fq as PallasBase, Fr as VestaBase, PallasConfig};
 use ark_serialize::CanonicalSerialize;
 use ark_std::UniformRand;
 use ark_vesta::VestaConfig;
@@ -11,10 +11,13 @@ use bulletproofs::r1cs::{Prover, Verifier};
 use common::prove;
 use dock_crypto_utils::transcript::MerlinTranscript;
 use rand::prelude::SliceRandom;
-use relations::curve_tree::{CurveTree, SelRerandParameters};
-use relations::ped_comm_group_elems::{prove_naive, verify_naive};
+use relations::curve_tree::{CurveTree};
+use relations::ped_comm_group_elems::{prove_naive, verify_naive, prove as prove_new, verify as verify_new};
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
+use ark_dlog_gadget::dlog::{DiscreteLogParameters};
+use ark_ec_divisors::{DivisorCurve, curves::{vesta::Point as VestaPoint, vesta::VestaParams}};
+use relations::parameters::{SelRerandParameters, SelRerandProofParameters, SingleLayerProofParametersNew};
 
 #[test]
 pub fn commitment_naive() {
@@ -26,7 +29,8 @@ pub fn commitment_naive() {
 
 #[test]
 pub fn commitment() {
-    check::<2, PallasBase, PallasConfig, VestaConfig>(Some(4), 13, 16, 1, 4);
+    check::<2, VestaBase, PallasBase, PallasConfig, VestaConfig, VestaParams, VestaPoint>(Some(4), 13, 16, 1, 4);
+    check::<8, VestaBase, PallasBase, PallasConfig, VestaConfig, VestaParams, VestaPoint>(Some(4), 14, 4096, 1, 8);
 }
 
 pub fn check_naive<
@@ -46,6 +50,8 @@ pub fn check_naive<
 
     let sr_params = SelRerandParameters::<P0, P1>::new(generators_length, generators_length)
         .expect("Failed to create SelRerandParameters");
+
+    let sr_proof_params = SelRerandProofParameters::try_from(sr_params.clone()).unwrap();
 
     let possible_proof_indices = (0..num_leaves).map(|i| i).collect::<Vec<_>>();
     let mut proof_indices = BTreeMap::new();
@@ -84,6 +90,8 @@ pub fn check_naive<
     let mut prover_time = Duration::default();
     let mut verifier_time = Duration::default();
 
+    let mut proof_size_printed = false;
+
     for (leaf_index, (nested, comm)) in proof_indices {
         let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
         let mut pallas_prover: Prover<_, Affine<P0>> =
@@ -99,7 +107,7 @@ pub fn check_naive<
             .select_and_rerandomize_prover_gadget(
                 &mut pallas_prover,
                 &mut vesta_prover,
-                &sr_params,
+                &sr_proof_params,
                 &mut rng,
             );
 
@@ -112,11 +120,13 @@ pub fn check_naive<
             &path_commitments.get_rerandomized_leaf(),
             re_randomization_of_leaf,
             blindings_for_points,
-            &sr_params.odd_parameters,
+            &sr_proof_params.odd_parameters,
         )
         .expect("Failed to prove naive");
 
-        let (pallas_proof, vesta_proof) = prove(pallas_prover, vesta_prover, &sr_params, &mut rng).unwrap();
+        let nc1 = pallas_prover.constraints.len();
+        let nc2 = vesta_prover.constraints.len();
+        let (pallas_proof, vesta_proof) = prove(pallas_prover, vesta_prover, &sr_params.even_parameters.bp_gens, &sr_params.odd_parameters.bp_gens, &mut rng).unwrap();
 
         prover_time += clock.elapsed();
 
@@ -126,13 +136,16 @@ pub fn check_naive<
                 .into_affine()
         );
 
-        log::debug!(
-            "Proof size: {}",
-            path_commitments.compressed_size()
-                + re_randomized_nested.compressed_size()
-                + pallas_proof.compressed_size()
-                + vesta_proof.compressed_size()
-        );
+        if !proof_size_printed {
+            println!(
+                "Proof size: {}, constraints ({nc1}, {nc2})",
+                path_commitments.compressed_size()
+                    + re_randomized_nested.compressed_size()
+                    + pallas_proof.compressed_size()
+                    + vesta_proof.compressed_size()
+            );
+            proof_size_printed = true;
+        }
 
         {
             let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
@@ -146,7 +159,7 @@ pub fn check_naive<
                 &root,
                 &mut pallas_verifier,
                 &mut vesta_verifier,
-                &sr_params,
+                &sr_proof_params,
             );
             let rerandomized_leaf = path_commitments.get_rerandomized_leaf();
 
@@ -154,7 +167,7 @@ pub fn check_naive<
                 &mut pallas_verifier,
                 rerandomized_leaf,
                 re_randomized_nested,
-                &sr_params.odd_parameters,
+                &sr_proof_params.odd_parameters,
             )
             .expect("Failed to verify naive");
 
@@ -180,14 +193,17 @@ pub fn check_naive<
         }
     }
 
-    log::debug!("For tree with {num_leaves} leaves, nesting size {nesting_size}, {num_proofs} proofs took {:?} prover time and {:?} verifier time", prover_time, verifier_time);
+    println!("For tree with {num_leaves} leaves, nesting size {nesting_size}, {num_proofs} proofs took {:?} prover time and {:?} verifier time", prover_time, verifier_time);
 }
 
 pub fn check<
     const L: usize,
     F0: PrimeField,
-    P0: SWCurveConfig<BaseField = F0> + Copy,
-    P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = P0::BaseField> + Copy,
+    F1: PrimeField,
+    P0: SWCurveConfig<BaseField =F1, ScalarField = F0> + Copy,
+    P1: SWCurveConfig<BaseField = F0, ScalarField = F1> + Copy,
+    Params: DiscreteLogParameters,
+    D: DivisorCurve<BaseField = P1::BaseField, ScalarField = P1::ScalarField> + From<Projective<P1>> + Send + Sync,
 >(
     depth: Option<usize>,
     generators_length_log_2: usize,
@@ -201,6 +217,10 @@ pub fn check<
     let sr_params = SelRerandParameters::<P0, P1>::new(generators_length, generators_length)
         .expect("Failed to create SelRerandParameters");
 
+    let sr_proof_params = SelRerandProofParameters::try_from(sr_params.clone()).unwrap();
+
+    let odd_proof_params = SingleLayerProofParametersNew::<P1, Params>::from_single_layer_params::<D>(sr_params.odd_parameters.clone());
+    
     let possible_proof_indices = (0..num_leaves).map(|i| i).collect::<Vec<_>>();
     let mut proof_indices = BTreeMap::new();
     while proof_indices.len() < num_proofs {
@@ -238,7 +258,9 @@ pub fn check<
     let mut prover_time = Duration::default();
     let mut verifier_time = Duration::default();
 
-    for (leaf_index, (_, comm)) in proof_indices {
+    let mut proof_size_printed = false;
+
+    for (leaf_index, (nested, comm)) in proof_indices {
         let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
         let mut pallas_prover: Prover<_, Affine<P0>> =
             Prover::new(&sr_params.even_parameters.pc_gens, pallas_transcript);
@@ -254,7 +276,7 @@ pub fn check<
                 0,
                 &mut pallas_prover,
                 &mut vesta_prover,
-                &sr_params,
+                &sr_proof_params,
                 &mut rng,
             ).unwrap();
 
@@ -264,11 +286,38 @@ pub fn check<
                 .into_affine()
         );
 
-        // TODO:
+        let blindings_for_points = (0..nested.len())
+            .map(|_| <P1::ScalarField>::rand(&mut rng))
+            .collect::<Vec<_>>();
+        let (re_randomized_nested, comms) = prove_new::<_, _, _, P0, P1, D, Params>(
+            &mut rng,
+            &mut pallas_prover,
+            nested,
+            &path_commitments.get_rerandomized_leaf(),
+            re_randomization_of_leaf,
+            blindings_for_points,
+            &odd_proof_params,
+            &sr_params.even_parameters.bp_gens,
+        )
+            .expect("Failed to prove");
 
-        let (pallas_proof, vesta_proof) = prove(pallas_prover, vesta_prover, &sr_params, &mut rng).unwrap();
+        let nc1 = pallas_prover.constraints.len();
+        let nc2 = vesta_prover.constraints.len();
+        let (pallas_proof, vesta_proof) = prove(pallas_prover, vesta_prover, &sr_params.even_parameters.bp_gens, &sr_params.odd_parameters.bp_gens, &mut rng).unwrap();
 
         prover_time += clock.elapsed();
+
+        if !proof_size_printed {
+            println!(
+                "Proof size: {}, constraints ({nc1}, {nc2})",
+                path_commitments.compressed_size()
+                    + re_randomized_nested.compressed_size()
+                    + comms.compressed_size()
+                    + pallas_proof.compressed_size()
+                    + vesta_proof.compressed_size()
+            );
+            proof_size_printed = true;
+        }
 
         {
             let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
@@ -282,9 +331,18 @@ pub fn check<
                 &root,
                 &mut pallas_verifier,
                 &mut vesta_verifier,
-                &sr_params,
+                &sr_proof_params,
             );
             let rerandomized_leaf = path_commitments.get_rerandomized_leaf();
+
+            verify_new::<_, _, P0, P1, Params>(
+                &mut pallas_verifier,
+                rerandomized_leaf,
+                re_randomized_nested,
+                comms,
+                &odd_proof_params,
+            )
+                .expect("Failed to verify naive");
 
             let vesta_res = vesta_verifier.verify(
                 &vesta_proof,
@@ -308,5 +366,5 @@ pub fn check<
         }
     }
 
-    log::debug!("For tree with {num_leaves} leaves, nesting size {nesting_size}, {num_proofs} proofs took {:?} prover time and {:?} verifier time", prover_time, verifier_time);
+    println!("For tree with {num_leaves} leaves, nesting size {nesting_size}, {num_proofs} proofs took {:?} prover time and {:?} verifier time", prover_time, verifier_time);
 }

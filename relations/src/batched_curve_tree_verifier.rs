@@ -5,7 +5,7 @@ use bulletproofs::r1cs::*;
 use crate::error::Error;
 use crate::single_level_select_and_rerandomize::*;
 
-use crate::curve_tree::{CurveTree, Root, RootNode, SelRerandParameters, SelectAndRerandomizeMultiPath};
+use crate::curve_tree::{CurveTree, Root, RootNode, SelectAndRerandomizeMultiPath};
 use ark_ec::{models::short_weierstrass::SWCurveConfig, short_weierstrass::Affine};
 use ark_ff::{PrimeField, Zero};
 use ark_std::{vec, vec::Vec, string::ToString, };
@@ -13,6 +13,7 @@ use core::borrow::BorrowMut;
 use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
 use crate::batched_curve_tree_prover::RootChildrenCoordsVars;
 use crate::select::multi_select_public_set_ext_challenge;
+use crate::parameters::{SelRerandProofParameters, SingleLayerProofParameters};
 
 impl<
         const L: usize,
@@ -87,7 +88,7 @@ impl<
         root: &Root<L, M, P0, P1>,
         even_verifier: &mut Verifier<T, Affine<P0>>,
         odd_verifier: &mut Verifier<T, Affine<P1>>,
-        parameters: &SelRerandParameters<P0, P1>,
+        parameters: &SelRerandProofParameters<P0, P1>,
     ) -> Result<(), Error> {
 
         let num_indices = self.ensure_acceptable_num_indices()?;
@@ -137,7 +138,7 @@ impl<
         root: &Root<L, M, P0, P1>,
         even_verifier: &mut Verifier<T, Affine<P0>>,
         odd_verifier: &mut Verifier<T, Affine<P1>>,
-        parameters: &SelRerandParameters<P0, P1>,
+        parameters: &SelRerandProofParameters<P0, P1>,
     ) -> Result<(), Error> {
         if paths.is_empty() {
             return Err(Error::NeedNonZeroNumberOfPaths);
@@ -231,7 +232,7 @@ impl<
         even_verifier: &mut Verifier<T, Affine<P0>>,
         odd_verifier: &mut Verifier<T, Affine<P1>>,
         is_root_even: bool,
-        parameters: &SelRerandParameters<P0, P1>,
+        parameters: &SelRerandProofParameters<P0, P1>,
     ) -> Result<(), Error> {
         let verify_even = |even_verifier: &mut Verifier<T, Affine<P0>>| {
             self.even_verifier_gadget(is_root_even, even_verifier, &parameters.odd_parameters)
@@ -260,7 +261,7 @@ impl<
         &self,
         root_is_even: bool,
         even_verifier: &mut Verifier<T, Affine<P0>>,
-        odd_parameters: &SingleLayerParameters<P1>,
+        odd_parameters: &SingleLayerProofParameters<P1>,
     ) -> Result<(), Error> {
         let num_indices = self.num_indices();
         for parent_index in 0..self.even_commitments.len() {
@@ -293,7 +294,7 @@ impl<
         &self,
         root_is_even: bool,
         odd_verifier: &mut Verifier<T, Affine<P1>>,
-        even_parameters: &SingleLayerParameters<P0>,
+        even_parameters: &SingleLayerProofParameters<P0>,
     ) -> Result<(), Error> {
         let num_indices = self.num_indices();
         for parent_index in 0..self.odd_commitments.len() {

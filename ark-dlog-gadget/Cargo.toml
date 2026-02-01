@@ -1,0 +1,77 @@
+[package]
+name = "ark-dlog-gadget"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ark-serialize = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master", default-features = false }
+ark-ec = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master", default-features = false }
+ark-ff = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master", default-features = false }
+dock_crypto_utils = { git = "https://github.com/PolymeshAssociation/crypto", branch = "main", default-features = false }
+rayon = {version = "1.5.3", default-features = false, optional = true }
+zeroize = { version = "1", features = ["zeroize_derive"] }
+rand_core = { version = "0.6", default-features = false }
+rand = { version = "0.8", default-features = false, optional = true }
+subtle = { version = "2", default-features = false }
+ark-std = { version = "0.5.0", default-features = false }
+ark-ed25519 = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master", default-features = false, optional = true }
+ark-pallas = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master", default-features = false, optional = true }
+ark-vesta = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master", default-features = false, optional = true }
+generic-array = { version = "1", default-features = false, features = ["alloc"] }
+bulletproofs = {path = "../bulletproofs", default-features = false}
+ark-ec-divisors = {path = "../ark-ec-divisors", default-features = false, features = ["pallas", "vesta"]}
+thiserror = { version = "2", default-features = false }
+
+[patch.crates-io]
+#dock_crypto_utils = { path = "../crypto/utils" }
+dock_crypto_utils = { git = "https://github.com/PolymeshAssociation/crypto", branch = "main" }
+
+ark-serialize = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+ark-ec = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+ark-ff = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+ark-pallas = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+ark-vesta = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+
+[dev-dependencies]
+ark-pallas = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+ark-vesta = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+criterion = "0.8"
+
+
+[[bench]]
+name = "dlog"
+harness = false
+
+
+[features]
+default = ["std", "asm", "pallas", "vesta", "rand", "parallel"]
+
+no_std = []
+std = [
+    "ark-ec/std",
+    "ark-ff/std",
+    "ark-serialize/std",
+    "ark-std/std",
+    "dock_crypto_utils/std",
+    "subtle/std",
+    "ark-ec-divisors/std",
+    "bulletproofs/std",
+    "thiserror/std"
+]
+asm = ["ark-ff/asm", "ark-pallas/asm", "ark-vesta/asm"]
+parallel = [
+    "std",
+    "rayon",
+    "dock_crypto_utils/parallel",
+    "ark-ec-divisors/parallel"
+]
+parallel_full = [
+    "parallel",
+    "ark-ff/parallel",
+    "ark-ec/parallel",
+    "dock_crypto_utils/parallel_full",
+    "ark-ec-divisors/parallel_full"
+]
+ed25519 = ["ark-ed25519"]
+pallas = ["ark-pallas"]
+vesta = ["ark-vesta"]

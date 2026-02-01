@@ -4,12 +4,13 @@ use crate::error::Error;
 use crate::single_level_select_and_rerandomize::*;
 use crate::curve_tree_prover::{allocate_children_of_root_and_enforce_membership, CurveTreeWitnessPath, RootChildrenCoordsVars};
 use crate::curve_tree::{
-    Root, SelRerandParameters, SelectAndRerandomizePath,
+    Root, SelectAndRerandomizePath,
 };
 use ark_ec::{models::short_weierstrass::SWCurveConfig, short_weierstrass::Affine};
 use ark_ff::PrimeField;
 use core::borrow::BorrowMut;
 use dock_crypto_utils::transcript::{MerlinTranscript};
+use crate::parameters::{SelRerandProofParameters, SingleLayerProofParameters};
 
 impl<
         const L: usize,
@@ -23,7 +24,7 @@ impl<
         root: &Root<L, 1, P0, P1>,
         even_verifier: &mut Verifier<T, Affine<P0>>,
         odd_verifier: &mut Verifier<T, Affine<P1>>,
-        parameters: &SelRerandParameters<P0, P1>,
+        parameters: &SelRerandProofParameters<P0, P1>,
     ) {
         let root_is_even = match root {
             Root::Even(root) => {
@@ -60,7 +61,7 @@ impl<
         even_verifier: &mut Verifier<T, Affine<P0>>,
         odd_verifier: &mut Verifier<T, Affine<P1>>,
         root: &Root<L, 1, P0, P1>,
-        parameters: &SelRerandParameters<P0, P1>,
+        parameters: &SelRerandProofParameters<P0, P1>,
     ) -> Result<(), Error> {
         // First, process the root node as its common
         let root_children_coords = Self::process_root_nodes_for_given_paths_with_common_root(
@@ -87,7 +88,7 @@ impl<
         &self,
         root_is_even: bool,
         even_verifier: &mut Verifier<T, Affine<P0>>,
-        odd_parameters: &SingleLayerParameters<P1>,
+        odd_parameters: &SingleLayerProofParameters<P1>,
     ) {
         // Last item of self.even_commitments.len() is for leaf
         for parent_index in 0..(self.even_commitments.len() - 1) {
@@ -121,7 +122,7 @@ impl<
         &self,
         root_is_even: bool,
         odd_verifier: &mut Verifier<T, Affine<P1>>,
-        even_parameters: &SingleLayerParameters<P0>,
+        even_parameters: &SingleLayerProofParameters<P0>,
     ) {
         for parent_index in 0..self.odd_commitments.len() {
             // If the root is at odd level, then the first element in self.even_commitments will be child 
@@ -182,7 +183,7 @@ impl<
         paths: &[Self],
         even_verifier: &mut Verifier<T, Affine<P0>>,
         odd_verifier: &mut Verifier<T, Affine<P1>>,
-        parameters: &SelRerandParameters<P0, P1>,
+        parameters: &SelRerandProofParameters<P0, P1>,
         mut root_children_coords: RootChildrenCoordsVars<P0::ScalarField, P1::ScalarField>,
         root: &Root<L, 1, P0, P1>,
     ) -> Result<(), Error> {
@@ -216,7 +217,7 @@ impl<
         even_verifier: &mut Verifier<T, Affine<P0>>,
         odd_verifier: &mut Verifier<T, Affine<P1>>,
         root_is_even: bool,
-        parameters: &SelRerandParameters<P0, P1>,
+        parameters: &SelRerandProofParameters<P0, P1>,
     ) {
         let verify_even = |even_verifier: &mut Verifier<T, Affine<P0>>| {
             self.even_verifier_gadget_for_non_root_nodes(root_is_even, even_verifier, &parameters.odd_parameters);

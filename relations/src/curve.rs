@@ -14,7 +14,7 @@ pub fn curve_check<F: Field, Cs: ConstraintSystem<F>>(
     let (_, _, x_squared) = cs.multiply(x.clone(), x.clone());
     let (_, _, x_cubed) = cs.multiply(x, x_squared.into());
     let (_, _, y_squared) = cs.multiply(y.clone(), y);
-
+    
     // x^3 + A*x^2 + B - y^2 = 0
     cs.constrain(
         LinearCombination::<F>::from(x_cubed)

@@ -22,6 +22,7 @@ use ark_serialize::CanonicalSerialize;
 use ark_std::UniformRand;
 
 use dock_crypto_utils::transcript::MerlinTranscript;
+use relations::parameters::{SelRerandParameters, SelRerandProofParameters};
 
 fn bench_batched_curve_tree_varying_batch_size(c: &mut Criterion) {
     bench_batched_curve_tree_with_varying_batch_size::<
@@ -49,6 +50,7 @@ fn bench_batched_curve_tree_with_varying_batch_size<
 
     let sr_params = SelRerandParameters::<P0, P1>::new(generators_length, generators_length)
         .expect("Failed to create SelRerandParameters");
+    let sr_proof_params = SelRerandProofParameters::try_from(sr_params.clone()).unwrap();
 
     // Create the curve tree once with max batch size M
     let set = (0..M)
@@ -90,7 +92,7 @@ fn bench_batched_curve_tree_with_varying_batch_size<
                             indices.as_slice(),
                             &mut pallas_prover,
                             &mut vesta_prover,
-                            &sr_params,
+                            &sr_proof_params,
                             &mut rng,
                         )
                         .expect("Failed to prove batched select and rerandomize");
@@ -98,7 +100,8 @@ fn bench_batched_curve_tree_with_varying_batch_size<
                     let (pallas_proof, vesta_proof) = prove(
                         pallas_prover,
                         vesta_prover,
-                        &sr_params,
+                        &sr_params.even_parameters.bp_gens,
+                        &sr_params.odd_parameters.bp_gens,
                         &mut rng,
                     ).unwrap();
 
@@ -124,7 +127,7 @@ fn bench_batched_curve_tree_with_varying_batch_size<
                     indices.as_slice(),
                     &mut pallas_prover,
                     &mut vesta_prover,
-                    &sr_params,
+                    &sr_proof_params,
                     &mut rng,
                 )
                 .expect("Failed to prove batched select and rerandomize");
@@ -132,7 +135,8 @@ fn bench_batched_curve_tree_with_varying_batch_size<
             let (pallas_proof, vesta_proof) = prove(
                 pallas_prover,
                 vesta_prover,
-                &sr_params,
+                &sr_params.even_parameters.bp_gens,
+                &sr_params.odd_parameters.bp_gens,
                 &mut rng,
             ).unwrap();
 
@@ -162,7 +166,7 @@ fn bench_batched_curve_tree_with_varying_batch_size<
                         &root,
                         &mut pallas_verifier,
                         &mut vesta_verifier,
-                        &sr_params,
+                        &sr_proof_params,
                     ).unwrap();
 
                     verify(
@@ -170,7 +174,10 @@ fn bench_batched_curve_tree_with_varying_batch_size<
                         vesta_verifier,
                         &pallas_proof,
                         &vesta_proof,
-                        &sr_params,
+                        &sr_params.even_parameters.pc_gens,
+                        &sr_params.even_parameters.bp_gens,
+                        &sr_params.odd_parameters.pc_gens,
+                        &sr_params.odd_parameters.bp_gens,
                         &mut rng,
                     ).unwrap();
                 });
@@ -201,6 +208,7 @@ fn bench_combined_vs_common_root_with_parameters<
 
     let sr_params = SelRerandParameters::<P0, P1>::new(generators_length, generators_length)
         .expect("Failed to create SelRerandParameters");
+    let sr_proof_params = SelRerandProofParameters::try_from(sr_params.clone()).unwrap();
 
     let group_name = format!("combined_vs_common_root_L{}_M{}_D{}", L, M, depth);
     let mut group = c.benchmark_group(group_name);
@@ -240,14 +248,14 @@ fn bench_combined_vs_common_root_with_parameters<
                             .batched_select_and_rerandomize_prover_gadget(
                                 &mut pallas_prover,
                                 &mut vesta_prover,
-                                &sr_params,
+                                &sr_proof_params,
                                 &mut rng,
                             )
                             .unwrap();
                         path_commitments_list.push(path_commitments);
                     }
 
-                    let p = prove(pallas_prover, vesta_prover, &sr_params, &mut rng).unwrap();
+                    let p = prove(pallas_prover, vesta_prover, &sr_params.even_parameters.bp_gens, &sr_params.odd_parameters.bp_gens, &mut rng).unwrap();
                     black_box(p);
                 });
             },
@@ -268,15 +276,14 @@ fn bench_combined_vs_common_root_with_parameters<
                 .batched_select_and_rerandomize_prover_gadget(
                     &mut pallas_prover,
                     &mut vesta_prover,
-                    &sr_params,
+                    &sr_proof_params,
                     &mut rng,
                 )
                 .unwrap();
             path_commitments_list.push(path_commitments);
         }
 
-        let (pallas_proof, vesta_proof) =
-            prove(pallas_prover, vesta_prover, &sr_params, &mut rng).unwrap();
+        let (pallas_proof, vesta_proof) = prove(pallas_prover, vesta_prover, &sr_params.even_parameters.bp_gens, &sr_params.odd_parameters.bp_gens, &mut rng).unwrap();
 
         println!("For {num_paths} paths");
         println!("Combined proof size = {} bytes", pallas_proof.compressed_size() + vesta_proof.compressed_size());
@@ -298,7 +305,7 @@ fn bench_combined_vs_common_root_with_parameters<
                                 &root,
                                 &mut pallas_verifier,
                                 &mut vesta_verifier,
-                                &sr_params,
+                                &sr_proof_params,
                             )
                             .unwrap();
                     }
@@ -308,7 +315,10 @@ fn bench_combined_vs_common_root_with_parameters<
                         vesta_verifier,
                         &pallas_proof,
                         &vesta_proof,
-                        &sr_params,
+                        &sr_params.even_parameters.pc_gens,
+                        &sr_params.even_parameters.bp_gens,
+                        &sr_params.odd_parameters.pc_gens,
+                        &sr_params.odd_parameters.bp_gens,
                         &mut rng,
                     )
                     .unwrap();
@@ -334,12 +344,12 @@ fn bench_combined_vs_common_root_with_parameters<
                         &paths,
                         &mut pallas_prover,
                         &mut vesta_prover,
-                        &sr_params,
+                        &sr_proof_params,
                         &mut rng,
                     )
                     .unwrap();
 
-                    let p = prove(pallas_prover, vesta_prover, &sr_params, &mut rng).unwrap();
+                    let p = prove(pallas_prover, vesta_prover, &sr_params.even_parameters.bp_gens, &sr_params.odd_parameters.bp_gens, &mut rng).unwrap();
                     black_box(p);
                 });
             },
@@ -359,13 +369,12 @@ fn bench_combined_vs_common_root_with_parameters<
                 &paths,
                 &mut pallas_prover,
                 &mut vesta_prover,
-                &sr_params,
+                &sr_proof_params,
                 &mut rng,
             )
             .unwrap();
 
-        let (pallas_proof, vesta_proof) =
-            prove(pallas_prover, vesta_prover, &sr_params, &mut rng).unwrap();
+        let (pallas_proof, vesta_proof) = prove(pallas_prover, vesta_prover, &sr_params.even_parameters.bp_gens, &sr_params.odd_parameters.bp_gens, &mut rng).unwrap();
 
         println!("Common root proof size = {} bytes", pallas_proof.compressed_size() + vesta_proof.compressed_size());
 
@@ -385,7 +394,7 @@ fn bench_combined_vs_common_root_with_parameters<
                         &root,
                         &mut pallas_verifier,
                         &mut vesta_verifier,
-                        &sr_params,
+                        &sr_proof_params,
                     )
                     .unwrap();
 
@@ -394,7 +403,10 @@ fn bench_combined_vs_common_root_with_parameters<
                         vesta_verifier,
                         &pallas_proof,
                         &vesta_proof,
-                        &sr_params,
+                        &sr_params.even_parameters.pc_gens,
+                        &sr_params.even_parameters.bp_gens,
+                        &sr_params.odd_parameters.pc_gens,
+                        &sr_params.odd_parameters.bp_gens,
                         &mut rng,
                     )
                     .unwrap();
@@ -415,5 +427,3 @@ criterion_group! {
 }
 
 criterion_main!(batched_curve_tree_benches);
-
-

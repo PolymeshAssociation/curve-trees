@@ -216,7 +216,7 @@ where
         }
     }
     if same_size {
-        println!("Same size: {}", padded_n);
+        // println!("Same size: {}", padded_n);
         batch_verify_core_same_size(
             verification_tuples,
             pc_gens,
@@ -224,7 +224,7 @@ where
             new_randomness_getter
         )
     } else {
-        println!("Different size: {}", padded_n);
+        // println!("Different size: {}", padded_n);
         batch_verify_core_different_sizes(
             verification_tuples,
             pc_gens,

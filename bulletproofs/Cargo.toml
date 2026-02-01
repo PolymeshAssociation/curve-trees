@@ -41,7 +41,7 @@ criterion = "0.7"
 default = ["std", "parallel", "asm"]
 
 no_std = []
-std = ["rand/std", "thiserror/std", "sha2/std", "ark-pallas/std", "ark-vesta/std", "ahash/std"]
+std = ["rand/std", "thiserror/std", "sha2/std", "ark-pallas/std", "ark-vesta/std", "dock_crypto_utils/std", "ahash/std"]
 asm = ["ark-ff/asm", "sha2/asm"]
 parallel = ["std", "rayon" ]
 parallel_full = [ "parallel", "dock_crypto_utils/parallel_full" ]

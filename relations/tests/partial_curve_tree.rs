@@ -6,7 +6,7 @@ use ark_pallas::Fq as PallasBase;
 use ark_pallas::PallasConfig;
 use ark_std::UniformRand;
 use ark_vesta::VestaConfig;
-use relations::curve_tree::SelRerandParameters;
+use relations::parameters::SelRerandParameters;
 use relations::lean_curve_tree::LeanCurveTree;
 use relations::partial_curve_tree::PartialCurveTree;
 use std::time::Duration;

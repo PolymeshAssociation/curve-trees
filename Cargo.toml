@@ -2,6 +2,8 @@
 members = [
     "bulletproofs",
     "relations",
+    "ark-ec-divisors",
+    "ark-dlog-gadget"
 ]
 
 resolver = "2"

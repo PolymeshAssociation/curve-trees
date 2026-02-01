@@ -1,138 +1,18 @@
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use bulletproofs::r1cs::*;
-use bulletproofs::{affine_from_bytes_tai, BulletproofGens, PedersenGens};
 
 use crate::curve::{checked_curve_addition_helper, curve_check, PointRepresentation};
 use crate::error::Error;
-use crate::lookup::*;
 use crate::rerandomize::*;
 use crate::select::*;
 
 use ark_ec::{
-    models::short_weierstrass::SWCurveConfig, short_weierstrass::Affine, AffineRepr, CurveGroup,
-    VariableBaseMSM,
+    models::short_weierstrass::SWCurveConfig, short_weierstrass::Affine, CurveGroup,
 };
-use ark_ff::{Field, PrimeField, Zero};
-use ark_pallas::{Affine as PallasAffine, PallasConfig};
+use ark_ff::{Field, PrimeField};
 use ark_std::vec::Vec;
-use ark_vesta::{Affine as VestaAffine, VestaConfig};
-use bulletproofs::hash_to_curve_pasta::{hash_to_pallas, hash_to_vesta};
-use core::iter;
 use core::marker::PhantomData;
 use dock_crypto_utils::transcript::Transcript;
-
-#[derive(Clone, CanonicalSerialize, CanonicalDeserialize)]
-pub struct SingleLayerParameters<P: SWCurveConfig + Copy> {
-    pub bp_gens: BulletproofGens<Affine<P>>,
-    pub pc_gens: PedersenGens<Affine<P>>,
-    pub delta: Affine<P>,
-    pub coeff_a: P::BaseField,
-    pub coeff_b: P::BaseField,
-    pub tables: Vec<Lookup3Bit<2, P::BaseField>>,
-}
-
-impl<P: SWCurveConfig + Copy> SingleLayerParameters<P> {
-    pub fn new(generators_length: u32) -> Result<Self, Error> {
-        let pc_gens = PedersenGens::<Affine<P>>::new().ok_or_else(|| {
-            Error::GenerationError("Failed to generate Pedersen generators".into())
-        })?;
-        let tables = build_tables(pc_gens.B_blinding)?;
-
-        Ok(SingleLayerParameters {
-            bp_gens: BulletproofGens::<Affine<P>>::new(generators_length, 1),
-            pc_gens,
-            delta: affine_from_bytes_tai(b"curve_trees_delta")
-                .ok_or_else(|| Error::GenerationError("Failed to generate delta".into()))?,
-            coeff_a: P::COEFF_A,
-            coeff_b: P::COEFF_B,
-            tables,
-        })
-    }
-
-    pub fn commit(
-        &self,
-        v: &[P::ScalarField],
-        v_blinding: P::ScalarField,
-        generator_set_index: u32,
-    ) -> Affine<P> {
-        let gens = self
-            .bp_gens
-            .share(0)
-            .G((v.len() * (generator_set_index as usize + 1)) as u32)
-            .skip(v.len() * generator_set_index as usize);
-
-        let (generators, scalars) = if v_blinding.is_zero() {
-            (
-                gens.copied().collect::<Vec<_>>(),
-                v.iter()
-                    .map(|s| {
-                        let s: P::ScalarField = *s;
-                        s
-                    })
-                    .collect::<Vec<_>>(),
-            )
-        } else {
-            (
-                iter::once(&self.pc_gens.B_blinding)
-                    .chain(gens)
-                    .copied()
-                    .collect::<Vec<_>>(),
-                iter::once(&v_blinding)
-                    .chain(v.iter())
-                    .map(|s| {
-                        let s: P::ScalarField = *s;
-                        s
-                    })
-                    .collect::<Vec<_>>(),
-            )
-        };
-
-        let comm = <Affine<P> as AffineRepr>::Group::msm(generators.as_slice(), scalars.as_slice());
-        comm.unwrap().into_affine()
-    }
-
-    pub fn commit_for_default_node(
-        &self,
-        x: P::ScalarField,
-        count: u32,
-        generator_set_index: u32,
-    ) -> Affine<P> {
-        let gens = self
-            .bp_gens
-            .share(0)
-            .G(count * (generator_set_index + 1))
-            .skip((count * generator_set_index) as usize);
-        let g = gens.copied().sum::<<Affine<P> as AffineRepr>::Group>();
-
-        (g * x).into_affine()
-    }
-}
-
-macro_rules! impl_single_layer_parameters_new_using_label {
-    ($config:ty, $affine:ty, $hash_fn:ident, $curve_name:literal) => {
-        impl SingleLayerParameters<$config> {
-            pub fn new_using_label(label: &[u8], generators_length: u32) -> Result<Self, Error> {
-                let pc_gens = PedersenGens::<$affine>::new_using_label(label);
-                let bp_gens =
-                    BulletproofGens::<$affine>::new_using_label(label, generators_length, 1);
-                let delta = $hash_fn($curve_name.as_bytes(), b"curve_trees_delta").into_affine();
-                let tables = build_tables(pc_gens.B_blinding)?;
-
-                Ok(SingleLayerParameters {
-                    bp_gens,
-                    pc_gens,
-                    delta,
-                    coeff_a: <$config>::COEFF_A,
-                    coeff_b: <$config>::COEFF_B,
-                    tables,
-                })
-            }
-        }
-    };
-}
-
-impl_single_layer_parameters_new_using_label!(PallasConfig, PallasAffine, hash_to_pallas, "pallas");
-impl_single_layer_parameters_new_using_label!(VestaConfig, VestaAffine, hash_to_vesta, "vesta");
+use crate::parameters::{SingleLayerProofParameters};
 
 /// Circuit for the single level select and rerandomize relation.
 pub fn single_level_select_and_rerandomize<
@@ -142,7 +22,7 @@ pub fn single_level_select_and_rerandomize<
     Cs: ConstraintSystem<Fs>,
 >(
     cs: &mut Cs, // Prover or verifier
-    parameters: &SingleLayerParameters<C2>,
+    parameters: &SingleLayerProofParameters<C2>,
     rerandomized_child: &Affine<C2>, // The public rerandomization of the selected child without Delta
     all_children_plus_delta: Vec<LinearCombination<Fs>>, // Variables representing members of the (parent) vector commitment
     child_plus_delta: Option<Affine<C2>>,                // Witness of the selected child plus Delta
@@ -175,7 +55,7 @@ pub fn root_level_select_and_rerandomize<
     Cs: ConstraintSystem<Fs>,
 >(
     cs: &mut Cs, // Prover or verifier
-    parameters: &SingleLayerParameters<C2>,
+    parameters: &SingleLayerProofParameters<C2>,
     rerandomized_child: &Affine<C2>, // The public rerandomization of the selected child without Delta
     all_children_plus_delta: &[Fs], // Public set of x-coordinates of all children plus delta
     child_plus_delta: Option<Affine<C2>>, // Witness of the selected child plus Delta
@@ -208,7 +88,7 @@ pub fn validate_point_and_re_randomize<
     Cs: ConstraintSystem<Fs>,
 >(
     cs: &mut Cs,
-    parameters: &SingleLayerParameters<C2>,
+    parameters: &SingleLayerProofParameters<C2>,
     rerandomized_child: &Affine<C2>,
     x_lc: LinearCombination<Fs>,
     child_plus_delta: Option<Affine<C2>>,
@@ -223,12 +103,12 @@ pub fn validate_point_and_re_randomize<
         cs,
         x_lc.clone(),
         y_lc.clone(),
-        parameters.coeff_a,
-        parameters.coeff_b,
+        C2::COEFF_A,
+        C2::COEFF_B,
     );
 
     // Show that `rerandomized_child` is a rerandomization of the selected child
-    let rerandomized_child_plus_delta = (*rerandomized_child + parameters.delta).into_affine();
+    let rerandomized_child_plus_delta = (*rerandomized_child + parameters.sl_params.delta).into_affine();
     re_randomize(
         cs,
         &parameters.tables,
@@ -253,7 +133,7 @@ pub fn single_level_batched_select_and_rerandomize<
     Cs: ConstraintSystem<Fs>,
 >(
     cs: &mut Cs, // Prover or verifier
-    parameters: &SingleLayerParameters<C2>,
+    parameters: &SingleLayerProofParameters<C2>,
     num_indices: u32, // The number of parallel selections
     sum_of_rerandomized: &Affine<C2>, // The public rerandomization of the sum of selected children
     all_children: Vec<LinearCombination<Fs>>, // Variables representing members of the combined and rerandomized parent vector commitment (i.e. the rerandomized sum of num_indices parents)
@@ -279,7 +159,7 @@ pub fn root_level_batched_select_and_rerandomize<
     Cs: ConstraintSystem<Fs>,
 >(
     cs: &mut Cs, // Prover or verifier
-    parameters: &SingleLayerParameters<C2>,
+    parameters: &SingleLayerProofParameters<C2>,
     num_indices: u32, // The number of parallel selections
     sum_of_rerandomized: &Affine<C2>, // The public rerandomization of the sum of selected children
     all_children: Vec<Fs>, // x-coordinates of all children of root, combined.
@@ -306,7 +186,7 @@ fn single_level_batched_select_and_rerandomize_inner<
     C, F
 >(
     cs: &mut Cs, // Prover or verifier
-    parameters: &SingleLayerParameters<C2>,
+    parameters: &SingleLayerProofParameters<C2>,
     num_indices: u32, // The number of parallel selections
     sum_of_rerandomized: &Affine<C2>, // The public rerandomization of the sum of selected children
     all_children: Vec<C>,
@@ -341,8 +221,8 @@ where F: Fn(&mut Cs, LinearCombination<Fs>, &[C]) -> () {
             cs,
             x_var.into(),
             y_var.into(),
-            parameters.coeff_a,
-            parameters.coeff_b,
+            C2::COEFF_A,
+            C2::COEFF_B,
         );
 
         // Update the cumulated sum of selected children
@@ -356,7 +236,7 @@ where F: Fn(&mut Cs, LinearCombination<Fs>, &[C]) -> () {
     }
     // Add num_indices*Delta to the public sum of the children
     let shifted_rerandomized =
-        (*sum_of_rerandomized + (parameters.delta * C2::ScalarField::from(num_indices))).into_affine();
+        (*sum_of_rerandomized + (parameters.sl_params.delta * C2::ScalarField::from(num_indices))).into_affine();
     // Show that `rerandomized`, is a rerandomization of sum of the selected children
     re_randomize(
         cs,
@@ -377,7 +257,7 @@ pub fn single_level_batched_validate_and_rerandomize_root_children<
     Cs: ConstraintSystem<Fs>,
 >(
     cs: &mut Cs, // Prover or verifier
-    parameters: &SingleLayerParameters<C2>,
+    parameters: &SingleLayerProofParameters<C2>,
     num_indices: u32, // The number of parallel selections
     sum_of_rerandomized: &Affine<C2>, // The public rerandomization of the sum of selected children
     selected_children_plus_delta: Option<&[Affine<C2>]>, // Witnesses of the commitments being selected and rerandomized
@@ -406,8 +286,8 @@ pub fn single_level_batched_validate_and_rerandomize_root_children<
             cs,
             x_var.clone(),
             y_var.clone(),
-            parameters.coeff_a,
-            parameters.coeff_b,
+            C2::COEFF_A,
+            C2::COEFF_B,
         );
 
         // Update the cumulated sum of selected children
@@ -422,7 +302,7 @@ pub fn single_level_batched_validate_and_rerandomize_root_children<
 
     // Add num_indices*Delta to the public sum of the children
     let shifted_rerandomized =
-        (*sum_of_rerandomized + (parameters.delta * C2::ScalarField::from(num_indices))).into_affine();
+        (*sum_of_rerandomized + (parameters.sl_params.delta * C2::ScalarField::from(num_indices))).into_affine();
     // Show that `rerandomized`, is a rerandomization of sum of the selected children
     re_randomize(
         cs,
@@ -438,11 +318,14 @@ pub fn single_level_batched_validate_and_rerandomize_root_children<
 
 #[cfg(test)]
 mod tests {
-    use crate::curve_tree::SelRerandParameters;
+    use core::iter;
+    use ark_pallas::PallasConfig;
+    use crate::parameters::{SelRerandParameters, SelRerandProofParameters, SingleLayerParameters};
 
     use super::*;
 
     use ark_std::UniformRand;
+    use ark_vesta::VestaConfig;
     use dock_crypto_utils::transcript::MerlinTranscript;
 
     fn test_single_level_inner<
@@ -471,6 +354,8 @@ mod tests {
         let rerandomized_child =
             child + (sr_params.even_parameters.pc_gens.B_blinding * rerandomization);
 
+        let sr_proof_params = SelRerandProofParameters::try_from(sr_params.clone()).unwrap();
+
         let proof = {
             let mut transcript = MerlinTranscript::new(b"single_level_select_and_rerandomize");
             let mut prover: Prover<_, Affine<P1>> =
@@ -482,7 +367,7 @@ mod tests {
 
             single_level_select_and_rerandomize(
                 &mut prover,
-                &sr_params.even_parameters,
+                &sr_proof_params.even_parameters,
                 &rerandomized_child.into_affine(),
                 xs_vars.into_iter().map(|x| x.into()).collect(),
                 Some(child_plus_delta),
@@ -497,7 +382,7 @@ mod tests {
         let xs_vars = verifier.commit_vec(1, parent);
         single_level_select_and_rerandomize(
             &mut verifier,
-            &sr_params.even_parameters,
+            &sr_proof_params.even_parameters,
             &rerandomized_child.into_affine(),
             xs_vars.into_iter().map(|x| x.into()).collect(),
             None,
@@ -601,6 +486,8 @@ mod tests {
 
         let rerandomized_sum = (rerandomized_child_1 + rerandomized_child_2).into_affine();
 
+        let sr_proof_params = SelRerandProofParameters::try_from(sr_params.clone()).unwrap();
+
         let proof = {
             let mut transcript = MerlinTranscript::new(b"single_level_select_and_rerandomize");
             let mut prover: Prover<_, Affine<P1>> =
@@ -612,7 +499,7 @@ mod tests {
 
             single_level_batched_select_and_rerandomize(
                 &mut prover,
-                &sr_params.even_parameters,
+                &sr_proof_params.even_parameters,
                 M as u32,
                 &rerandomized_sum,
                 xs_vars.into_iter().map(|x| x.into()).collect(),
@@ -632,7 +519,7 @@ mod tests {
         let xs_vars = verifier.commit_vec(M * arity, parent);
         single_level_batched_select_and_rerandomize(
             &mut verifier,
-            &sr_params.even_parameters,
+            &sr_proof_params.even_parameters,
             M as u32,
             &rerandomized_sum,
             xs_vars.into_iter().map(|x| x.into()).collect(),

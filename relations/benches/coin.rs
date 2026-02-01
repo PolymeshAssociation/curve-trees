@@ -32,6 +32,7 @@ use blake2::Blake2s256 as Blake2s;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use bulletproofs::r1cs::verifier::batch::batch_verify;
+use relations::parameters::SelRerandProofParameters;
 
 #[cfg(feature = "usenix")]
 fn bench_pour(c: &mut Criterion) {
@@ -120,6 +121,7 @@ fn bench_pour_with_parameters<
 
     let sr_params = SelRerandParameters::<P0, P1>::new(generators_length, generators_length)
         .expect("Failed to create SelRerandParameters");
+    let sr_proof_params = SelRerandProofParameters::try_from(sr_params.clone()).unwrap();
 
     let schnorr_parameters = Schnorr::<Projective<P0>, Blake2s>::setup(&mut rng).unwrap();
     let (pk, sk) = Schnorr::keygen(&schnorr_parameters, &mut rng).unwrap();
@@ -179,7 +181,7 @@ fn bench_pour_with_parameters<
         prove_pour(
             pallas_prover,
             vesta_prover,
-            &sr_params,
+            &sr_proof_params,
             &curve_tree,
             &input0,
             &input1,
@@ -213,7 +215,7 @@ fn bench_pour_with_parameters<
             b.iter(|| {
                 tx.clone().verification_gadget(
                     b"select_and_rerandomize",
-                    &sr_params,
+                    &sr_proof_params,
                     &curve_tree,
                     &schnorr_parameters,
                 );
@@ -232,7 +234,7 @@ fn bench_pour_with_parameters<
             b.iter(|| {
                 let (pallas_vt, vesta_vt) = tx.clone().verification_gadget(
                     b"select_and_rerandomize",
-                    &sr_params,
+                    &sr_proof_params,
                     &curve_tree,
                     &schnorr_parameters,
                 );
@@ -254,6 +256,7 @@ fn bench_pour_with_parameters<
     }
 
     use std::iter;
+    use relations::parameters::SelRerandParameters;
     let group_name = format!("{}_batch_verification", &prefix_string);
     let mut group = c.benchmark_group(group_name);
     for n in [1, 100] {
@@ -301,7 +304,7 @@ fn bench_pour_with_parameters<
                                     .map(|proof| {
                                         proof.even_verification_gadget(
                                             b"select_and_rerandomize",
-                                            &sr_params,
+                                            &sr_proof_params,
                                             &proof.randomized_path_0,
                                             &proof.randomized_path_1,
                                             &curve_tree,
@@ -321,7 +324,7 @@ fn bench_pour_with_parameters<
                                     .map(|proof| {
                                         proof.odd_verification_gadget(
                                             b"select_and_rerandomize",
-                                            &sr_params,
+                                            &sr_proof_params,
                                             &proof.randomized_path_0,
                                             &proof.randomized_path_1,
                                             &curve_tree,

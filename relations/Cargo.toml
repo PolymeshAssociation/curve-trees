@@ -21,9 +21,14 @@ blake2 = { version = "0.10", default-features = false }
 rayon = { version = "1.5.3", optional = true, default-features = false }
 ark-pallas = { workspace = true, default-features = false, features = ["curve"] }
 ark-vesta = { workspace = true, default-features = false }
-
 dock_crypto_utils = { workspace = true, default-features = false }
 zeroize = { version = "1", features = ["zeroize_derive"] }
+ark-ec-divisors = {path = "../ark-ec-divisors"}
+ark-dlog-gadget = {path = "../ark-dlog-gadget"}
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
+
 
 [dev-dependencies]
 test-log = "0.2"
@@ -34,14 +39,14 @@ lazy_static = "1.5.0"
 
 
 [features]
-default = ["std", "asm", "parallel"]
+default = ["asm", "std", "parallel"]
 
 no_std = []
-std = ["rand/std", "thiserror/std", "bulletproofs/std", "ark-serialize/std"]
+std = ["rand/std", "thiserror/std", "bulletproofs/std", "ark-serialize/std", "dock_crypto_utils/std", "ark-ec-divisors/std", "ark-dlog-gadget/std"]
 
 asm = ["ark-ff/asm", "bulletproofs/asm"]
 parallel = ["std", "rayon" ]
-parallel_full = [ "parallel", "bulletproofs/parallel_full", "dock_crypto_utils/parallel_full" ]
+parallel_full = [ "parallel", "bulletproofs/parallel_full", "dock_crypto_utils/parallel_full", "ark-ec-divisors/parallel_full", "ark-dlog-gadget/parallel_full" ]
 bench_prover = []
 detailed_benchmarks = []
 usenix = ["bench_prover"]
@@ -75,11 +80,19 @@ name = "curve_tree"
 harness = false
 
 [[bench]]
+name = "curve_tree_new"
+harness = false
+
+[[bench]]
 name = "select"
 harness = false
 
 [[bench]]
 name = "batched_curve_tree"
+harness = false
+
+[[bench]]
+name = "batched_curve_tree_new"
 harness = false
 
 # TODO: Uncomment

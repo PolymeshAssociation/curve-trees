@@ -7,6 +7,7 @@ use rand::Rng;
 use crate::curve_tree::*;
 use crate::error::Error;
 use crate::range_proof::*;
+use crate::single_level_select_and_rerandomize;
 use crate::single_level_select_and_rerandomize::*;
 
 use ark_crypto_primitives::{
@@ -19,6 +20,7 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Read, Serializatio
 use ark_std::UniformRand;
 use blake2::Blake2s256 as Blake2s;
 use core::marker::PhantomData;
+use crate::parameters::{SelRerandProofParameters, SingleLayerParameters};
 
 pub struct Coin<P0: SWCurveConfig + Clone, C: CurveGroup> {
     pub value: u64,
@@ -115,7 +117,7 @@ impl<
         index: usize,
         even_prover: &mut Prover<MerlinTranscript, Affine<P0>>,
         odd_prover: &mut Prover<MerlinTranscript, Affine<P1>>,
-        parameters: &SelRerandParameters<P0, P1>,
+        parameters: &SelRerandProofParameters<P0, P1>,
         curve_tree: &CurveTree<L, 1, P0, P1>,
     ) -> Result<(
         SelectAndRerandomizePath<L, P0, P1>,
@@ -137,7 +139,7 @@ impl<
         let (rerandomized_point, variables) = even_prover.commit_vec(
             &[P0::ScalarField::from(self.value), self.tag],
             self.blinding + rerandomization,
-            &parameters.even_parameters.bp_gens,
+            &parameters.even_parameters.sl_params.bp_gens,
         );
         assert_eq!(path.get_rerandomized_leaf(), rerandomized_point);
 
@@ -185,7 +187,7 @@ pub fn prove_pour<
 >(
     mut even_prover: Prover<MerlinTranscript, Affine<P0>>,
     mut odd_prover: Prover<MerlinTranscript, Affine<P1>>,
-    sr_parameters: &SelRerandParameters<P0, P1>,
+    sr_parameters: &SelRerandProofParameters<P0, P1>,
     curve_tree: &CurveTree<L, 1, P0, P1>,
     input_0: &SpendingInfo<P0, C>,
     input_1: &SpendingInfo<P0, C>,
@@ -201,7 +203,7 @@ pub fn prove_pour<
         receiver_value_0,
         &receiver_pk_0,
         sig_parameters,
-        &sr_parameters.even_parameters,
+        &sr_parameters.even_parameters.sl_params,
         rng,
         &mut even_prover,
     );
@@ -209,7 +211,7 @@ pub fn prove_pour<
         receiver_value_1,
         &receiver_pk_1,
         sig_parameters,
-        &sr_parameters.even_parameters,
+        &sr_parameters.even_parameters.sl_params,
         rng,
         &mut even_prover,
     );
@@ -239,22 +241,22 @@ pub fn prove_pour<
     #[cfg(not(feature = "parallel"))]
     let (even_proof, odd_proof) = (
         even_prover
-            .prove(&sr_parameters.even_parameters.bp_gens)
+            .prove(&sr_parameters.even_parameters.sl_params.bp_gens)
             .unwrap(),
         odd_prover
-            .prove(&sr_parameters.odd_parameters.bp_gens)
+            .prove(&sr_parameters.odd_parameters.sl_params.bp_gens)
             .unwrap(),
     );
     #[cfg(feature = "parallel")]
     let (even_proof, odd_proof) = rayon::join(
         || {
             even_prover
-                .prove(&sr_parameters.even_parameters.bp_gens)
+                .prove(&sr_parameters.even_parameters.sl_params.bp_gens)
                 .unwrap()
         },
         || {
             odd_prover
-                .prove(&sr_parameters.odd_parameters.bp_gens)
+                .prove(&sr_parameters.odd_parameters.sl_params.bp_gens)
                 .unwrap()
         },
     );
@@ -436,7 +438,7 @@ impl<
     pub fn even_verification_gadget(
         &self,
         ro_domain: &'static [u8],
-        sr_parameters: &SelRerandParameters<P0, P1>,
+        sr_parameters: &SelRerandProofParameters<P0, P1>,
         spend_commitments_0: &SelectAndRerandomizePath<L, P0, P1>,
         spend_commitments_1: &SelectAndRerandomizePath<L, P0, P1>,
         curve_tree: &CurveTree<L, 1, P0, P1>,
@@ -476,7 +478,7 @@ impl<
     pub fn odd_verification_gadget(
         &self,
         ro_domain: &'static [u8],
-        sr_parameters: &SelRerandParameters<P0, P1>,
+        sr_parameters: &SelRerandProofParameters<P0, P1>,
         spend_commitments_0: &SelectAndRerandomizePath<L, P0, P1>,
         spend_commitments_1: &SelectAndRerandomizePath<L, P0, P1>,
         curve_tree: &CurveTree<L, 1, P0, P1>,
@@ -505,7 +507,7 @@ impl<
     pub fn verification_gadget(
         self,
         ro_domain: &'static [u8],
-        sr_parameters: &SelRerandParameters<P0, P1>,
+        sr_parameters: &SelRerandProofParameters<P0, P1>,
         curve_tree: &CurveTree<L, 1, P0, P1>,
     ) -> (VerificationTuple<Affine<P0>>, VerificationTuple<Affine<P1>>) {
         let spend_commitments_0 = self.randomized_path_0.clone();
@@ -570,11 +572,22 @@ fn verify_spend_even<
 >(
     even_verifier: &mut Verifier<MerlinTranscript, Affine<P0>>,
     commitments: &SelectAndRerandomizePath<L, P0, P1>,
-    sr_parameters: &SelRerandParameters<P0, P1>,
+    sr_parameters: &SelRerandProofParameters<P0, P1>,
     pk: &PublicKey<C>,
     curve_tree: &CurveTree<L, 1, P0, P1>,
 ) -> Variable<P0::ScalarField> {
-    commitments.even_verifier_gadget_old(even_verifier, sr_parameters, curve_tree);
+    let root = curve_tree.root_node();
+    if let Root::Even(root_node) = &root {
+        single_level_select_and_rerandomize::root_level_select_and_rerandomize(
+            even_verifier,
+            &sr_parameters.odd_parameters,
+            &commitments.odd_commitments[0],
+            &root_node.x_coord_children[0],
+            None,
+            None,
+        );
+    }
+    commitments.even_verifier_gadget_for_non_root_nodes(root.is_even(), even_verifier, &sr_parameters.odd_parameters);
     // Question: Why L? This should be 2. Tried 2 and it works.
     let vars = even_verifier.commit_vec(L, commitments.get_rerandomized_leaf());
 
@@ -593,10 +606,21 @@ fn verify_spend_odd<
 >(
     odd_verifier: &mut Verifier<MerlinTranscript, Affine<P1>>,
     commitments: &SelectAndRerandomizePath<L, P0, P1>,
-    sr_parameters: &SelRerandParameters<P0, P1>,
+    sr_parameters: &SelRerandProofParameters<P0, P1>,
     curve_tree: &CurveTree<L, 1, P0, P1>,
 ) {
-    commitments.odd_verifier_gadget_old(odd_verifier, sr_parameters, curve_tree);
+    let root = curve_tree.root_node();
+    if let Root::Odd(root_node) = &root {
+        single_level_select_and_rerandomize::root_level_select_and_rerandomize(
+            odd_verifier,
+            &sr_parameters.even_parameters,
+            &commitments.even_commitments[0],
+            &root_node.x_coord_children[0],
+            None,
+            None,
+        );
+    }
+    commitments.odd_verifier_gadget_for_non_root_nodes(root.is_even(), odd_verifier, &sr_parameters.even_parameters);
 }
 
 #[derive(Clone)]
@@ -624,7 +648,7 @@ impl<
     pub fn verification_gadget<const L: usize>(
         self,
         ro_domain: &'static [u8],
-        sr_parameters: &SelRerandParameters<P0, P1>,
+        sr_parameters: &SelRerandProofParameters<P0, P1>,
         curve_tree: &CurveTree<L, 1, P0, P1>,
         sig_parameters: &Parameters<C, Blake2s>,
     ) -> (VerificationTuple<Affine<P0>>, VerificationTuple<Affine<P1>>) {
@@ -788,6 +812,8 @@ mod tests {
         )
         .expect("Failed to create SelRerandParameters");
 
+        let sr_proof_params = SelRerandProofParameters::try_from(sr_params.clone()).unwrap();
+
         let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
         let mut pallas_prover: Prover<_, Affine<PallasParameters>> =
             Prover::new(&sr_params.even_parameters.pc_gens, pallas_transcript);
@@ -823,7 +849,7 @@ mod tests {
             0,
             &mut pallas_prover,
             &mut vesta_prover,
-            &sr_params,
+            &sr_proof_params,
             &curve_tree,
         ).unwrap();
 
@@ -843,12 +869,12 @@ mod tests {
             curve_tree.add_root_to_randomized_path(&mut path);
             let commitments = path;
             // Enforce constraints for odd level
-            verify_spend_odd(&mut vesta_verifier, &commitments, &sr_params, &curve_tree);
+            verify_spend_odd(&mut vesta_verifier, &commitments, &sr_proof_params, &curve_tree);
             // Enforce constraints for even level
             verify_spend_even::<256, _, _, _, _, PallasP>(
                 &mut pallas_verifier,
                 &commitments,
-                &sr_params,
+                &sr_proof_params,
                 &rerandomized_pk,
                 &curve_tree,
             );
@@ -882,6 +908,8 @@ mod tests {
             generators_length,
         )
         .expect("Failed to create SelRerandParameters");
+
+        let sr_proof_params = SelRerandProofParameters::try_from(sr_params.clone()).unwrap();
 
         let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
         let mut pallas_prover: Prover<_, Affine<PallasParameters>> =
@@ -918,7 +946,7 @@ mod tests {
             0,
             &mut pallas_prover,
             &mut vesta_prover,
-            &sr_params,
+            &sr_proof_params,
             &curve_tree,
         ).unwrap();
 
@@ -938,12 +966,12 @@ mod tests {
             curve_tree.add_root_to_randomized_path(&mut path);
             let commitments = path;
             // Enforce constraints for odd level
-            verify_spend_odd(&mut vesta_verifier, &commitments, &sr_params, &curve_tree);
+            verify_spend_odd(&mut vesta_verifier, &commitments, &sr_proof_params, &curve_tree);
             // Enforce constraints for even level
             verify_spend_even::<L, _, _, _, _, PallasP>(
                 &mut pallas_verifier,
                 &commitments,
-                &sr_params,
+                &sr_proof_params,
                 &rerandomized_pk,
                 &curve_tree,
             );
@@ -975,6 +1003,8 @@ mod tests {
             generators_length,
         )
         .expect("Failed to create SelRerandParameters");
+
+        let sr_proof_params = SelRerandProofParameters::try_from(sr_params.clone()).unwrap();
 
         let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
         let pallas_prover: Prover<_, Affine<PallasParameters>> =
@@ -1037,7 +1067,7 @@ mod tests {
         let proof = prove_pour(
             pallas_prover,
             vesta_prover,
-            &sr_params,
+            &sr_proof_params,
             &curve_tree,
             &input0,
             &input1,
@@ -1052,7 +1082,7 @@ mod tests {
         {
             let (pallas_vt, vesta_vt) = proof.verification_gadget(
                 b"select_and_rerandomize",
-                &sr_params,
+                &sr_proof_params,
                 &curve_tree,
                 &schnorr_parameters,
             );

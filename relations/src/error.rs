@@ -1,4 +1,5 @@
 use ark_serialize::SerializationError;
+use ark_dlog_gadget::error::Error as DivisorError;
 use ark_std::string::String;
 use thiserror::Error;
 
@@ -77,10 +78,20 @@ pub enum Error {
     /// Inconsistent number of indices across multi-paths
     #[error("Inconsistent number of indices across multi-paths")]
     InconsistentNumberOfIndices,
+
+    /// DivisorError error
+    #[error("Divisor error: {0}")]
+    Divisor(DivisorError),
 }
 
 impl From<SerializationError> for Error {
     fn from(err: SerializationError) -> Self {
         Error::SerializationError(err)
+    }
+}
+
+impl From<DivisorError> for Error {
+    fn from(err: DivisorError) -> Self {
+        Error::Divisor(err)
     }
 }
