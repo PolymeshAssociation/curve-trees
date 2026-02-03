@@ -23,8 +23,8 @@ ark-pallas = { workspace = true, default-features = false, features = ["curve"] 
 ark-vesta = { workspace = true, default-features = false }
 dock_crypto_utils = { workspace = true, default-features = false }
 zeroize = { version = "1", features = ["zeroize_derive"] }
-ark-ec-divisors = {path = "../ark-ec-divisors"}
-ark-dlog-gadget = {path = "../ark-dlog-gadget"}
+ark-ec-divisors = { path = "../ark-ec-divisors", default-features = false }
+ark-dlog-gadget = { path = "../ark-dlog-gadget", default-features = false }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.2", features = ["js"] }
