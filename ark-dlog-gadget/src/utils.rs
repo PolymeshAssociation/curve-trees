@@ -1,5 +1,5 @@
-use std::marker::PhantomData;
-use std::ops::Neg;
+use ark_std::marker::PhantomData;
+use ark_std::ops::Neg;
 use ark_ff::{Field, PrimeField};
 use bulletproofs::r1cs::{ConstraintSystem, LinearCombination, Variable};
 use zeroize::{Zeroize, ZeroizeOnDrop};

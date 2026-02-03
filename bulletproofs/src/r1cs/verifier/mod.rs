@@ -26,7 +26,7 @@ use crate::transcript::TranscriptProtocol;
 use super::op_splits;
 
 pub mod batch;
-pub use batch::{batch_verify, batch_verify_with_given_randomness, batch_verify_with_rng};
+pub use batch::{batch_verify_with_given_randomness, batch_verify_with_rng};
 
 /// A [`ConstraintSystem`] implementation for use by the verifier.
 ///

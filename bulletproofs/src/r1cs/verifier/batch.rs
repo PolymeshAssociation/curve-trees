@@ -1,4 +1,5 @@
 use ark_ec::{AffineRepr, VariableBaseMSM};
+use ark_std::{vec, vec::Vec};
 use rand_core::{CryptoRng, RngCore};
 use ark_std::UniformRand;
 use ark_ff::{One, Zero};

@@ -2,6 +2,7 @@ use ark_ec::CurveGroup;
 use ark_ec::short_weierstrass::{Affine, Projective, SWCurveConfig};
 use ark_ff::{AdditiveGroup, Field, PrimeField, Zero};
 use ark_std::UniformRand;
+use ark_std::vec::Vec;
 use rand_core::CryptoRngCore;
 use zeroize::Zeroize;
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};

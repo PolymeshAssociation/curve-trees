@@ -1,5 +1,6 @@
-use std::borrow::Borrow;
-use std::ops::{Add, Neg};
+use ark_std::borrow::Borrow;
+use ark_std::ops::{Add, Neg};
+use ark_std::vec::Vec;
 use zeroize::Zeroize;
 use ark_ec::CurveConfig;
 use ark_ff::{Field, PrimeField};
