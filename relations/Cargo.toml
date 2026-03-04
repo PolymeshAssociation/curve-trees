@@ -28,10 +28,6 @@ zeroize = { version = "1", features = ["zeroize_derive"] }
 ark-ec-divisors = { path = "../ark-ec-divisors", default-features = false, features = ["pallas", "vesta", "helios", "selene", "wei25519"] }
 ark-dlog-gadget = { path = "../ark-dlog-gadget", default-features = false, features = ["pallas", "vesta", "helios", "selene", "wei25519"] }
 
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-getrandom = { version = "0.2", features = ["js"] }
-
-
 [dev-dependencies]
 test-log = "0.2"
 criterion = "0.7"
