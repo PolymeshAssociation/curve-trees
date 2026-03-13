@@ -1,8 +1,9 @@
+use core::ops::Add;
 use ark_std::{fmt::Debug, marker::PhantomData, vec::Vec};
 use ark_ff::{PrimeField};
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Read, SerializationError, Valid, Validate, Write};
 use generic_array::{ArrayLength, GenericArray};
-use generic_array::typenum::Unsigned;
+use generic_array::typenum::{Unsigned, U1};
 use crate::{DivisorCurve};
 
 /// Trait for providing generator multiples (powers of 2).
@@ -101,7 +102,7 @@ impl<C: DivisorCurve> From<C> for DirectGenerator<C> {
 /// Parameters for a discrete logarithm proof.
 pub trait DiscreteLogParameter: Debug + Clone {
     /// The amount of bits used to represent a scalar.
-    type ScalarBits: ArrayLength;
+    type ScalarBits: ArrayLength + Add<U1, Output: ArrayLength>;
 }
 
 /// A tabled generator for proving/verifying discrete logarithm claims.
@@ -112,11 +113,11 @@ pub struct GeneratorTable<F: PrimeField, Parameters: DiscreteLogParameter>(
 );
 
 impl<F: PrimeField, Parameters: DiscreteLogParameter> CanonicalSerialize for GeneratorTable<F, Parameters> {
-    fn serialize_with_mode<W: ark_serialize::Write>(
+    fn serialize_with_mode<W: Write>(
         &self,
         mut writer: W,
-        compress: ark_serialize::Compress,
-    ) -> Result<(), ark_serialize::SerializationError> {
+        compress: Compress,
+    ) -> Result<(), SerializationError> {
         for (x, y) in self.0.iter() {
             x.serialize_with_mode(&mut writer, compress)?;
             y.serialize_with_mode(&mut writer, compress)?;
@@ -124,24 +125,24 @@ impl<F: PrimeField, Parameters: DiscreteLogParameter> CanonicalSerialize for Gen
         Ok(())
     }
 
-    fn serialized_size(&self, compress: ark_serialize::Compress) -> usize {
+    fn serialized_size(&self, compress: Compress) -> usize {
         let size_per_element = F::default().serialized_size(compress) * 2;
         size_per_element * Parameters::ScalarBits::USIZE
     }
 }
 
-impl<F: PrimeField, Parameters: DiscreteLogParameter> ark_serialize::Valid for GeneratorTable<F, Parameters> {
-    fn check(&self) -> Result<(), ark_serialize::SerializationError> {
+impl<F: PrimeField, Parameters: DiscreteLogParameter> Valid for GeneratorTable<F, Parameters> {
+    fn check(&self) -> Result<(), SerializationError> {
         Ok(())
     }
 }
 
 impl<F: PrimeField, Parameters: DiscreteLogParameter> CanonicalDeserialize for GeneratorTable<F, Parameters> {
-    fn deserialize_with_mode<R: ark_serialize::Read>(
+    fn deserialize_with_mode<R: Read>(
         mut reader: R,
-        compress: ark_serialize::Compress,
-        validate: ark_serialize::Validate,
-    ) -> Result<Self, ark_serialize::SerializationError> {
+        compress: Compress,
+        validate: Validate,
+    ) -> Result<Self, SerializationError> {
         let mut array = GenericArray::default();
         for i in 0..Parameters::ScalarBits::USIZE {
             let x = F::deserialize_with_mode(&mut reader, compress, validate)?;
@@ -177,15 +178,27 @@ impl<F: PrimeField, Parameters: DiscreteLogParameter> GeneratorTable<F, Paramete
 mod tests {
     use super::*;
     use ark_ff::Field;
-    use ark_pallas::{Fq, Fr};
     use rand::prelude::StdRng;
     use rand_core::SeedableRng;
-    use crate::curves::pallas::{PallasParams, Point as PallasPoint};
-    use crate::curves::vesta::{Point as VestaPoint, VestaParams};
     use crate::util::{DiscreteLogParameter, GeneratorTable};
 
+    use ark_pallas::{Fq, Fr};
+    use crate::curves::pallas::{PallasParams, Point as PallasPoint};
+
+    use crate::curves::vesta::{Point as VestaPoint, VestaParams};
+
     type PallasBase = Fq;
+
     type VestaBase = Fr;
+
+    use crate::curves::helios::{Point as HeliosPoint, HeliosParams};
+    type HeliosBase = ark_helios::Fq;
+
+    use crate::curves::selene::{Point as SelenePoint, SeleneParams};
+    type SeleneBase = ark_selene::Fq;
+
+    use crate::curves::wei25519::{Point as Wei25519Point, Wei25519Params};
+    type Wei25519Base = ark_wei25519::Fq;
 
     #[test]
     fn generator_table_creation() {
@@ -217,8 +230,18 @@ mod tests {
 
         println!("Testing Pallas");
         check::<PallasPoint, PallasParams, PallasBase>();
+
         println!("Testing Vesta");
         check::<VestaPoint, VestaParams, VestaBase>();
+        
+        println!("Testing Helios");
+        check::<HeliosPoint, HeliosParams, HeliosBase>();
+        
+        println!("Testing Selene");
+        check::<SelenePoint, SeleneParams, SeleneBase>();
+
+        println!("Testing Wei25519");
+        check::<Wei25519Point, Wei25519Params, Wei25519Base>();
     }
 
     #[test]
@@ -255,7 +278,17 @@ mod tests {
 
         println!("Testing Pallas");
         check::<PallasPoint, PallasParams, PallasBase>();
+        
         println!("Testing Vesta");
         check::<VestaPoint, VestaParams, VestaBase>();
+        
+        println!("Testing Helios");
+        check::<HeliosPoint, HeliosParams, HeliosBase>();
+        
+        println!("Testing Selene");
+        check::<SelenePoint, SeleneParams, SeleneBase>();
+
+        println!("Testing Wei25519");
+        check::<Wei25519Point, Wei25519Params, Wei25519Base>();
     }
 }

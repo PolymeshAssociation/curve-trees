@@ -1,9 +1,19 @@
 mod common;
 
+use ark_dlog_gadget::dlog::DiscreteLogParameters;
 use ark_ec::short_weierstrass::{Affine, Projective, SWCurveConfig};
 use ark_ec::{AffineRepr, CurveGroup};
+use ark_ec_divisors::{
+    curves::{
+        selene::Point as SelenePoint, selene::SeleneParams, vesta::Point as VestaPoint,
+        vesta::VestaParams,
+    },
+    DivisorCurve,
+};
 use ark_ff::{PrimeField, Zero};
+use ark_helios::{Fq as HeliosBase, Fr as SeleneBase, HeliosConfig};
 use ark_pallas::{Fq as PallasBase, Fr as VestaBase, PallasConfig};
+use ark_selene::SeleneConfig;
 use ark_serialize::CanonicalSerialize;
 use ark_std::UniformRand;
 use ark_vesta::VestaConfig;
@@ -11,13 +21,15 @@ use bulletproofs::r1cs::{Prover, Verifier};
 use common::prove;
 use dock_crypto_utils::transcript::MerlinTranscript;
 use rand::prelude::SliceRandom;
-use relations::curve_tree::{CurveTree};
-use relations::ped_comm_group_elems::{prove_naive, verify_naive, prove as prove_new, verify as verify_new};
-use std::collections::BTreeMap;
+use relations::curve_tree::CurveTree;
+use relations::parameters::{
+    SelRerandParameters, SelRerandProofParameters, SingleLayerProofParametersNew,
+};
+use relations::ped_comm_group_elems::{
+    prove as prove_new, prove_naive, verify as verify_new, verify_naive,
+};
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, Instant};
-use ark_dlog_gadget::dlog::{DiscreteLogParameters};
-use ark_ec_divisors::{DivisorCurve, curves::{vesta::Point as VestaPoint, vesta::VestaParams}};
-use relations::parameters::{SelRerandParameters, SelRerandProofParameters, SingleLayerProofParametersNew};
 
 #[test]
 pub fn commitment_naive() {
@@ -29,8 +41,36 @@ pub fn commitment_naive() {
 
 #[test]
 pub fn commitment() {
-    check::<2, VestaBase, PallasBase, PallasConfig, VestaConfig, VestaParams, VestaPoint>(Some(4), 13, 16, 1, 4);
-    check::<8, VestaBase, PallasBase, PallasConfig, VestaConfig, VestaParams, VestaPoint>(Some(4), 14, 4096, 1, 8);
+    // Test different combinations of shared_dlog_indices
+
+    let test_cases = vec![
+        ("no shared dlog", vec![]),
+        ("some indices have shared dlog", vec![1, 2]),
+        ("all shared dlog", vec![0, 1, 2, 3]),
+    ];
+
+    for (desc, indices) in test_cases {
+        let shared_indices: BTreeSet<usize> = indices.into_iter().collect();
+        println!("Testing: {desc}");
+
+        check::<2, VestaBase, PallasBase, PallasConfig, VestaConfig, VestaParams, VestaPoint>(
+            Some(4),
+            13,
+            16,
+            1,
+            4,
+            shared_indices.clone(),
+        );
+
+        check::<2, SeleneBase, HeliosBase, HeliosConfig, SeleneConfig, SeleneParams, SelenePoint>(
+            Some(4),
+            13,
+            16,
+            1,
+            4,
+            shared_indices,
+        );
+    }
 }
 
 pub fn check_naive<
@@ -102,7 +142,9 @@ pub fn check_naive<
             Prover::new(&sr_params.odd_parameters.pc_gens, vesta_transcript);
 
         let clock = Instant::now();
-        let path = curve_tree.get_path_to_leaf_for_proof(*leaf_index, 0).unwrap();
+        let path = curve_tree
+            .get_path_to_leaf_for_proof(*leaf_index, 0)
+            .unwrap();
         let (path_commitments, re_randomization_of_leaf) = path
             .select_and_rerandomize_prover_gadget(
                 &mut pallas_prover,
@@ -126,7 +168,14 @@ pub fn check_naive<
 
         let nc1 = pallas_prover.constraints.len();
         let nc2 = vesta_prover.constraints.len();
-        let (pallas_proof, vesta_proof) = prove(pallas_prover, vesta_prover, &sr_params.even_parameters.bp_gens, &sr_params.odd_parameters.bp_gens, &mut rng).unwrap();
+        let (pallas_proof, vesta_proof) = prove(
+            pallas_prover,
+            vesta_prover,
+            &sr_params.even_parameters.bp_gens,
+            &sr_params.odd_parameters.bp_gens,
+            &mut rng,
+        )
+        .unwrap();
 
         prover_time += clock.elapsed();
 
@@ -200,16 +249,20 @@ pub fn check<
     const L: usize,
     F0: PrimeField,
     F1: PrimeField,
-    P0: SWCurveConfig<BaseField =F1, ScalarField = F0> + Copy,
+    P0: SWCurveConfig<BaseField = F1, ScalarField = F0> + Copy,
     P1: SWCurveConfig<BaseField = F0, ScalarField = F1> + Copy,
     Params: DiscreteLogParameters,
-    D: DivisorCurve<BaseField = P1::BaseField, ScalarField = P1::ScalarField> + From<Projective<P1>> + Send + Sync,
+    D: DivisorCurve<BaseField = P1::BaseField, ScalarField = P1::ScalarField>
+        + From<Projective<P1>>
+        + Send
+        + Sync,
 >(
     depth: Option<usize>,
     generators_length_log_2: usize,
     num_leaves: usize,
     num_proofs: usize,
     nesting_size: usize,
+    shared_dlog_indices: BTreeSet<usize>,
 ) {
     let mut rng = rand::thread_rng();
     let generators_length = 1 << generators_length_log_2;
@@ -219,8 +272,10 @@ pub fn check<
 
     let sr_proof_params = SelRerandProofParameters::try_from(sr_params.clone()).unwrap();
 
-    let odd_proof_params = SingleLayerProofParametersNew::<P1, Params>::from_single_layer_params::<D>(sr_params.odd_parameters.clone());
-    
+    let odd_proof_params = SingleLayerProofParametersNew::<P1, Params>::from_single_layer_params::<D>(
+        sr_params.odd_parameters.clone(),
+    );
+
     let possible_proof_indices = (0..num_leaves).map(|i| i).collect::<Vec<_>>();
     let mut proof_indices = BTreeMap::new();
     while proof_indices.len() < num_proofs {
@@ -278,7 +333,8 @@ pub fn check<
                 &mut vesta_prover,
                 &sr_proof_params,
                 &mut rng,
-            ).unwrap();
+            )
+            .unwrap();
 
         assert_eq!(
             path_commitments.get_rerandomized_leaf(),
@@ -292,20 +348,42 @@ pub fn check<
         let (re_randomized_nested, comms) = prove_new::<_, _, _, P0, P1, D, Params>(
             &mut rng,
             &mut pallas_prover,
-            nested,
+            nested.clone(),
             &path_commitments.get_rerandomized_leaf(),
             re_randomization_of_leaf,
-            blindings_for_points,
+            blindings_for_points.clone(),
             &odd_proof_params,
             &sr_params.even_parameters.bp_gens,
+            shared_dlog_indices.clone(),
         )
-            .expect("Failed to prove");
+        .expect("Failed to prove");
 
         let nc1 = pallas_prover.constraints.len();
         let nc2 = vesta_prover.constraints.len();
-        let (pallas_proof, vesta_proof) = prove(pallas_prover, vesta_prover, &sr_params.even_parameters.bp_gens, &sr_params.odd_parameters.bp_gens, &mut rng).unwrap();
+        let (pallas_proof, vesta_proof) = prove(
+            pallas_prover,
+            vesta_prover,
+            &sr_params.even_parameters.bp_gens,
+            &sr_params.odd_parameters.bp_gens,
+            &mut rng,
+        )
+        .unwrap();
 
         prover_time += clock.elapsed();
+
+        for i in 0..nesting_size {
+            assert_eq!(
+                re_randomized_nested.re_randomized_points[i].into_group(),
+                nested[i]
+                    + (odd_proof_params.sl_params.pc_gens.B_blinding * blindings_for_points[i])
+            );
+            if shared_dlog_indices.contains(&i) {
+                assert_eq!(
+                    re_randomized_nested.blindings_with_different_gen[&i].into_group(),
+                    odd_proof_params.sl_params.pc_gens.B * blindings_for_points[i]
+                );
+            }
+        }
 
         if !proof_size_printed {
             println!(
@@ -341,8 +419,9 @@ pub fn check<
                 re_randomized_nested,
                 comms,
                 &odd_proof_params,
+                shared_dlog_indices.clone(),
             )
-                .expect("Failed to verify naive");
+            .expect("Failed to verify");
 
             let vesta_res = vesta_verifier.verify(
                 &vesta_proof,

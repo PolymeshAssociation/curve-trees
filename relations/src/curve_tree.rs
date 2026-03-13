@@ -1,4 +1,5 @@
 use crate::error::Error;
+use crate::parameters::{SelRerandParametersRef, SingleLayerParameters};
 use ark_dlog_gadget::dlog::DivisorComms;
 use ark_ec::AffineRepr;
 use ark_ec::{models::short_weierstrass::SWCurveConfig, short_weierstrass::Affine, CurveGroup};
@@ -7,7 +8,6 @@ use ark_serialize::{
     CanonicalDeserialize, CanonicalSerialize, Compress, SerializationError, Valid, Validate, Write,
 };
 use ark_std::{boxed::Box, io::Read, vec, vec::Vec, Zero};
-use crate::parameters::{SelRerandParametersRef, SingleLayerParameters};
 
 pub enum CurveTree<
     const L: usize, // L is te branching factor, i.e. the number of children per branch
@@ -241,7 +241,9 @@ impl<
             }
             CurveTreeNode::InnerNode(inner_node) => {
                 let child_node_index_to_update = child_node_index_to_update.unwrap();
-                let mut child_node_to_update = inner_node.get_child_mut(child_node_index_to_update).unwrap();
+                let mut child_node_to_update = inner_node
+                    .get_child_mut(child_node_index_to_update)
+                    .unwrap();
                 Self::update_odd_node(
                     &mut child_node_to_update,
                     leaf_index,
@@ -273,7 +275,9 @@ impl<
         match node {
             CurveTreeNode::InnerNode(inner_node) => {
                 let child_node_index_to_update = child_node_index_to_update.unwrap();
-                let mut child_node_to_update = inner_node.get_child_mut(child_node_index_to_update).unwrap();
+                let mut child_node_to_update = inner_node
+                    .get_child_mut(child_node_index_to_update)
+                    .unwrap();
                 Self::update_even_node(
                     &mut child_node_to_update,
                     leaf_index,
@@ -326,7 +330,11 @@ pub struct SelectAndRerandomizeMultiPath<
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, CanonicalSerialize, CanonicalDeserialize)]
-pub struct SelectAndRerandomizePathWithDivisorComms<const L: usize, P0: SWCurveConfig, P1: SWCurveConfig> {
+pub struct SelectAndRerandomizePathWithDivisorComms<
+    const L: usize,
+    P0: SWCurveConfig,
+    P1: SWCurveConfig,
+> {
     pub path: SelectAndRerandomizePath<L, P0, P1>,
     pub even_divisor_comms: Vec<DivisorComms<Affine<P0>>>,
     pub odd_divisor_comms: Vec<DivisorComms<Affine<P1>>>,
@@ -462,7 +470,10 @@ impl<
         }
     }
 
-    pub fn get_child_mut(&mut self, index: usize) -> Result<&mut CurveTreeNode<L, M, P1, P0>, Error> {
+    pub fn get_child_mut(
+        &mut self,
+        index: usize,
+    ) -> Result<&mut CurveTreeNode<L, M, P1, P0>, Error> {
         if let Some(child) = &mut self.children[index] {
             Ok(child)
         } else {

@@ -4,9 +4,8 @@ use crate::curve_tree_prover::{CurveTreeWitnessPath, WitnessNode};
 use crate::error::Error;
 use crate::single_level_select_and_rerandomize::*;
 
-use crate::curve_tree::{
-    CurveTree, CurveTreeNode, SelectAndRerandomizeMultiPath,
-};
+use crate::curve_tree::{CurveTree, CurveTreeNode, SelectAndRerandomizeMultiPath};
+use crate::parameters::{SelRerandProofParameters, SingleLayerProofParameters};
 use crate::select::multi_select_public_set_ext_challenge;
 use ark_ec::{
     models::short_weierstrass::{Projective, SWCurveConfig},
@@ -16,12 +15,11 @@ use ark_ec::{
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{string::ToString, vec, vec::Vec, Zero};
+use bulletproofs::PedersenGens;
 use core::ops::Mul;
 use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
 use rand_core::CryptoRngCore;
 use zeroize::{Zeroize, ZeroizeOnDrop};
-use crate::parameters::{SelRerandProofParameters, SingleLayerProofParameters};
-use bulletproofs::PedersenGens;
 
 impl<
         const L: usize,
@@ -492,9 +490,7 @@ impl<
             odd_rerandomization_scalars,
             rerandomizations_of_selected,
             rerandomization_scalars_of_selected,
-        ) = self.randomize_nodes(
-            parameters.pc_gens(),
-            rng);
+        ) = self.randomize_nodes(parameters.pc_gens(), rng);
 
         let root_is_even = self.root_is_even();
 
@@ -654,9 +650,7 @@ impl<
                 odd_rerandomization_scalars,
                 rerandomizations_of_selected,
                 rerandomization_scalars_of_selected,
-            ) = path.randomize_nodes(
-                parameters.pc_gens(),
-                rng);
+            ) = path.randomize_nodes(parameters.pc_gens(), rng);
 
             // Process root node for this multi-path
             root_children_selected_coord_vars.validate_and_re_randomize_children(
@@ -999,10 +993,7 @@ impl<
 
             let rerandomization = F1::rand(rng);
             odd_rerandomization_scalars.push(rerandomization);
-            let blinding = odd_pc_gens
-                .B_blinding
-                .mul(rerandomization)
-                .into_affine();
+            let blinding = odd_pc_gens.B_blinding.mul(rerandomization).into_affine();
             odd_rerandomized_sum_of_nodes.push((sum_of_selected + blinding).into());
         }
 
@@ -1017,20 +1008,14 @@ impl<
 
                 let rerandomization: F0 = F0::rand(rng);
                 even_rerandomization_scalars.push(rerandomization);
-                let blinding = even_pc_gens
-                    .B_blinding
-                    .mul(rerandomization)
-                    .into_affine();
+                let blinding = even_pc_gens.B_blinding.mul(rerandomization).into_affine();
                 even_rerandomized_sum_of_nodes.push((sum_of_selected + blinding).into());
             } else {
                 // multi_node is the parent of leaves
                 for i in 0..num_indices as usize {
                     let rerandomization: F0 = F0::rand(rng);
                     rerandomization_scalars_of_selected[i] = rerandomization;
-                    let blinding = even_pc_gens
-                        .B_blinding
-                        .mul(rerandomization)
-                        .into_affine();
+                    let blinding = even_pc_gens.B_blinding.mul(rerandomization).into_affine();
                     rerandomizations_of_selected[i] =
                         (odd_multi_node[i].child_node_to_randomize + blinding).into();
                 }
@@ -1075,7 +1060,8 @@ impl<
 
         let mut selected_children_plus_delta = vec![Projective::<P1>::zero(); num_indices];
         for i in 0..num_indices {
-            selected_children_plus_delta[i] = nodes[i].child_node_to_randomize + parameters.sl_params.delta;
+            selected_children_plus_delta[i] =
+                nodes[i].child_node_to_randomize + parameters.sl_params.delta;
         }
         let selected_children_plus_delta =
             Projective::normalize_batch(&selected_children_plus_delta);

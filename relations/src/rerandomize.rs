@@ -496,7 +496,8 @@ mod tests {
                 c_x_tilde_var.into(),
                 c_y_tilde_var.into(),
                 Some(r),
-            ).unwrap()
+            )
+            .unwrap()
         }
 
         let proof = prover.prove(&bp_gens).unwrap();
@@ -523,7 +524,8 @@ mod tests {
                 c_x_tilde_var.into(),
                 c_y_tilde_var.into(),
                 None,
-            ).unwrap();
+            )
+            .unwrap();
         }
 
         verifier.verify(&proof, &pc_gens, &bp_gens).unwrap();
@@ -531,7 +533,9 @@ mod tests {
 
         println!(
             "For {} iterations, proving time: {:?} and verifying time {:?}",
-            scalars.len(), proving_time, verifying_time
+            scalars.len(),
+            proving_time,
+            verifying_time
         );
     }
 
@@ -624,7 +628,9 @@ mod tests {
 
         println!(
             "For {} iterations, proving time: {:?} and verifying time {:?}",
-            scalars.len(), proving_time, verifying_time
+            scalars.len(),
+            proving_time,
+            verifying_time
         );
 
         Ok(())

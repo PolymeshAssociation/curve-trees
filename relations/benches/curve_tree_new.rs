@@ -1,4 +1,4 @@
-use ark_ec::short_weierstrass::{Affine};
+use ark_ec::short_weierstrass::Affine;
 use ark_ec_divisors::curves::{
     pallas::PallasParams, pallas::Point as PallasPoint, vesta::Point as VestaPoint,
     vesta::VestaParams,
@@ -11,8 +11,8 @@ use dock_crypto_utils::transcript::MerlinTranscript;
 use lazy_static::lazy_static;
 use rand::thread_rng;
 use relations::curve_tree::*;
-use std::hint::black_box;
 use relations::parameters::{SelRerandParameters, SelRerandProofParametersNew};
+use std::hint::black_box;
 
 type PallasParameters = ark_pallas::PallasConfig;
 type VestaParameters = ark_vesta::VestaConfig;
@@ -140,13 +140,12 @@ fn curve_tree_verify_new<const L: usize>(c: &mut Criterion, height: usize) {
             let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
             let mut vesta_verifier = Verifier::new(vesta_transcript);
 
-            path_commitments
-                .select_and_rerandomize_verifier_gadget::<PallasParams, VestaParams>(
-                    &root,
-                    &mut pallas_verifier,
-                    &mut vesta_verifier,
-                    &SRProofParamsNewPallasLeaf,
-                );
+            path_commitments.select_and_rerandomize_verifier_gadget::<PallasParams, VestaParams>(
+                &root,
+                &mut pallas_verifier,
+                &mut vesta_verifier,
+                &SRProofParamsNewPallasLeaf,
+            );
 
             #[cfg(feature = "parallel")]
             let (vesta_res, pallas_res) = rayon::join(

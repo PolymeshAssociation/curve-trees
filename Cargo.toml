@@ -16,10 +16,16 @@ dock_crypto_utils = { git = "https://github.com/PolymeshAssociation/crypto", bra
 #ark-serialize = { path = "../arkworks-algebra/serialize" }
 #ark-ec = { path = "../arkworks-algebra/ec" }
 #ark-ff = { path = "../arkworks-algebra/ff" }
+#ark-poly = { path = "../arkworks-algebra/poly" }
 #ark-pallas = { path = "../arkworks-algebra/curves/pallas" }
 #ark-vesta = { path = "../arkworks-algebra/curves/vesta" }
 #ark-secp256k1 = { path = "../arkworks-algebra/curves/secp256k1" }
 #ark-secq256k1 = { path = "../arkworks-algebra/curves/secq256k1" }
+#ark-helios = { path = "../arkworks-algebra/curves/helios" }
+#ark-selene = { path = "../arkworks-algebra/curves/selene" }
+#ark-ed25519 = { path = "../arkworks-algebra/curves/ed25519" }
+#ark-curve25519 = { path = "../arkworks-algebra/curves/curve25519" }
+#ark-wei25519 = { path = "../arkworks-algebra/curves/wei25519" }
 
 ark-serialize = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
 ark-ec = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
@@ -28,6 +34,12 @@ ark-pallas = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.gi
 ark-vesta = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
 ark-secp256k1 = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
 ark-secq256k1 = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+ark-helios = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+ark-selene = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+ark-ed25519 = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+ark-curve25519 = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+ark-wei25519 = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+
 
 [workspace.dependencies]
 dock_crypto_utils = { version = "0.22.0", default-features = false }
@@ -39,6 +51,11 @@ ark-pallas = { version = "0.5.0", default-features = false, features = ["curve"]
 ark-vesta = { version = "0.5.0", default-features = false }
 ark-secp256k1 = { version = "0.5.0", default-features = false }
 ark-secq256k1 = { version = "0.5.0", default-features = false }
+ark-helios = { version = "0.5.0", default-features = false }
+ark-selene = { version = "0.5.0", default-features = false }
+ark-ed25519 = { version = "0.5.0", default-features = false }
+ark-curve25519 = { version = "0.5.0", default-features = false }
+ark-wei25519 = { version = "0.5.0", default-features = false }
 
 [profile.release]
 opt-level = 3

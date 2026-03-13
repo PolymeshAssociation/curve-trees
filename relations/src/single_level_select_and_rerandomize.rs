@@ -5,14 +5,12 @@ use crate::error::Error;
 use crate::rerandomize::*;
 use crate::select::*;
 
-use ark_ec::{
-    models::short_weierstrass::SWCurveConfig, short_weierstrass::Affine, CurveGroup,
-};
+use crate::parameters::SingleLayerProofParameters;
+use ark_ec::{models::short_weierstrass::SWCurveConfig, short_weierstrass::Affine, CurveGroup};
 use ark_ff::{Field, PrimeField};
 use ark_std::vec::Vec;
 use core::marker::PhantomData;
 use dock_crypto_utils::transcript::Transcript;
-use crate::parameters::{SingleLayerProofParameters};
 
 /// Circuit for the single level select and rerandomize relation.
 pub fn single_level_select_and_rerandomize<
@@ -29,7 +27,8 @@ pub fn single_level_select_and_rerandomize<
     child_rerandomization_scalar: Option<Fb>, // The scalar used for randomizing, i.e. child + Delta + child_rerandomization_scalar * H = rerandomized_child + Delta
 ) {
     // Add the re-randomised child to the transcript
-    cs.transcript().append(b"rerandomized_child", &rerandomized_child);
+    cs.transcript()
+        .append(b"rerandomized_child", &rerandomized_child);
 
     // Show that child is part of `all_children` by showing that the child's x-coordinate is present in x-coordinates of the all children
     let x_var = cs.allocate(child_plus_delta.map(|xy| xy.x)).unwrap();
@@ -57,12 +56,13 @@ pub fn root_level_select_and_rerandomize<
     cs: &mut Cs, // Prover or verifier
     parameters: &SingleLayerProofParameters<C2>,
     rerandomized_child: &Affine<C2>, // The public rerandomization of the selected child without Delta
-    all_children_plus_delta: &[Fs], // Public set of x-coordinates of all children plus delta
+    all_children_plus_delta: &[Fs],  // Public set of x-coordinates of all children plus delta
     child_plus_delta: Option<Affine<C2>>, // Witness of the selected child plus Delta
     child_rerandomization_scalar: Option<Fb>, // The scalar used for randomizing, i.e. child + Delta + child_rerandomization_scalar * H = rerandomized_child + Delta
 ) {
     // Add the re-randomised child to the transcript
-    cs.transcript().append(b"rerandomized_child", &rerandomized_child);
+    cs.transcript()
+        .append(b"rerandomized_child", &rerandomized_child);
 
     // Show that child is part of `all_children` by showing that the child's x-coordinate is present in x-coordinates of the all children
     let x_var = cs.allocate(child_plus_delta.map(|xy| xy.x)).unwrap();
@@ -99,16 +99,11 @@ pub fn validate_point_and_re_randomize<
     let y_var = cs.allocate(child_plus_delta.map(|xy| xy.y)).unwrap();
     let y_lc: LinearCombination<_> = y_var.into();
     // TODO: Reconsider if this is needed since the x-coordinate has already been selected from the set of siblings.
-    curve_check(
-        cs,
-        x_lc.clone(),
-        y_lc.clone(),
-        C2::COEFF_A,
-        C2::COEFF_B,
-    );
+    curve_check(cs, x_lc.clone(), y_lc.clone(), C2::COEFF_A, C2::COEFF_B);
 
     // Show that `rerandomized_child` is a rerandomization of the selected child
-    let rerandomized_child_plus_delta = (*rerandomized_child + parameters.sl_params.delta).into_affine();
+    let rerandomized_child_plus_delta =
+        (*rerandomized_child + parameters.sl_params.delta).into_affine();
     re_randomize(
         cs,
         &parameters.tables,
@@ -121,7 +116,7 @@ pub fn validate_point_and_re_randomize<
         constant(rerandomized_child_plus_delta.y),
         child_rerandomization_scalar,
     )
-        .expect("Failed to re-randomize");
+    .expect("Failed to re-randomize");
 }
 
 /// Circuit for the single level version of the batched select and rerandomize relation.
@@ -134,7 +129,7 @@ pub fn single_level_batched_select_and_rerandomize<
 >(
     cs: &mut Cs, // Prover or verifier
     parameters: &SingleLayerProofParameters<C2>,
-    num_indices: u32, // The number of parallel selections
+    num_indices: u32,                         // The number of parallel selections
     sum_of_rerandomized: &Affine<C2>, // The public rerandomization of the sum of selected children
     all_children: Vec<LinearCombination<Fs>>, // Variables representing members of the combined and rerandomized parent vector commitment (i.e. the rerandomized sum of num_indices parents)
     selected_children_plus_delta: Option<&[Affine<C2>]>, // Witnesses of the commitments being selected and rerandomized
@@ -160,9 +155,9 @@ pub fn root_level_batched_select_and_rerandomize<
 >(
     cs: &mut Cs, // Prover or verifier
     parameters: &SingleLayerProofParameters<C2>,
-    num_indices: u32, // The number of parallel selections
+    num_indices: u32,                 // The number of parallel selections
     sum_of_rerandomized: &Affine<C2>, // The public rerandomization of the sum of selected children
-    all_children: Vec<Fs>, // x-coordinates of all children of root, combined.
+    all_children: Vec<Fs>,            // x-coordinates of all children of root, combined.
     selected_children_plus_delta: Option<&[Affine<C2>]>, // Witnesses of the commitments being selected and rerandomized
     child_rerandomization_scalar: Option<Fb>, // The scalar used for randomizing, i.e. \sum selected_witnesses + child_rerandomization_scalar * H = sum_of_rerandomized + num_indices * Delta
 ) -> Result<(), Error> {
@@ -183,18 +178,21 @@ fn single_level_batched_select_and_rerandomize_inner<
     Fs: Field,
     C2: SWCurveConfig<BaseField = Fs, ScalarField = Fb> + Copy,
     Cs: ConstraintSystem<Fs>,
-    C, F
+    C,
+    F,
 >(
     cs: &mut Cs, // Prover or verifier
     parameters: &SingleLayerProofParameters<C2>,
-    num_indices: u32, // The number of parallel selections
+    num_indices: u32,                 // The number of parallel selections
     sum_of_rerandomized: &Affine<C2>, // The public rerandomization of the sum of selected children
     all_children: Vec<C>,
     selected_children_plus_delta: Option<&[Affine<C2>]>, // Witnesses of the commitments being selected and rerandomized
     child_rerandomization_scalar: Option<Fb>, // The scalar used for randomizing, i.e. \sum selected_witnesses + child_rerandomization_scalar * H = sum_of_rerandomized + num_indices * Delta
-    select_fn: F
+    select_fn: F,
 ) -> Result<(), Error>
-where F: Fn(&mut Cs, LinearCombination<Fs>, &[C]) -> () {
+where
+    F: Fn(&mut Cs, LinearCombination<Fs>, &[C]) -> (),
+{
     // Initialize the accumulated sum of the selected children to dummy values.
     let mut sum_of_selected = PointRepresentation {
         x: Variable::One(PhantomData).into(),
@@ -217,13 +215,7 @@ where F: Fn(&mut Cs, LinearCombination<Fs>, &[C]) -> () {
 
         // Proof that the opened x coordinate with the witnessed y is a point on the curve
         // Note that empty branches are encoded as 0 which works because x=0 does not satisfy the curve equation for any of the curves used.
-        curve_check(
-            cs,
-            x_var.into(),
-            y_var.into(),
-            C2::COEFF_A,
-            C2::COEFF_B,
-        );
+        curve_check(cs, x_var.into(), y_var.into(), C2::COEFF_A, C2::COEFF_B);
 
         // Update the cumulated sum of selected children
         if i == 0 {
@@ -235,8 +227,9 @@ where F: Fn(&mut Cs, LinearCombination<Fs>, &[C]) -> () {
         }
     }
     // Add num_indices*Delta to the public sum of the children
-    let shifted_rerandomized =
-        (*sum_of_rerandomized + (parameters.sl_params.delta * C2::ScalarField::from(num_indices))).into_affine();
+    let shifted_rerandomized = (*sum_of_rerandomized
+        + (parameters.sl_params.delta * C2::ScalarField::from(num_indices)))
+    .into_affine();
     // Show that `rerandomized`, is a rerandomization of sum of the selected children
     re_randomize(
         cs,
@@ -258,7 +251,7 @@ pub fn single_level_batched_validate_and_rerandomize_root_children<
 >(
     cs: &mut Cs, // Prover or verifier
     parameters: &SingleLayerProofParameters<C2>,
-    num_indices: u32, // The number of parallel selections
+    num_indices: u32,                 // The number of parallel selections
     sum_of_rerandomized: &Affine<C2>, // The public rerandomization of the sum of selected children
     selected_children_plus_delta: Option<&[Affine<C2>]>, // Witnesses of the commitments being selected and rerandomized
     selected_children_x_coords: Vec<LinearCombination<Fs>>,
@@ -282,13 +275,7 @@ pub fn single_level_batched_validate_and_rerandomize_root_children<
 
         // Proof that the opened x coordinate with the witnessed y is a point on the curve
         // Note that empty branches are encoded as 0 which works because x=0 does not satisfy the curve equation for any of the curves used.
-        curve_check(
-            cs,
-            x_var.clone(),
-            y_var.clone(),
-            C2::COEFF_A,
-            C2::COEFF_B,
-        );
+        curve_check(cs, x_var.clone(), y_var.clone(), C2::COEFF_A, C2::COEFF_B);
 
         // Update the cumulated sum of selected children
         if i == 0 {
@@ -301,8 +288,9 @@ pub fn single_level_batched_validate_and_rerandomize_root_children<
     }
 
     // Add num_indices*Delta to the public sum of the children
-    let shifted_rerandomized =
-        (*sum_of_rerandomized + (parameters.sl_params.delta * C2::ScalarField::from(num_indices))).into_affine();
+    let shifted_rerandomized = (*sum_of_rerandomized
+        + (parameters.sl_params.delta * C2::ScalarField::from(num_indices)))
+    .into_affine();
     // Show that `rerandomized`, is a rerandomization of sum of the selected children
     re_randomize(
         cs,
@@ -318,9 +306,9 @@ pub fn single_level_batched_validate_and_rerandomize_root_children<
 
 #[cfg(test)]
 mod tests {
-    use core::iter;
-    use ark_pallas::PallasConfig;
     use crate::parameters::{SelRerandParameters, SelRerandProofParameters, SingleLayerParameters};
+    use ark_pallas::PallasConfig;
+    use core::iter;
 
     use super::*;
 

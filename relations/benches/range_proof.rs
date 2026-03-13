@@ -5,11 +5,11 @@ use ark_std::UniformRand;
 use ark_vesta::VestaConfig;
 use bulletproofs::r1cs::*;
 use criterion::{criterion_group, criterion_main, Criterion};
-use std::hint::black_box;
 use dock_crypto_utils::transcript::MerlinTranscript;
 use rand::{thread_rng, Rng};
 use relations::parameters::SelRerandParameters;
 use relations::range_proof::range_proof;
+use std::hint::black_box;
 
 type VestaA = ark_vesta::Affine;
 type VestaScalar = <VestaA as AffineRepr>::ScalarField;
@@ -84,11 +84,13 @@ fn range_proof_verify(c: &mut Criterion, n: usize) {
             let var = verifier.commit(commitment);
             range_proof(&mut verifier, var.into(), None, n).unwrap();
 
-            let result = verifier.verify(
-                &proof,
-                &sr_params.odd_parameters.pc_gens,
-                &sr_params.odd_parameters.bp_gens,
-            ).unwrap();
+            let result = verifier
+                .verify(
+                    &proof,
+                    &sr_params.odd_parameters.pc_gens,
+                    &sr_params.odd_parameters.bp_gens,
+                )
+                .unwrap();
             black_box(result)
         })
     });

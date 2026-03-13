@@ -8,17 +8,23 @@ use rand_core::CryptoRngCore;
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
 use crate::Interpolator;
 
-#[cfg(feature = "ed25519")]
-pub mod ed25519;
-
-#[cfg(any(feature = "pallas", feature = "vesta"))]
+#[cfg(any(feature = "pallas", feature = "vesta", feature = "helios", feature = "selene", feature = "wei25519"))]
 pub mod sw;
 
-#[cfg(feature = "pallas")]
+#[cfg(any(test, feature = "pallas"))]
 pub mod pallas;
 
-#[cfg(feature = "vesta")]
+#[cfg(any(test, feature = "vesta"))]
 pub mod vesta;
+
+#[cfg(any(test, feature = "helios"))]
+pub mod helios;
+
+#[cfg(any(test, feature = "selene"))]
+pub mod selene;
+
+#[cfg(any(test, feature = "wei25519"))]
+pub mod wei25519;
 
 #[cfg(test)]
 mod tests;
@@ -27,7 +33,7 @@ mod tests;
 /// This trait is for short Weierstrass curves and needed especially when dealing with Ed25119 curve
 pub trait DivisorCurve: Sized + Clone + Copy + Zeroize + PartialEq + Eq {
     /// The configuration for the short Weierstrass curve. But using CurveConfig as i need to make it for Ed25519 (Wei25519)
-    type Config: CurveConfig;
+    type Config: CurveConfig<BaseField = Self::BaseField, ScalarField = Self::ScalarField>;
 
     /// An element of the field this curve is defined over (the base field).
     type BaseField: PrimeField;

@@ -1,30 +1,32 @@
-use core::iter;
-use ark_ec::short_weierstrass::{Affine, Projective, SWCurveConfig};
-use ark_ec::{AffineRepr, CurveGroup, VariableBaseMSM};
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use ark_ff::{PrimeField, Zero};
-use bulletproofs::{affine_from_bytes_tai, BulletproofGens, PedersenGens};
 use crate::error::Error;
 use crate::lookup::Lookup3Bit;
 use crate::rerandomize::build_tables;
-use ark_pallas::{Affine as PallasAffine, PallasConfig};
-use ark_std::vec::Vec;
-use ark_vesta::{Affine as VestaAffine, VestaConfig};
-use bulletproofs::hash_to_curve_pasta::{hash_to_pallas, hash_to_vesta};
 use ark_dlog_gadget::dlog::DiscreteLogParameters;
-use ark_ec_divisors::util::GeneratorTable;
-use ark_ec_divisors::DivisorCurve;
+use ark_ec::short_weierstrass::{Affine, Projective, SWCurveConfig};
+use ark_ec::{AffineRepr, CurveGroup, VariableBaseMSM};
 use ark_ec_divisors::curves::{
     pallas::PallasParams, pallas::Point as PallasPoint, vesta::Point as VestaPoint,
     vesta::VestaParams,
 };
+use ark_ec_divisors::util::GeneratorTable;
+use ark_ec_divisors::DivisorCurve;
+use ark_ff::{PrimeField, Zero};
+use ark_pallas::{Affine as PallasAffine, PallasConfig};
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use ark_std::vec::Vec;
+use ark_vesta::{Affine as VestaAffine, VestaConfig};
+use bulletproofs::hash_to_curve_pasta::{hash_to_pallas, hash_to_vesta};
+use bulletproofs::{affine_from_bytes_tai, BulletproofGens, PedersenGens};
+use core::iter;
 
 pub trait SelRerandParametersRef<P0: SWCurveConfig + Copy, P1: SWCurveConfig + Copy> {
     fn even_parameters(&self) -> &SingleLayerParameters<P0>;
     fn odd_parameters(&self) -> &SingleLayerParameters<P1>;
 }
 
-impl<P0: SWCurveConfig + Copy, P1: SWCurveConfig + Copy, T: SelRerandParametersRef<P0, P1>> SelRerandParametersRef<P0, P1> for &T {
+impl<P0: SWCurveConfig + Copy, P1: SWCurveConfig + Copy, T: SelRerandParametersRef<P0, P1>>
+    SelRerandParametersRef<P0, P1> for &T
+{
     fn even_parameters(&self) -> &SingleLayerParameters<P0> {
         (*self).even_parameters()
     }
@@ -168,7 +170,9 @@ impl<P0: SWCurveConfig + Copy, P1: SWCurveConfig + Copy> SelRerandParameters<P0,
     }
 }
 
-impl<P0: SWCurveConfig + Copy, P1: SWCurveConfig + Copy> SelRerandParametersRef<P0, P1> for SelRerandParameters<P0, P1> {
+impl<P0: SWCurveConfig + Copy, P1: SWCurveConfig + Copy> SelRerandParametersRef<P0, P1>
+    for SelRerandParameters<P0, P1>
+{
     fn even_parameters(&self) -> &SingleLayerParameters<P0> {
         &self.even_parameters
     }
@@ -222,19 +226,30 @@ impl<P0: SWCurveConfig + Copy, P1: SWCurveConfig + Copy> SelRerandProofParameter
     }
 
     pub fn bp_gens(&self) -> (&BulletproofGens<Affine<P0>>, &BulletproofGens<Affine<P1>>) {
-        (self.even_parameters.bp_gens(), self.odd_parameters.bp_gens())
+        (
+            self.even_parameters.bp_gens(),
+            self.odd_parameters.bp_gens(),
+        )
     }
 
     pub fn pc_gens(&self) -> (&PedersenGens<Affine<P0>>, &PedersenGens<Affine<P1>>) {
-        (self.even_parameters.pc_gens(), self.odd_parameters.pc_gens())
+        (
+            self.even_parameters.pc_gens(),
+            self.odd_parameters.pc_gens(),
+        )
     }
 }
 
-impl<P0: SWCurveConfig + Copy, P1: SWCurveConfig + Copy> TryFrom<SelRerandParameters<P0, P1>> for SelRerandProofParameters<P0, P1> {
+impl<P0: SWCurveConfig + Copy, P1: SWCurveConfig + Copy> TryFrom<SelRerandParameters<P0, P1>>
+    for SelRerandProofParameters<P0, P1>
+{
     type Error = Error;
 
     fn try_from(sr_params: SelRerandParameters<P0, P1>) -> Result<Self, Self::Error> {
-        let SelRerandParameters { even_parameters, odd_parameters } = sr_params;
+        let SelRerandParameters {
+            even_parameters,
+            odd_parameters,
+        } = sr_params;
         Ok(Self {
             even_parameters: SingleLayerProofParameters::from(even_parameters),
             odd_parameters: SingleLayerProofParameters::from(odd_parameters),
@@ -242,7 +257,9 @@ impl<P0: SWCurveConfig + Copy, P1: SWCurveConfig + Copy> TryFrom<SelRerandParame
     }
 }
 
-impl<P0: SWCurveConfig + Copy, P1: SWCurveConfig + Copy> SelRerandParametersRef<P0, P1> for SelRerandProofParameters<P0, P1> {
+impl<P0: SWCurveConfig + Copy, P1: SWCurveConfig + Copy> SelRerandParametersRef<P0, P1>
+    for SelRerandProofParameters<P0, P1>
+{
     fn even_parameters(&self) -> &SingleLayerParameters<P0> {
         &self.even_parameters.sl_params
     }
@@ -254,19 +271,36 @@ impl<P0: SWCurveConfig + Copy, P1: SWCurveConfig + Copy> SelRerandParametersRef<
 
 // A better way would be to make arkworks have BaseField as PrimeField
 #[derive(Clone, CanonicalSerialize, CanonicalDeserialize)]
-pub struct SingleLayerProofParametersNew<P: SWCurveConfig<BaseField: PrimeField> + Copy, DLogParams: DiscreteLogParameters> {
+pub struct SingleLayerProofParametersNew<
+    P: SWCurveConfig<BaseField: PrimeField> + Copy,
+    DLogParams: DiscreteLogParameters,
+> {
     pub sl_params: SingleLayerParameters<P>,
-    pub table: GeneratorTable<P::BaseField, DLogParams>,
+    pub tables: Vec<Lookup3Bit<2, P::BaseField>>,
+    pub table_b_blinding: GeneratorTable<P::BaseField, DLogParams>,
+    pub table_b: GeneratorTable<P::BaseField, DLogParams>,
 }
 
-impl<P: SWCurveConfig<BaseField: PrimeField> + Copy, DLogParams: DiscreteLogParameters> SingleLayerProofParametersNew<P, DLogParams> {
-    pub fn new<D: DivisorCurve<BaseField = P::BaseField, ScalarField = P::ScalarField> + From<Projective<P>>>(
+impl<P: SWCurveConfig<BaseField: PrimeField> + Copy, DLogParams: DiscreteLogParameters>
+    SingleLayerProofParametersNew<P, DLogParams>
+{
+    pub fn new<
+        D: DivisorCurve<BaseField = P::BaseField, ScalarField = P::ScalarField> + From<Projective<P>>,
+    >(
         generators_length: u32,
     ) -> Result<Self, Error> {
         let sl_params = SingleLayerParameters::<P>::new(generators_length)?;
+        let tables = build_tables(sl_params.pc_gens.B_blinding)?;
         let blinding_generator = D::from(sl_params.pc_gens.B_blinding.into_group());
-        let table = GeneratorTable::<P::BaseField, DLogParams>::new(blinding_generator);
-        Ok(Self { sl_params, table })
+        let table_b_blinding = GeneratorTable::<P::BaseField, DLogParams>::new(blinding_generator);
+        let b_generator = D::from(sl_params.pc_gens.B.into_group());
+        let table_b = GeneratorTable::<P::BaseField, DLogParams>::new(b_generator);
+        Ok(Self {
+            sl_params,
+            tables,
+            table_b_blinding,
+            table_b,
+        })
     }
 
     pub fn bp_gens(&self) -> &BulletproofGens<Affine<P>> {
@@ -278,13 +312,25 @@ impl<P: SWCurveConfig<BaseField: PrimeField> + Copy, DLogParams: DiscreteLogPara
     }
 }
 
-impl<P: SWCurveConfig<BaseField: PrimeField> + Copy, DLogParams: DiscreteLogParameters> SingleLayerProofParametersNew<P, DLogParams> {
-    pub fn from_single_layer_params<D: DivisorCurve<BaseField = P::BaseField, ScalarField = P::ScalarField> + From<Projective<P>>>(
+impl<P: SWCurveConfig<BaseField: PrimeField> + Copy, DLogParams: DiscreteLogParameters>
+    SingleLayerProofParametersNew<P, DLogParams>
+{
+    pub fn from_single_layer_params<
+        D: DivisorCurve<BaseField = P::BaseField, ScalarField = P::ScalarField> + From<Projective<P>>,
+    >(
         sl_params: SingleLayerParameters<P>,
     ) -> Self {
+        let tables = build_tables(sl_params.pc_gens.B_blinding).expect("Failed to build tables");
         let blinding_generator = D::from(sl_params.pc_gens.B_blinding.into_group());
         let table = GeneratorTable::<P::BaseField, DLogParams>::new(blinding_generator);
-        Self { sl_params, table }
+        let b_generator = D::from(sl_params.pc_gens.B.into_group());
+        let table_b = GeneratorTable::<P::BaseField, DLogParams>::new(b_generator);
+        Self {
+            sl_params,
+            tables,
+            table_b_blinding: table,
+            table_b,
+        }
     }
 }
 
@@ -300,52 +346,75 @@ pub struct SelRerandProofParametersNew<
 }
 
 impl<
-    P0: SWCurveConfig<BaseField: PrimeField> + Copy,
-    P1: SWCurveConfig<BaseField: PrimeField> + Copy,
-    DLog0: DiscreteLogParameters,
-    DLog1: DiscreteLogParameters,
-> SelRerandProofParametersNew<P0, P1, DLog0, DLog1> {
+        P0: SWCurveConfig<BaseField: PrimeField> + Copy,
+        P1: SWCurveConfig<BaseField: PrimeField> + Copy,
+        DLog0: DiscreteLogParameters,
+        DLog1: DiscreteLogParameters,
+    > SelRerandProofParametersNew<P0, P1, DLog0, DLog1>
+{
     pub fn new<
-        D0: DivisorCurve<BaseField = P0::BaseField, ScalarField = P0::ScalarField> + From<Projective<P0>>,
-        D1: DivisorCurve<BaseField = P1::BaseField, ScalarField = P1::ScalarField> + From<Projective<P1>>,
+        D0: DivisorCurve<BaseField = P0::BaseField, ScalarField = P0::ScalarField>
+            + From<Projective<P0>>,
+        D1: DivisorCurve<BaseField = P1::BaseField, ScalarField = P1::ScalarField>
+            + From<Projective<P1>>,
     >(
         even_generators_length: u32,
         odd_generators_length: u32,
     ) -> Result<Self, Error> {
         Ok(Self {
-            even_parameters: SingleLayerProofParametersNew::<P0, DLog1>::new::<D0>(even_generators_length)?,
-            odd_parameters: SingleLayerProofParametersNew::<P1, DLog0>::new::<D1>(odd_generators_length)?,
+            even_parameters: SingleLayerProofParametersNew::<P0, DLog1>::new::<D0>(
+                even_generators_length,
+            )?,
+            odd_parameters: SingleLayerProofParametersNew::<P1, DLog0>::new::<D1>(
+                odd_generators_length,
+            )?,
         })
     }
 
     pub fn from_sr_params<
-        D0: DivisorCurve<BaseField = P0::BaseField, ScalarField = P0::ScalarField> + From<Projective<P0>>,
-        D1: DivisorCurve<BaseField = P1::BaseField, ScalarField = P1::ScalarField> + From<Projective<P1>>,
+        D0: DivisorCurve<BaseField = P0::BaseField, ScalarField = P0::ScalarField>
+            + From<Projective<P0>>,
+        D1: DivisorCurve<BaseField = P1::BaseField, ScalarField = P1::ScalarField>
+            + From<Projective<P1>>,
     >(
         sr_params: SelRerandParameters<P0, P1>,
     ) -> Self {
-        let SelRerandParameters {even_parameters, odd_parameters} = sr_params;
+        let SelRerandParameters {
+            even_parameters,
+            odd_parameters,
+        } = sr_params;
         Self {
-            even_parameters: SingleLayerProofParametersNew::<P0, DLog1>::from_single_layer_params::<D0>(even_parameters),
-            odd_parameters: SingleLayerProofParametersNew::<P1, DLog0>::from_single_layer_params::<D1>(odd_parameters),
+            even_parameters: SingleLayerProofParametersNew::<P0, DLog1>::from_single_layer_params::<
+                D0,
+            >(even_parameters),
+            odd_parameters: SingleLayerProofParametersNew::<P1, DLog0>::from_single_layer_params::<
+                D1,
+            >(odd_parameters),
         }
     }
 
     pub fn bp_gens(&self) -> (&BulletproofGens<Affine<P0>>, &BulletproofGens<Affine<P1>>) {
-        (self.even_parameters.bp_gens(), self.odd_parameters.bp_gens())
+        (
+            self.even_parameters.bp_gens(),
+            self.odd_parameters.bp_gens(),
+        )
     }
 
     pub fn pc_gens(&self) -> (&PedersenGens<Affine<P0>>, &PedersenGens<Affine<P1>>) {
-        (self.even_parameters.pc_gens(), self.odd_parameters.pc_gens())
+        (
+            self.even_parameters.pc_gens(),
+            self.odd_parameters.pc_gens(),
+        )
     }
 }
 
 impl<
-    P0: SWCurveConfig<BaseField: PrimeField> + Copy,
-    P1: SWCurveConfig<BaseField: PrimeField> + Copy,
-    DLog0: DiscreteLogParameters,
-    DLog1: DiscreteLogParameters,
-> SelRerandParametersRef<P0, P1> for SelRerandProofParametersNew<P0, P1, DLog0, DLog1> {
+        P0: SWCurveConfig<BaseField: PrimeField> + Copy,
+        P1: SWCurveConfig<BaseField: PrimeField> + Copy,
+        DLog0: DiscreteLogParameters,
+        DLog1: DiscreteLogParameters,
+    > SelRerandParametersRef<P0, P1> for SelRerandProofParametersNew<P0, P1, DLog0, DLog1>
+{
     fn even_parameters(&self) -> &SingleLayerParameters<P0> {
         &self.even_parameters.sl_params
     }
@@ -420,5 +489,21 @@ impl_sel_rerand_new_using_label!(SelRerandParameters, VestaConfig, PallasConfig)
 impl_sel_rerand_new_using_label!(SelRerandProofParameters, PallasConfig, VestaConfig);
 impl_sel_rerand_new_using_label!(SelRerandProofParameters, VestaConfig, PallasConfig);
 
-impl_sel_rerand_new_using_label!(SelRerandProofParametersNew, PallasConfig, VestaConfig, PallasParams, VestaParams, PallasPoint, VestaPoint);
-impl_sel_rerand_new_using_label!(SelRerandProofParametersNew, VestaConfig, PallasConfig, VestaParams, PallasParams, VestaPoint, PallasPoint);
+impl_sel_rerand_new_using_label!(
+    SelRerandProofParametersNew,
+    PallasConfig,
+    VestaConfig,
+    PallasParams,
+    VestaParams,
+    PallasPoint,
+    VestaPoint
+);
+impl_sel_rerand_new_using_label!(
+    SelRerandProofParametersNew,
+    VestaConfig,
+    PallasConfig,
+    VestaParams,
+    PallasParams,
+    VestaPoint,
+    PallasPoint
+);

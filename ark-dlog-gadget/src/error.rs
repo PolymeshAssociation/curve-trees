@@ -37,4 +37,7 @@ pub enum Error {
     /// Combined witness length is not evenly divisible by chunk length.
     #[error("Combined witness length is not evenly divisible by chunk length: {0} % {1}")]
     WitnessChunkLengthMismatch(usize, usize),
+    /// Mismatched size error.
+    #[error("Mismatched size: got {0}, expected {1}")]
+    MismatchedSize(usize, usize),
 }

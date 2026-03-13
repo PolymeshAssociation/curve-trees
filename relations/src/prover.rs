@@ -2,29 +2,29 @@ use crate::curve_tree::{SelectAndRerandomizePath, SelectAndRerandomizePathWithDi
 use crate::curve_tree_prover::{
     CurveTreeWitnessPath, RootChildren, WitnessNode, WitnessPathsWithSameRoot,
 };
+use crate::error::Result;
+use crate::parameters::SelRerandProofParametersNew;
 use crate::select::{multi_select_public_set_ext_challenge, select, select_public_set};
 use crate::utils::get_2_rngs_from_one;
 use ark_dlog_gadget::dlog::{
     commit_witness_chunks_prover, create_divisor_and_decomposition,
-    discrete_log_blinding_given_challenge, discrete_log_challenge,
-    ChallengedGenerator, DiscreteLogChallenge, DiscreteLogParameters, DivisorComms, PointWithDlog,
+    discrete_log_blinding_given_challenge, discrete_log_challenge, ChallengedGenerator,
+    DiscreteLogChallenge, DiscreteLogParameters, DivisorComms, PointWithDlog,
 };
-use bulletproofs::BulletproofGens;
 use ark_dlog_gadget::utils::CurveSpec;
 use ark_ec::short_weierstrass::{Affine, Projective, SWCurveConfig};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ec_divisors::util::GeneratorTable;
 use ark_ec_divisors::DivisorCurve;
 use ark_ff::{Field, PrimeField};
-use ark_std::vec::Vec;
 use ark_std::vec;
+use ark_std::vec::Vec;
 use bulletproofs::r1cs::{ConstraintSystem, LinearCombination, Prover, Variable};
+use bulletproofs::BulletproofGens;
 use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
 use rand_chacha::ChaChaRng;
 use rand_core::CryptoRngCore;
 use zeroize::Zeroize;
-use crate::error::{Result};
-use crate::parameters::{SelRerandProofParametersNew};
 
 pub const VC_LEN: u16 = 256;
 
@@ -54,19 +54,14 @@ impl<
         odd_prover: &mut Prover<MerlinTranscript, Affine<P1>>,
         parameters: &SelRerandProofParametersNew<P0, P1, Parameters0, Parameters1>,
         rng: &mut R,
-    ) -> Result<(
-        SelectAndRerandomizePathWithDivisorComms<L, P0, P1>,
-        F0,
-    )> {
+    ) -> Result<(SelectAndRerandomizePathWithDivisorComms<L, P0, P1>, F0)> {
         let (
             even_rerandomized_nodes,
             odd_rerandomized_nodes,
             mut even_rerandomization_scalars,
             mut odd_rerandomization_scalars,
             re_randomization_of_leaf,
-        ) = self.randomize_nodes(
-            parameters.pc_gens(),
-            rng);
+        ) = self.randomize_nodes(parameters.pc_gens(), rng);
 
         let mut even_node_comms = vec![];
         let mut even_node_divisors = vec![];
@@ -82,7 +77,7 @@ impl<
                     &self.even_internal_nodes[0],
                     &odd_rerandomized_nodes[0],
                     odd_rerandomization_scalars[0],
-                    &parameters.odd_parameters.table,
+                    &parameters.odd_parameters.table_b_blinding,
                     &parameters.odd_parameters.sl_params.delta,
                     &parameters.even_parameters.sl_params.bp_gens,
                 )?;
@@ -100,7 +95,7 @@ impl<
                     &self.odd_internal_nodes[0],
                     &even_rerandomized_nodes[0],
                     even_rerandomization_scalars[0],
-                    &parameters.even_parameters.table,
+                    &parameters.even_parameters.table_b_blinding,
                     &parameters.even_parameters.sl_params.delta,
                     &parameters.odd_parameters.sl_params.bp_gens,
                 )?;
@@ -127,7 +122,7 @@ impl<
                         even_rerandomization_scalars[i],
                         &odd_rerandomized_nodes[index],
                         odd_rerandomization_scalars[index],
-                        &parameters.odd_parameters.table,
+                        &parameters.odd_parameters.table_b_blinding,
                         &parameters.odd_parameters.sl_params.delta,
                         &parameters.even_parameters.sl_params.bp_gens,
                     )?;
@@ -157,7 +152,7 @@ impl<
                         odd_rerandomization_scalars[i],
                         &even_rerandomized_nodes[index],
                         even_rerandomization_scalars[index],
-                        &parameters.even_parameters.table,
+                        &parameters.even_parameters.table_b_blinding,
                         &parameters.even_parameters.sl_params.delta,
                         &parameters.odd_parameters.sl_params.bp_gens,
                     )?;
@@ -177,10 +172,8 @@ impl<
 
         #[cfg(feature = "parallel")]
         {
-            let (even_result, odd_result) = rayon::join(
-                || commit_even(&mut rng_even),
-                || commit_odd(&mut rng_odd)
-            );
+            let (even_result, odd_result) =
+                rayon::join(|| commit_even(&mut rng_even), || commit_odd(&mut rng_odd));
             even_result?;
             odd_result?;
         }
@@ -188,8 +181,8 @@ impl<
         constraints_for_dlogs::<_, _, _, _, P0, P1, Parameters0, Parameters1>(
             even_prover,
             odd_prover,
-            &parameters.even_parameters.table,
-            &parameters.odd_parameters.table,
+            &parameters.even_parameters.table_b_blinding,
+            &parameters.odd_parameters.table_b_blinding,
             even_node_divisors,
             odd_node_divisors,
         )?;
@@ -335,7 +328,7 @@ impl<
         F1: PrimeField,
         P0: SWCurveConfig<BaseField = F1, ScalarField = F0> + Copy,
         P1: SWCurveConfig<BaseField = F0, ScalarField = F1> + Copy,
-    >  WitnessPathsWithSameRoot<L, P0, P1>
+    > WitnessPathsWithSameRoot<L, P0, P1>
 {
     pub fn select_and_rerandomize_prover_gadget_new<
         R: CryptoRngCore,
@@ -373,9 +366,7 @@ impl<
                 even_rerandomization_scalars,
                 odd_rerandomization_scalars,
                 re_randomization_of_leaf,
-            ) = path.randomize_nodes(
-                parameters.pc_gens(),
-                rng);
+            ) = path.randomize_nodes(parameters.pc_gens(), rng);
 
             all_even_rerandomized_nodes.push(even_rerandomized_nodes);
             all_odd_rerandomized_nodes.push(odd_rerandomized_nodes);
@@ -410,7 +401,7 @@ impl<
                     &mut even_node_divisors,
                     delta,
                     bp_gens,
-                    &parameters.odd_parameters.table
+                    &parameters.odd_parameters.table_b_blinding,
                 )?;
             }
             RootChildren::Odd {
@@ -420,7 +411,11 @@ impl<
                 let delta = parameters.even_parameters.sl_params.delta;
                 let bp_gens = &parameters.odd_parameters.sl_params.bp_gens;
 
-                WitnessPathsWithSameRoot::<L, P1, P0>::create_and_commit_divisor_for_root::<_, D0, Parameters1>(
+                WitnessPathsWithSameRoot::<L, P1, P0>::create_and_commit_divisor_for_root::<
+                    _,
+                    D0,
+                    Parameters1,
+                >(
                     rng,
                     odd_prover,
                     x_coords,
@@ -431,7 +426,7 @@ impl<
                     &mut odd_node_divisors,
                     delta,
                     bp_gens,
-                    &parameters.even_parameters.table
+                    &parameters.even_parameters.table_b_blinding,
                 )?;
             }
         }
@@ -475,11 +470,11 @@ impl<
                         even_rerandomization_scalars[i],
                         &odd_rerandomized_nodes[index],
                         odd_rerandomization_scalars[index],
-                        &parameters.odd_parameters.table,
+                        &parameters.odd_parameters.table_b_blinding,
                         &parameters.odd_parameters.sl_params.delta,
                         &parameters.even_parameters.sl_params.bp_gens,
                     )?;
-                even_node_comms[path_idx].push(divisor_comms, );
+                even_node_comms[path_idx].push(divisor_comms);
                 even_node_divisors[path_idx].push((x_var.into(), y_var.into(), x, y, p));
             }
 
@@ -502,7 +497,7 @@ impl<
                         odd_rerandomization_scalars[i],
                         &even_rerandomized_nodes[index],
                         even_rerandomization_scalars[index],
-                        &parameters.even_parameters.table,
+                        &parameters.even_parameters.table_b_blinding,
                         &parameters.even_parameters.sl_params.delta,
                         &parameters.odd_parameters.sl_params.bp_gens,
                     )?;
@@ -514,25 +509,28 @@ impl<
         constraints_for_dlogs::<_, _, _, _, P0, P1, Parameters0, Parameters1>(
             even_prover,
             odd_prover,
-            &parameters.even_parameters.table,
-            &parameters.odd_parameters.table,
+            &parameters.even_parameters.table_b_blinding,
+            &parameters.odd_parameters.table_b_blinding,
             even_node_divisors.into_iter().flatten(),
             odd_node_divisors.into_iter().flatten(),
         )?;
 
         let mut result_paths = Vec::with_capacity(num_paths);
-        for (odd, even) in all_odd_rerandomized_nodes.into_iter().zip(all_even_rerandomized_nodes) {
+        for (odd, even) in all_odd_rerandomized_nodes
+            .into_iter()
+            .zip(all_even_rerandomized_nodes)
+        {
             result_paths.push(SelectAndRerandomizePathWithDivisorComms {
-                path: SelectAndRerandomizePath { odd_commitments: odd, even_commitments: even },
+                path: SelectAndRerandomizePath {
+                    odd_commitments: odd,
+                    even_commitments: even,
+                },
                 even_divisor_comms: even_node_comms.remove(0),
                 odd_divisor_comms: odd_node_comms.remove(0),
             });
         }
 
-        Ok((
-            result_paths,
-            all_leaf_rerandomizations,
-        ))
+        Ok((result_paths, all_leaf_rerandomizations))
     }
 
     fn create_and_commit_divisor_for_root<
@@ -547,7 +545,15 @@ impl<
         all_rerandomized_nodes: &[Vec<Affine<P1>>],
         all_rerandomization_scalars: &[Vec<F1>],
         node_comms: &mut Vec<Vec<DivisorComms<Affine<P0>>>>,
-        node_divisors: &mut Vec<Vec<(LinearCombination<F0>, LinearCombination<F0>, F0, F0, PointWithDlog<F0, Parameters>)>>,
+        node_divisors: &mut Vec<
+            Vec<(
+                LinearCombination<F0>,
+                LinearCombination<F0>,
+                F0,
+                F0,
+                PointWithDlog<F0, Parameters>,
+            )>,
+        >,
         delta: Affine<P1>,
         bp_gens: &BulletproofGens<Affine<P0>>,
         table: &GeneratorTable<F0, Parameters>,
@@ -568,16 +574,13 @@ impl<
         let challenge = prover
             .transcript()
             .challenge_scalar(b"challenge-for-multi_select");
-        multi_select_public_set_ext_challenge(
-            prover,
-            x_vars.clone(),
-            x_coords,
-            challenge,
-        );
+        multi_select_public_set_ext_challenge(prover, x_vars.clone(), x_coords, challenge);
 
         // For each path, create divisor proof for its selected child of root
-        for (path_idx, (x_var, child)) in
-            x_vars.into_iter().zip(children_plus_delta.into_iter()).enumerate()
+        for (path_idx, (x_var, child)) in x_vars
+            .into_iter()
+            .zip(children_plus_delta.into_iter())
+            .enumerate()
         {
             let rerandomized_child = &all_rerandomized_nodes[path_idx][0];
             let randomization = all_rerandomization_scalars[path_idx][0];
@@ -591,14 +594,13 @@ impl<
             let (x, y) = (*rerandomized_child + delta).into_affine().xy().unwrap();
 
             // Create divisor and commit
-            let (divisor_comms, p) =
-                create_and_commit_divisor::<_, F0, F1, P0, P1, D, Parameters>(
-                    rng,
-                    prover,
-                    randomization,
-                    table,
-                    bp_gens,
-                )?;
+            let (divisor_comms, p) = create_and_commit_divisor::<_, F0, F1, P0, P1, D, Parameters>(
+                rng,
+                prover,
+                randomization,
+                table,
+                bp_gens,
+            )?;
 
             node_comms.push(vec![divisor_comms]);
             node_divisors.push(vec![(x_var, y_var, x, y, p)]);
@@ -783,13 +785,8 @@ pub fn create_and_commit_divisor<
         // Optimz: All divisors could be computed in parallel. And creating multiple divisors at once is faster
         let witness =
             create_divisor_and_decomposition::<F0, D, Params>(blinding_base_table, -randomization)?;
-        let (divisor_commitments, _, vars_divisor) = commit_witness_chunks_prover(
-            rng,
-            prover,
-            &witness,
-            VC_LEN as usize,
-            bp_gens,
-        )?;
+        let (divisor_commitments, _, vars_divisor) =
+            commit_witness_chunks_prover(rng, prover, &witness, VC_LEN as usize, bp_gens)?;
 
         (divisor_commitments, vars_divisor)
     };

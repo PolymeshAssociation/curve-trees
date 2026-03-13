@@ -1,22 +1,18 @@
 use crate::curve_tree::{Root, SelectAndRerandomizePathWithDivisorComms};
-use crate::prover::{
-    constraints_for_dlogs, select_non_root, select_root,
-    VC_LEN,
-};
+use crate::error::Result;
+use crate::parameters::SelRerandProofParametersNew;
+use crate::prover::{constraints_for_dlogs, select_non_root, select_root, VC_LEN};
 use crate::select::multi_select_public_set_ext_challenge;
 use ark_dlog_gadget::dlog::{
-    commit_witness_chunks_verifier,
-    DiscreteLogParameters, DivisorComms, PointWithDlog,
+    commit_witness_chunks_verifier, DiscreteLogParameters, DivisorComms, PointWithDlog,
 };
 use ark_ec::short_weierstrass::{Affine, SWCurveConfig};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::PrimeField;
-use ark_std::vec::Vec;
 use ark_std::vec;
+use ark_std::vec::Vec;
 use bulletproofs::r1cs::{ConstraintSystem, LinearCombination, Verifier};
 use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
-use crate::parameters::SelRerandProofParametersNew;
-use crate::error::Result;
 
 impl<
         const L: usize,
@@ -36,7 +32,6 @@ impl<
         odd_verifier: &mut Verifier<MerlinTranscript, Affine<P1>>,
         parameters: &SelRerandProofParametersNew<P0, P1, Parameters0, Parameters1>,
     ) -> Result<()> {
-
         let mut even_node_divisors = vec![];
         let mut odd_node_divisors = vec![];
 
@@ -51,7 +46,10 @@ impl<
                     all_x_coords,
                     None,
                 );
-                let p = commit_dlog_and_divisor::<_, _, Parameters0>(even_verifier, &self.even_divisor_comms[0]);
+                let p = commit_dlog_and_divisor::<_, _, Parameters0>(
+                    even_verifier,
+                    &self.even_divisor_comms[0],
+                );
                 even_node_divisors.push((x_var.into(), y_var.into(), x, y, p));
                 true
             }
@@ -65,7 +63,10 @@ impl<
                     all_x_coords,
                     None,
                 );
-                let p = commit_dlog_and_divisor::<_, _, Parameters1>(odd_verifier, &self.odd_divisor_comms[0]);
+                let p = commit_dlog_and_divisor::<_, _, Parameters1>(
+                    odd_verifier,
+                    &self.odd_divisor_comms[0],
+                );
                 odd_node_divisors.push((x_var.into(), y_var.into(), x, y, p));
                 false
             }
@@ -142,8 +143,8 @@ impl<
         constraints_for_dlogs::<_, _, _, _, P0, P1, Parameters0, Parameters1>(
             even_verifier,
             odd_verifier,
-            &parameters.even_parameters.table,
-            &parameters.odd_parameters.table,
+            &parameters.even_parameters.table_b_blinding,
+            &parameters.odd_parameters.table_b_blinding,
             even_node_divisors,
             odd_node_divisors,
         )?;
@@ -170,8 +171,13 @@ impl<
                 let delta = parameters.odd_parameters.sl_params.delta;
                 let all_x_coords = &root_node.x_coord_children[0];
 
-                let re_randomized_children = (0..num_paths).map(|i| paths[i].path.odd_commitments[0]).collect::<Vec<_>>();
-                let even_node_comms = paths.iter().map(|p| p.even_divisor_comms.clone()).collect::<Vec<_>>();
+                let re_randomized_children = (0..num_paths)
+                    .map(|i| paths[i].path.odd_commitments[0])
+                    .collect::<Vec<_>>();
+                let even_node_comms = paths
+                    .iter()
+                    .map(|p| p.even_divisor_comms.clone())
+                    .collect::<Vec<_>>();
 
                 Self::process_root_for_all::<Parameters0>(
                     even_verifier,
@@ -187,10 +193,17 @@ impl<
                 let delta = parameters.even_parameters.sl_params.delta;
                 let all_x_coords = &root_node.x_coord_children[0];
 
-                let re_randomized_children = (0..num_paths).map(|i| paths[i].path.even_commitments[0]).collect::<Vec<_>>();
-                let odd_node_comms = paths.iter().map(|p| p.odd_divisor_comms.clone()).collect::<Vec<_>>();
+                let re_randomized_children = (0..num_paths)
+                    .map(|i| paths[i].path.even_commitments[0])
+                    .collect::<Vec<_>>();
+                let odd_node_comms = paths
+                    .iter()
+                    .map(|p| p.odd_divisor_comms.clone())
+                    .collect::<Vec<_>>();
 
-                SelectAndRerandomizePathWithDivisorComms::<L, P1, P0>::process_root_for_all::<Parameters1>(
+                SelectAndRerandomizePathWithDivisorComms::<L, P1, P0>::process_root_for_all::<
+                    Parameters1,
+                >(
                     odd_verifier,
                     re_randomized_children,
                     all_x_coords,
@@ -275,22 +288,28 @@ impl<
         constraints_for_dlogs::<_, _, _, _, P0, P1, Parameters0, Parameters1>(
             even_verifier,
             odd_verifier,
-            &parameters.even_parameters.table,
-            &parameters.odd_parameters.table,
+            &parameters.even_parameters.table_b_blinding,
+            &parameters.odd_parameters.table_b_blinding,
             even_node_divisors.into_iter().flatten(),
             odd_node_divisors.into_iter().flatten(),
         )?;
         Ok(())
     }
 
-    fn process_root_for_all<
-        Parameters: DiscreteLogParameters,
-    >(
+    fn process_root_for_all<Parameters: DiscreteLogParameters>(
         verifier: &mut Verifier<MerlinTranscript, Affine<P0>>,
         re_randomized_children: Vec<Affine<P1>>,
         all_x_coords: &[F0],
         delta: Affine<P1>,
-        node_divisors: &mut Vec<Vec<(LinearCombination<F0>, LinearCombination<F0>, F0, F0, PointWithDlog<F0, Parameters>)>>,
+        node_divisors: &mut Vec<
+            Vec<(
+                LinearCombination<F0>,
+                LinearCombination<F0>,
+                F0,
+                F0,
+                PointWithDlog<F0, Parameters>,
+            )>,
+        >,
         node_comms: &[Vec<DivisorComms<Affine<P0>>>],
     ) {
         let num_paths = re_randomized_children.len();
@@ -304,16 +323,14 @@ impl<
         let challenge = verifier
             .transcript()
             .challenge_scalar(b"challenge-for-multi_select");
-        multi_select_public_set_ext_challenge(
-            verifier,
-            x_vars.clone(),
-            all_x_coords,
-            challenge,
-        );
+        multi_select_public_set_ext_challenge(verifier, x_vars.clone(), all_x_coords, challenge);
 
         // For each path, process its selected child of root
-        for (path_idx, (x_var, rerandomized_child)) in x_vars.into_iter().zip(re_randomized_children.into_iter()).enumerate() {
-
+        for (path_idx, (x_var, rerandomized_child)) in x_vars
+            .into_iter()
+            .zip(re_randomized_children.into_iter())
+            .enumerate()
+        {
             // Add rerandomized child to transcript
             verifier
                 .transcript()
@@ -324,10 +341,7 @@ impl<
 
             let path_divisor_comms = &node_comms[path_idx][0];
 
-            let p = commit_dlog_and_divisor::<_, _, Parameters>(
-                verifier,
-                path_divisor_comms,
-            );
+            let p = commit_dlog_and_divisor::<_, _, Parameters>(verifier, path_divisor_comms);
 
             node_divisors.push(vec![(x_var, y_var, x, y, p)]);
         }

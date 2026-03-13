@@ -37,7 +37,10 @@ impl<
         P1: SWCurveConfig<BaseField = F0, ScalarField = F1> + Copy,
     > PartialCurveTree<L, P0, P1>
 {
-    pub fn new(height: u8, parameters: &impl SelRerandParametersRef<P0, P1>) -> Result<Self, Error> {
+    pub fn new(
+        height: u8,
+        parameters: &impl SelRerandParametersRef<P0, P1>,
+    ) -> Result<Self, Error> {
         if height == 0 {
             return Err(Error::HeightCantBe0);
         }

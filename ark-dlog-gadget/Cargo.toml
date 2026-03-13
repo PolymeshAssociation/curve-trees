@@ -4,39 +4,37 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-ark-serialize = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master", default-features = false }
-ark-ec = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master", default-features = false }
-ark-ff = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master", default-features = false }
-dock_crypto_utils = { git = "https://github.com/PolymeshAssociation/crypto", branch = "main", default-features = false }
+ark-serialize = { workspace = true, default-features = false }
+ark-ec = { workspace = true, default-features = false }
+ark-ff = { workspace = true, default-features = false }
+dock_crypto_utils = { workspace = true, default-features = false }
 rayon = {version = "1.5.3", default-features = false, optional = true }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 rand_core = { version = "0.6", default-features = false }
 rand = { version = "0.8", default-features = false, optional = true }
 subtle = { version = "2", default-features = false }
 ark-std = { version = "0.5.0", default-features = false }
-ark-ed25519 = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master", default-features = false, optional = true }
-ark-pallas = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master", default-features = false, optional = true }
-ark-vesta = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master", default-features = false, optional = true }
+ark-ed25519 = { version = "0.5.0", default-features = false, optional = true }
+ark-pallas = { workspace = true, default-features = false, optional = true }
+ark-vesta = { workspace = true, default-features = false, optional = true }
+ark-helios = { workspace = true, default-features = false, optional = true }
+ark-selene = { workspace = true, default-features = false, optional = true }
+ark-wei25519 = { workspace = true, optional = true }
+ark-curve25519 = { workspace = true, optional = true }
 generic-array = { version = "1", default-features = false, features = ["alloc"] }
 bulletproofs = {path = "../bulletproofs", default-features = false}
-ark-ec-divisors = {path = "../ark-ec-divisors", default-features = false, features = ["pallas", "vesta"]}
+ark-ec-divisors = {path = "../ark-ec-divisors", default-features = false}
 thiserror = { version = "2", default-features = false }
 
-[patch.crates-io]
-#dock_crypto_utils = { path = "../crypto/utils" }
-dock_crypto_utils = { git = "https://github.com/PolymeshAssociation/crypto", branch = "main" }
-
-ark-serialize = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
-ark-ec = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
-ark-ff = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
-ark-pallas = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
-ark-vesta = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
-
 [dev-dependencies]
-ark-pallas = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
-ark-vesta = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+ark-pallas = { workspace = true }
+ark-vesta = { workspace = true }
+ark-helios = { workspace = true }
+ark-selene = { workspace = true }
+ark-wei25519 = { workspace = true }
+ark-curve25519 = { workspace = true }
+ark-ec-divisors = {path = "../ark-ec-divisors", features = ["default", "helios", "selene", "wei25519"]}
 criterion = "0.8"
-
 
 [[bench]]
 name = "dlog"
@@ -44,7 +42,11 @@ harness = false
 
 
 [features]
-default = ["std", "asm", "pallas", "vesta", "rand", "parallel"]
+default = [
+    "std", "asm",
+    "pallas", "vesta",
+    "rand", "parallel"
+]
 
 no_std = []
 std = [
@@ -58,7 +60,7 @@ std = [
     "bulletproofs/std",
     "thiserror/std"
 ]
-asm = ["ark-ff/asm", "ark-pallas/asm", "ark-vesta/asm"]
+asm = ["ark-ff/asm", "ark-pallas/asm", "ark-vesta/asm", "ark-helios/asm", "ark-selene/asm"]
 parallel = [
     "std",
     "rayon",
@@ -73,5 +75,8 @@ parallel_full = [
     "ark-ec-divisors/parallel_full"
 ]
 ed25519 = ["ark-ed25519"]
-pallas = ["ark-pallas"]
-vesta = ["ark-vesta"]
+pallas = ["ark-pallas", "ark-ec-divisors/pallas"]
+vesta = ["ark-vesta", "ark-ec-divisors/vesta"]
+helios = ["ark-helios", "ark-ec-divisors/helios"]
+selene = ["ark-selene", "ark-ec-divisors/selene"]
+wei25519 = ["ark-wei25519", "ark-curve25519", "ark-ec-divisors/wei25519"]

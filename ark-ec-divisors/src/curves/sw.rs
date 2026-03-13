@@ -107,6 +107,7 @@ impl<C: SWCurveConfig<BaseField: PrimeField> + Copy + PartialEq + Eq + HasInterp
     }
 
     fn batch_to_xy(points: &[Self]) -> Vec<(Self::BaseField, Self::BaseField)> {
+        // TODO: This is inefficient. Fix
         let aff = Projective::<C>::normalize_batch(&points.iter().map(|p| p.0).collect::<Vec<_>>());
         aff.into_iter().map(|p| (p.x, p.y)).collect()
     }

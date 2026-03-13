@@ -1,17 +1,17 @@
 #[macro_use]
 extern crate criterion;
 
-use std::hint::black_box;
-use std::time::Duration;
 use ark_ff::PrimeField;
 use criterion::{BenchmarkId, Criterion};
+use std::hint::black_box;
+use std::time::Duration;
 
 extern crate bulletproofs;
 use bulletproofs::r1cs::{Prover, Verifier};
 
 extern crate relations;
-use relations::curve_tree::*;
 use relations::batched_curve_tree_prover::CurveTreeWitnessMultiPath;
+use relations::curve_tree::*;
 use relations::utils::{prove, verify};
 
 use ark_pallas::{Fq as PallasBase, PallasConfig};
@@ -66,10 +66,7 @@ fn bench_batched_curve_tree_with_varying_batch_size<
     for batch_size in batch_sizes {
         assert!(batch_size <= M);
 
-        let group_name = format!(
-            "{}_batch_size_{}",
-            &prefix_string, batch_size
-        );
+        let group_name = format!("{}_batch_size_{}", &prefix_string, batch_size);
         let mut group = c.benchmark_group(&group_name);
 
         group.bench_with_input(
@@ -103,7 +100,8 @@ fn bench_batched_curve_tree_with_varying_batch_size<
                         &sr_params.even_parameters.bp_gens,
                         &sr_params.odd_parameters.bp_gens,
                         &mut rng,
-                    ).unwrap();
+                    )
+                    .unwrap();
 
                     (path_commitments, pallas_proof, vesta_proof)
                 });
@@ -111,7 +109,6 @@ fn bench_batched_curve_tree_with_varying_batch_size<
         );
 
         let (path_commitments, pallas_proof, vesta_proof) = {
-
             let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
             let mut pallas_prover: Prover<_, Affine<P0>> =
                 Prover::new(&sr_params.even_parameters.pc_gens, pallas_transcript);
@@ -138,7 +135,8 @@ fn bench_batched_curve_tree_with_varying_batch_size<
                 &sr_params.even_parameters.bp_gens,
                 &sr_params.odd_parameters.bp_gens,
                 &mut rng,
-            ).unwrap();
+            )
+            .unwrap();
 
             (path_commitments, pallas_proof, vesta_proof)
         };
@@ -162,12 +160,14 @@ fn bench_batched_curve_tree_with_varying_batch_size<
                     let mut vesta_verifier = Verifier::new(vesta_transcript);
 
                     let root = curve_tree.root_node();
-                    path_commitments.batched_select_and_rerandomize_verifier_gadget(
-                        &root,
-                        &mut pallas_verifier,
-                        &mut vesta_verifier,
-                        &sr_proof_params,
-                    ).unwrap();
+                    path_commitments
+                        .batched_select_and_rerandomize_verifier_gadget(
+                            &root,
+                            &mut pallas_verifier,
+                            &mut vesta_verifier,
+                            &sr_proof_params,
+                        )
+                        .unwrap();
 
                     verify(
                         pallas_verifier,
@@ -179,7 +179,8 @@ fn bench_batched_curve_tree_with_varying_batch_size<
                         &sr_params.odd_parameters.pc_gens,
                         &sr_params.odd_parameters.bp_gens,
                         &mut rng,
-                    ).unwrap();
+                    )
+                    .unwrap();
                 });
             },
         );
@@ -241,8 +242,9 @@ fn bench_combined_vs_common_root_with_parameters<
                     let mut vesta_prover: Prover<_, Affine<P1>> =
                         Prover::new(&sr_params.odd_parameters.pc_gens, vesta_transcript);
 
-                    let mut path_commitments_list: Vec<SelectAndRerandomizeMultiPath<L, M, P0, P1>> =
-                        vec![];
+                    let mut path_commitments_list: Vec<
+                        SelectAndRerandomizeMultiPath<L, M, P0, P1>,
+                    > = vec![];
                     for p in &paths {
                         let (path_commitments, _) = p
                             .batched_select_and_rerandomize_prover_gadget(
@@ -255,7 +257,14 @@ fn bench_combined_vs_common_root_with_parameters<
                         path_commitments_list.push(path_commitments);
                     }
 
-                    let p = prove(pallas_prover, vesta_prover, &sr_params.even_parameters.bp_gens, &sr_params.odd_parameters.bp_gens, &mut rng).unwrap();
+                    let p = prove(
+                        pallas_prover,
+                        vesta_prover,
+                        &sr_params.even_parameters.bp_gens,
+                        &sr_params.odd_parameters.bp_gens,
+                        &mut rng,
+                    )
+                    .unwrap();
                     black_box(p);
                 });
             },
@@ -283,10 +292,20 @@ fn bench_combined_vs_common_root_with_parameters<
             path_commitments_list.push(path_commitments);
         }
 
-        let (pallas_proof, vesta_proof) = prove(pallas_prover, vesta_prover, &sr_params.even_parameters.bp_gens, &sr_params.odd_parameters.bp_gens, &mut rng).unwrap();
+        let (pallas_proof, vesta_proof) = prove(
+            pallas_prover,
+            vesta_prover,
+            &sr_params.even_parameters.bp_gens,
+            &sr_params.odd_parameters.bp_gens,
+            &mut rng,
+        )
+        .unwrap();
 
         println!("For {num_paths} paths");
-        println!("Combined proof size = {} bytes", pallas_proof.compressed_size() + vesta_proof.compressed_size());
+        println!(
+            "Combined proof size = {} bytes",
+            pallas_proof.compressed_size() + vesta_proof.compressed_size()
+        );
 
         group.bench_with_input(
             BenchmarkId::new("combined_verify", num_paths),
@@ -374,9 +393,19 @@ fn bench_combined_vs_common_root_with_parameters<
             )
             .unwrap();
 
-        let (pallas_proof, vesta_proof) = prove(pallas_prover, vesta_prover, &sr_params.even_parameters.bp_gens, &sr_params.odd_parameters.bp_gens, &mut rng).unwrap();
+        let (pallas_proof, vesta_proof) = prove(
+            pallas_prover,
+            vesta_prover,
+            &sr_params.even_parameters.bp_gens,
+            &sr_params.odd_parameters.bp_gens,
+            &mut rng,
+        )
+        .unwrap();
 
-        println!("Common root proof size = {} bytes", pallas_proof.compressed_size() + vesta_proof.compressed_size());
+        println!(
+            "Common root proof size = {} bytes",
+            pallas_proof.compressed_size() + vesta_proof.compressed_size()
+        );
 
         group.bench_with_input(
             BenchmarkId::new("common_root_verify", num_paths),

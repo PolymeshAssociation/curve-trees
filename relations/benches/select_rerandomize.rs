@@ -134,14 +134,16 @@ fn bench_select_and_rerandomize_with_parameters<
         let mut vesta_prover: Prover<_, Affine<P1>> =
             Prover::new(&sr_params.odd_parameters.pc_gens, vesta_transcript);
 
-        let (path, _) = curve_tree.select_and_rerandomize_prover_gadget(
-            0,
-            0,
-            &mut pallas_prover,
-            &mut vesta_prover,
-            &sr_proof_params,
-            &mut rand::thread_rng(),
-        ).unwrap();
+        let (path, _) = curve_tree
+            .select_and_rerandomize_prover_gadget(
+                0,
+                0,
+                &mut pallas_prover,
+                &mut vesta_prover,
+                &sr_proof_params,
+                &mut rand::thread_rng(),
+            )
+            .unwrap();
         if print {
             log::debug!(
                 "{}_Constraints: {}",
@@ -220,7 +222,12 @@ fn bench_select_and_rerandomize_with_parameters<
                 let mut pallas_verifier = Verifier::new(pallas_transcript);
                 let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
                 let mut vesta_verifier = Verifier::new(vesta_transcript);
-                path.select_and_rerandomize_verifier_gadget(&root, &mut pallas_verifier, &mut vesta_verifier, &sr_proof_params);
+                path.select_and_rerandomize_verifier_gadget(
+                    &root,
+                    &mut pallas_verifier,
+                    &mut vesta_verifier,
+                    &sr_proof_params,
+                );
             })
         });
 
@@ -232,7 +239,12 @@ fn bench_select_and_rerandomize_with_parameters<
                 let mut pallas_verifier = Verifier::new(pallas_transcript);
                 let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
                 let mut vesta_verifier = Verifier::new(vesta_transcript);
-                path.select_and_rerandomize_verifier_gadget(&root, &mut pallas_verifier, &mut vesta_verifier, &sr_proof_params);
+                path.select_and_rerandomize_verifier_gadget(
+                    &root,
+                    &mut pallas_verifier,
+                    &mut vesta_verifier,
+                    &sr_proof_params,
+                );
                 let _ = pallas_verifier
                     .verification_scalars_and_points(&pallas_proof)
                     .unwrap();
@@ -249,7 +261,12 @@ fn bench_select_and_rerandomize_with_parameters<
                 let mut pallas_verifier = Verifier::new(pallas_transcript);
                 let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
                 let mut vesta_verifier = Verifier::new(vesta_transcript);
-                path.select_and_rerandomize_verifier_gadget(&root, &mut pallas_verifier, &mut vesta_verifier, &sr_proof_params);
+                path.select_and_rerandomize_verifier_gadget(
+                    &root,
+                    &mut pallas_verifier,
+                    &mut vesta_verifier,
+                    &sr_proof_params,
+                );
                 let pallas_vt = pallas_verifier
                     .verification_scalars_and_points(&pallas_proof)
                     .unwrap();
@@ -277,8 +294,8 @@ fn bench_select_and_rerandomize_with_parameters<
 
     let group_name = format!("{}_batch_verification", &prefix_string);
     let mut group = c.benchmark_group(group_name);
-    use std::iter;
     use relations::parameters::SelRerandParameters;
+    use std::iter;
 
     // for n in [1, 2, 10, 50, 100] {
     for n in [1, 100] {
@@ -292,7 +309,8 @@ fn bench_select_and_rerandomize_with_parameters<
                         let root = curve_tree.root_node();
                         rayon::join(
                             || {
-                                let pallas_verification_scalars_and_points: Vec<_> = proofs.par_iter()
+                                let pallas_verification_scalars_and_points: Vec<_> = proofs
+                                    .par_iter()
                                     .map(|path| {
                                         let pallas_transcript =
                                             MerlinTranscript::new(b"select_and_rerandomize");
@@ -320,7 +338,8 @@ fn bench_select_and_rerandomize_with_parameters<
                                 .unwrap()
                             },
                             || {
-                                let vesta_verification_scalars_and_points: Vec<_> = proofs.par_iter()
+                                let vesta_verification_scalars_and_points: Vec<_> = proofs
+                                    .par_iter()
                                     .map(|path| {
                                         let pallas_transcript =
                                             MerlinTranscript::new(b"select_and_rerandomize");
@@ -369,7 +388,7 @@ fn bench_select_and_rerandomize_with_parameters<
                                     &root,
                                     &mut pallas_verifier,
                                     &mut vesta_verifier,
-                                        &sr_proof_params,
+                                    &sr_proof_params,
                                 );
                                 let pallas_vt = pallas_verifier
                                     .verification_scalars_and_points(&pallas_proof)

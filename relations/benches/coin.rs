@@ -29,9 +29,9 @@ use ark_ec::short_weierstrass::Affine;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use blake2::Blake2s256 as Blake2s;
 
+use bulletproofs::r1cs::verifier::batch::batch_verify;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
-use bulletproofs::r1cs::verifier::batch::batch_verify;
 use relations::parameters::SelRerandProofParameters;
 
 #[cfg(feature = "usenix")]
@@ -255,8 +255,8 @@ fn bench_pour_with_parameters<
         });
     }
 
-    use std::iter;
     use relations::parameters::SelRerandParameters;
+    use std::iter;
     let group_name = format!("{}_batch_verification", &prefix_string);
     let mut group = c.benchmark_group(group_name);
     for n in [1, 100] {
@@ -300,7 +300,8 @@ fn bench_pour_with_parameters<
                         rayon::join(
                             || {
                                 // even verification tuples
-                                let event_vts: Vec<_> = proofs.par_iter()
+                                let event_vts: Vec<_> = proofs
+                                    .par_iter()
                                     .map(|proof| {
                                         proof.even_verification_gadget(
                                             b"select_and_rerandomize",
@@ -320,7 +321,8 @@ fn bench_pour_with_parameters<
                             },
                             || {
                                 // odd verification tuples
-                                let odd_vts: Vec<_> = proofs.par_iter()
+                                let odd_vts: Vec<_> = proofs
+                                    .par_iter()
                                     .map(|proof| {
                                         proof.odd_verification_gadget(
                                             b"select_and_rerandomize",

@@ -3,16 +3,17 @@ use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use bulletproofs::r1cs::{Prover, Verifier};
 use dock_crypto_utils::transcript::MerlinTranscript;
+use rand_core::CryptoRngCore;
 use relations::curve_tree::Root;
 use relations::curve_tree_prover::CurveTreeWitnessPath;
+use relations::parameters::{SelRerandParameters, SelRerandProofParameters};
 pub use relations::utils::{prove, verify};
 use std::time::{Duration, Instant};
-use rand_core::CryptoRngCore;
-use relations::parameters::{SelRerandParameters, SelRerandProofParameters};
 
 #[allow(dead_code)]
 const PROOF_LABEL: &'static [u8; 22] = b"select_and_rerandomize";
 
+#[allow(dead_code)]
 pub fn check_proof<
     const L: usize,
     R: CryptoRngCore,
@@ -43,7 +44,14 @@ pub fn check_proof<
         rng,
     );
 
-    let (pallas_proof, vesta_proof) = prove(pallas_prover, vesta_prover, &sr_params.even_parameters.bp_gens, &sr_params.odd_parameters.bp_gens, rng).unwrap();
+    let (pallas_proof, vesta_proof) = prove(
+        pallas_prover,
+        vesta_prover,
+        &sr_params.even_parameters.bp_gens,
+        &sr_params.odd_parameters.bp_gens,
+        rng,
+    )
+    .unwrap();
 
     let proving_time = start.elapsed();
 

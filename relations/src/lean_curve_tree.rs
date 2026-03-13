@@ -82,7 +82,11 @@ impl<
         }
     }
 
-    pub fn insert(&mut self, leaf_value: Affine<P0>, parameters: &impl SelRerandParametersRef<P0, P1>) {
+    pub fn insert(
+        &mut self,
+        leaf_value: Affine<P0>,
+        parameters: &impl SelRerandParametersRef<P0, P1>,
+    ) {
         self.set_full_subtrees_to_default();
 
         let mut curr_idx = self.next_leaf_index;

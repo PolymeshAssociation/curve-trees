@@ -72,13 +72,13 @@ pub fn on_curve<F: PrimeField, Cs: ConstraintSystem<F>>(
   let y_lc = point.y;
 
   let (_, _, x_squared) = cs.multiply(x_lc.clone(), x_lc.clone());
-  let (_, _, x_cubed) = cs.multiply(x_lc, x_squared.into());
+  let (_, _, x_cubed) = cs.multiply(x_lc.clone(), x_squared.into());
   let (_, _, y_squared) = cs.multiply(y_lc.clone(), y_lc);
 
-  // x^3 + A*x^2 + B - y^2 = 0
+  // x^3 + A*x + B - y^2 = 0
   cs.constrain(
     LinearCombination::<F>::from(x_cubed)
-      + LinearCombination::<F>::from(x_squared).scalar_mul(curve.a)
+      + x_lc.scalar_mul(curve.a)
       + curve.b
       - y_squared,
   )
@@ -181,9 +181,19 @@ pub fn inequality<F: Field, Cs: ConstraintSystem<F>>(
 mod tests {
   use std::time::{Instant};
   use ark_ec::{AffineRepr, CurveGroup};
+  use ark_ec::short_weierstrass::SWCurveConfig;
   use super::*;
+
   use ark_pallas::{Affine as PallasAffine, Fq, Fr};
+
   use ark_vesta::Affine as VestaAffine;
+
+  use ark_helios::{Affine as HeliosAffine, Fq as HeliosFq, Fr as HeliosFr};
+
+  use ark_selene::{Affine as SeleneAffine, Fq as SeleneFq, Fr as SeleneFr};
+
+  use ark_wei25519::{Affine as Wei25519Affine, Fq as Wei25519Fq, Fr as Wei25519Fr};
+
   use bulletproofs::{BulletproofGens, PedersenGens};
   use bulletproofs::r1cs::{Prover, Verifier};
   use rand::prelude::StdRng;
@@ -193,8 +203,19 @@ mod tests {
 
   type PallasBase = Fq;
   type PallasScalar = Fr;
+
   type VestaBase = Fr;
   type VestaScalar = Fq;
+
+  type HeliosBase = HeliosFq;
+  type HeliosScalar = HeliosFr;
+
+  type SeleneBase = SeleneFq;
+  type SeleneScalar = SeleneFr;
+
+  type Wei25519Base = Wei25519Fq;
+
+  type Wei25519Scalar = Wei25519Fr;
 
   #[test]
   fn test_on_curve() {
@@ -202,14 +223,12 @@ mod tests {
       C: AffineRepr<BaseField = B, ScalarField = S>,
       B: PrimeField,
       S: PrimeField,
-      BP: AffineRepr<ScalarField = B, BaseField = S>,
-    >() {
+      BP: AffineRepr<ScalarField = B>,
+    >() where C::Config: SWCurveConfig {
       let mut rng = StdRng::seed_from_u64(0);
 
-      // Create curve spec: y^2 = x^3 + 5
-      let curve = CurveSpec::<B> { a: B::ZERO, b: B::from(5u64) };
+      let curve = CurveSpec::<B> { a: C::Config::COEFF_A, b: C::Config::COEFF_B };
 
-      // Create Pedersen generators
       let pc_gens = PedersenGens::<BP>::default();
       let bp_gens = BulletproofGens::<BP>::new(32, 1);
 
@@ -222,7 +241,6 @@ mod tests {
         let point = C::generator().mul(scalar).into_affine();
         let (x, y) = point.xy().unwrap();
 
-        // Test with prover - just verify constraints can be created
         let transcript = MerlinTranscript::new(b"test-on-curve");
         let mut prover = Prover::new(&pc_gens, transcript);
 
@@ -235,12 +253,10 @@ mod tests {
           OnCurve { x: LinearCombination::from(x_var), y: LinearCombination::from(y_var) };
         on_curve(&mut prover, point, &curve);
 
-        // Prove and measure time
         let prove_start = Instant::now();
         let proof = prover.prove(&bp_gens).unwrap();
         proving_times.push(prove_start.elapsed());
 
-        // Verify and measure time
         let transcript = MerlinTranscript::new(b"test-on-curve");
         let mut verifier = Verifier::new(transcript);
         let x_var = verifier.commit(x_comm);
@@ -268,8 +284,18 @@ mod tests {
 
     println!("Testing Pallas");
     check::<PallasAffine, PallasBase, PallasScalar, VestaAffine>();
+
     println!("Testing Vesta");
     check::<VestaAffine, VestaBase, VestaScalar, PallasAffine>();
+
+    println!("Testing Helios");
+    check::<HeliosAffine, HeliosBase, HeliosScalar, SeleneAffine>();
+
+    println!("Testing Selene");
+    check::<SeleneAffine, SeleneBase, SeleneScalar, HeliosAffine>();
+
+    println!("Testing wei25519");
+    check::<Wei25519Affine, Wei25519Base, Wei25519Scalar, SeleneAffine>();
   }
 
   #[test]
@@ -278,7 +304,7 @@ mod tests {
       C: AffineRepr<BaseField = B, ScalarField = S>,
       B: PrimeField,
       S: PrimeField,
-      BP: AffineRepr<ScalarField = B, BaseField = S>,
+      BP: AffineRepr<ScalarField = B>,
     >() {
       let mut rng = StdRng::seed_from_u64(0);
 
@@ -304,11 +330,9 @@ mod tests {
         let (x1, y1) = point1.xy().unwrap();
         let (x2, y2) = point2.xy().unwrap();
 
-        // Compute the sum using projective arithmetic
         let sum = (point1 + point2).into_affine();
         let (sum_x, sum_y) = sum.xy().unwrap();
 
-        // Test with prover
         let transcript = MerlinTranscript::new(b"test-incomplete-add");
         let mut prover = Prover::new(&pc_gens, transcript);
 
@@ -335,12 +359,10 @@ mod tests {
 
         num_constraints = prover.constraints.len();
 
-        // Prove and measure time
         let prove_start = Instant::now();
         let proof = prover.prove(&bp_gens).unwrap();
         proving_times.push(prove_start.elapsed());
 
-        // Verify and measure time
         let transcript = MerlinTranscript::new(b"test-incomplete-add");
         let mut verifier = Verifier::new(transcript);
         let x2_var = verifier.commit(x2_comm);
@@ -373,8 +395,19 @@ mod tests {
 
     println!("Testing Pallas");
     check::<PallasAffine, PallasBase, PallasScalar, VestaAffine>();
+
     println!("Testing Vesta");
     check::<VestaAffine, VestaBase, VestaScalar, PallasAffine>();
+
+    println!("Testing Helios");
+    check::<HeliosAffine, HeliosBase, HeliosScalar, SeleneAffine>();
+
+    println!("Testing Selene");
+    check::<SeleneAffine, SeleneBase, SeleneScalar, HeliosAffine>();
+
+    // wei25519 curve's base field is same as scalar field of Selene curve but not other way, so its not a cycle
+    println!("Testing wei25519");
+    check::<Wei25519Affine, Wei25519Base, Wei25519Scalar, SeleneAffine>();
   }
 }
 

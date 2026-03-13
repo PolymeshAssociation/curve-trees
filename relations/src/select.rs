@@ -1,6 +1,6 @@
-use bulletproofs::r1cs::*;
-use ark_std::vec::Vec;
 use ark_ff::Field;
+use ark_std::vec::Vec;
+use bulletproofs::r1cs::*;
 use dock_crypto_utils::ff::powers;
 use dock_crypto_utils::poly::poly_from_roots;
 
@@ -28,15 +28,14 @@ pub fn multi_select<F: Field, Cs: RandomizableConstraintSystem<F>>(
     mut xs: Vec<LinearCombination<F>>,
     ys: Vec<LinearCombination<F>>,
 ) -> Result<(), R1CSError> {
-   assert!(xs.len() > 0);
-   assert!(ys.len() > 0);
+    assert!(xs.len() > 0);
+    assert!(ys.len() > 0);
     cs.specify_randomized_constraints(move |cs| {
         let challenge = cs.challenge_scalar(b"challenge");
         let x = xs.remove(0);
 
         // (x_1 - x) * (x_2 - x) * ... * (x_n - x) = 0
-        let first_factor: LinearCombination<F> =
-            ys[0].clone() - x.clone(); // todo check if it adds an extra constraint to start from constant 1 and then use iterator
+        let first_factor: LinearCombination<F> = ys[0].clone() - x.clone(); // todo check if it adds an extra constraint to start from constant 1 and then use iterator
         let mut product = first_factor;
         for y_i in ys[1..].iter() {
             let (_, _, next_product) = cs.multiply(product, y_i.clone() - x.clone());
@@ -70,8 +69,7 @@ pub fn multi_select_ext_challenge<F: Field, Cs: ConstraintSystem<F>>(
     let x = xs.remove(0);
 
     // (x_1 - x) * (x_2 - x) * ... * (x_n - x) = 0
-    let first_factor: LinearCombination<F> =
-        ys[0].clone() - x.clone(); // todo check if it adds an extra constraint to start from constant 1 and then use iterator
+    let first_factor: LinearCombination<F> = ys[0].clone() - x.clone(); // todo check if it adds an extra constraint to start from constant 1 and then use iterator
     let mut product = first_factor;
     for y_i in ys[1..].iter() {
         let (_, _, next_product) = cs.multiply(product, y_i.clone() - x.clone());
@@ -116,7 +114,7 @@ pub fn select_public_set<F: Field, Cs: ConstraintSystem<F>>(
     for i in 1..poly.coeffs.len() {
         eval = eval + (x_power.clone() * poly.coeffs[i].clone());
         if i == (poly.coeffs.len() - 1) {
-            break
+            break;
         }
         let (_, _, o) = cs.multiply(x_power, x.clone());
         x_power = o.into();
@@ -136,7 +134,8 @@ pub fn multi_select_public_set_ext_challenge<F: Field, Cs: ConstraintSystem<F>>(
 
     let poly = poly_from_roots::<F>(ys);
     let challenge_powers = powers(&challenge, xs.len() as u32);
-    let mut eval: LinearCombination<F> = (poly.coeffs[0] * challenge_powers.iter().sum::<F>()).into();
+    let mut eval: LinearCombination<F> =
+        (poly.coeffs[0] * challenge_powers.iter().sum::<F>()).into();
     let mut xs_powers = xs.clone();
     for i in 1..poly.coeffs.len() {
         let mut eval_i = xs_powers[0].clone();
@@ -145,7 +144,7 @@ pub fn multi_select_public_set_ext_challenge<F: Field, Cs: ConstraintSystem<F>>(
         }
         eval = eval + (eval_i * poly.coeffs[i]);
         if i == (poly.coeffs.len() - 1) {
-            break
+            break;
         }
         for j in 0..challenge_powers.len() {
             let (_, _, o) = cs.multiply(xs_powers[j].clone(), xs[j].clone());
@@ -165,8 +164,8 @@ mod tests {
     use bulletproofs::{BulletproofGens, PedersenGens};
     use core::iter;
     use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
-    use std::time::Instant;
     use rand::prelude::SliceRandom;
+    use std::time::Instant;
 
     type PallasA = ark_pallas::Affine;
     type PallasBase = <PallasA as AffineRepr>::BaseField;
@@ -256,11 +255,7 @@ mod tests {
                 let blinding_x = PallasBase::rand(&mut rng);
                 let (x_comm, x_var) = prover.commit(x, blinding_x);
 
-                select_public_set(
-                    &mut prover,
-                    x_var.into(),
-                    xs.as_slice(),
-                );
+                select_public_set(&mut prover, x_var.into(), xs.as_slice());
 
                 let proof = prover.prove(&bpg).unwrap();
                 println!("For set size = {set_size}");
@@ -277,11 +272,7 @@ mod tests {
             let x_var = verifier.commit(x_comm);
 
             // Verifier uses the same public set xs
-            select_public_set(
-                &mut verifier,
-                x_var.into(),
-                xs.as_slice(),
-            );
+            select_public_set(&mut verifier, x_var.into(), xs.as_slice());
 
             verifier.verify(&proof, pg, bpg).unwrap();
             println!("Verifier time {:?}", start.elapsed());
@@ -297,13 +288,21 @@ mod tests {
         let pg = PedersenGens::<VestaA>::default();
         let bpg = BulletproofGens::<VestaA>::new(1 << 12, 1);
 
-        fn check(set_size: usize, subset_size: usize, pg: &PedersenGens<VestaA>, bpg: &BulletproofGens<VestaA>) {
+        fn check(
+            set_size: usize,
+            subset_size: usize,
+            pg: &PedersenGens<VestaA>,
+            bpg: &BulletproofGens<VestaA>,
+        ) {
             let mut rng = rand::thread_rng();
             let (proof, ys_comm, xs_comm) = {
                 let ys: Vec<_> = iter::from_fn(|| Some(VestaScalar::rand(&mut rng)))
                     .take(set_size)
                     .collect();
-                let xs = ys.choose_multiple(&mut rng, subset_size).cloned().collect::<Vec<_>>();
+                let xs = ys
+                    .choose_multiple(&mut rng, subset_size)
+                    .cloned()
+                    .collect::<Vec<_>>();
 
                 let start = Instant::now();
                 let mut transcript = MerlinTranscript::new(b"select");
@@ -355,13 +354,21 @@ mod tests {
         let pg = PedersenGens::<VestaA>::default();
         let bpg = BulletproofGens::<VestaA>::new(1 << 12, 1);
 
-        fn check(set_size: usize, subset_size: usize, pg: &PedersenGens<VestaA>, bpg: &BulletproofGens<VestaA>) {
+        fn check(
+            set_size: usize,
+            subset_size: usize,
+            pg: &PedersenGens<VestaA>,
+            bpg: &BulletproofGens<VestaA>,
+        ) {
             let mut rng = rand::thread_rng();
             let (proof, ys_comm, xs_comm) = {
                 let ys: Vec<_> = iter::from_fn(|| Some(VestaScalar::rand(&mut rng)))
                     .take(set_size)
                     .collect();
-                let xs = ys.choose_multiple(&mut rng, subset_size).cloned().collect::<Vec<_>>();
+                let xs = ys
+                    .choose_multiple(&mut rng, subset_size)
+                    .cloned()
+                    .collect::<Vec<_>>();
 
                 let start = Instant::now();
                 let mut transcript = MerlinTranscript::new(b"select");
@@ -375,7 +382,8 @@ mod tests {
                     &mut prover,
                     xs_vars.into_iter().map(|v| v.into()).collect(),
                     ys_vars.into_iter().map(|v| v.into()).collect(),
-                ).unwrap();
+                )
+                .unwrap();
 
                 let proof = prover.prove(&bpg).unwrap();
                 println!("For set size = {set_size}, subset size = {subset_size}");
@@ -396,7 +404,8 @@ mod tests {
                 &mut verifier,
                 xs_vars.into_iter().map(|v| v.into()).collect(),
                 ys_vars.into_iter().map(|v| v.into()).collect(),
-            ).unwrap();
+            )
+            .unwrap();
 
             verifier.verify(&proof, pg, bpg).unwrap();
             println!("Verifier time {:?}", start.elapsed());
@@ -412,13 +421,21 @@ mod tests {
         let pg = PedersenGens::<VestaA>::default();
         let bpg = BulletproofGens::<VestaA>::new(1 << 12, 1);
 
-        fn check(set_size: usize, subset_size: usize, pg: &PedersenGens<VestaA>, bpg: &BulletproofGens<VestaA>) {
+        fn check(
+            set_size: usize,
+            subset_size: usize,
+            pg: &PedersenGens<VestaA>,
+            bpg: &BulletproofGens<VestaA>,
+        ) {
             let mut rng = rand::thread_rng();
             let (proof, ys_comm, xs_comm) = {
                 let ys: Vec<_> = iter::from_fn(|| Some(VestaScalar::rand(&mut rng)))
                     .take(set_size)
                     .collect();
-                let xs = ys.choose_multiple(&mut rng, subset_size).cloned().collect::<Vec<_>>();
+                let xs = ys
+                    .choose_multiple(&mut rng, subset_size)
+                    .cloned()
+                    .collect::<Vec<_>>();
 
                 let start = Instant::now();
                 let mut transcript = MerlinTranscript::new(b"select");
@@ -475,14 +492,22 @@ mod tests {
         let pg = PedersenGens::<VestaA>::default();
         let bpg = BulletproofGens::<VestaA>::new(1 << 12, 1);
 
-        fn check(set_size: usize, subset_size: usize, pg: &PedersenGens<VestaA>, bpg: &BulletproofGens<VestaA>) {
+        fn check(
+            set_size: usize,
+            subset_size: usize,
+            pg: &PedersenGens<VestaA>,
+            bpg: &BulletproofGens<VestaA>,
+        ) {
             let mut rng = rand::thread_rng();
 
             // Generate a public set ys and a subset xs from it
             let ys: Vec<_> = iter::from_fn(|| Some(VestaScalar::rand(&mut rng)))
                 .take(set_size)
                 .collect();
-            let xs = ys.choose_multiple(&mut rng, subset_size).cloned().collect::<Vec<_>>();
+            let xs = ys
+                .choose_multiple(&mut rng, subset_size)
+                .cloned()
+                .collect::<Vec<_>>();
 
             let (proof, xs_comm) = {
                 let start = Instant::now();

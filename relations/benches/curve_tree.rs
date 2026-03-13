@@ -1,14 +1,14 @@
 use ark_ec::short_weierstrass::Affine;
-use ark_serialize::{CanonicalSerialize};
+use ark_serialize::CanonicalSerialize;
 use ark_std::UniformRand;
 use bulletproofs::r1cs::*;
 use criterion::{criterion_group, criterion_main, Criterion};
-use std::hint::black_box;
 use dock_crypto_utils::transcript::MerlinTranscript;
 use lazy_static::lazy_static;
 use rand::thread_rng;
-use relations::{curve_tree::*, parameters::SelRerandProofParameters};
 use relations::parameters::SelRerandParameters;
+use relations::{curve_tree::*, parameters::SelRerandProofParameters};
+use std::hint::black_box;
 
 type PallasParameters = ark_pallas::PallasConfig;
 type VestaParameters = ark_vesta::VestaConfig;
@@ -22,9 +22,8 @@ lazy_static! {
         )
         .expect("Failed to create SelRerandParameters")
     };
-    static ref SRProofParamsPallasLeaf: SelRerandProofParameters<PallasParameters, VestaParameters> = {
-        SelRerandProofParameters::try_from((*SRParamsPallasLeaf).clone()).unwrap()
-    };
+    static ref SRProofParamsPallasLeaf: SelRerandProofParameters<PallasParameters, VestaParameters> =
+        { SelRerandProofParameters::try_from((*SRParamsPallasLeaf).clone()).unwrap() };
 }
 
 // Tree will have only this many leaves as proof cost doesn't depend on it significantly
@@ -110,8 +109,7 @@ fn setup_curve_tree_data<const L: usize>(
 }
 
 fn curve_tree_verify<const L: usize>(c: &mut Criterion, height: usize) {
-    let (_, root, path_commitments, pallas_proof, vesta_proof) =
-        setup_curve_tree_data::<L>(height);
+    let (_, root, path_commitments, pallas_proof, vesta_proof) = setup_curve_tree_data::<L>(height);
 
     println!(
         "Proof size for L={L}, height={height}: {} bytes",

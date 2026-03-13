@@ -122,7 +122,8 @@ fn test_divisor<C: DivisorCurve>() {
         // with the result of its scalar multiplication against a fixed generator, the lengths of the
         // yx/x coefficients shouldn't supersede the following bounds
         assert!(C::ScalarField::MODULUS_BIT_SIZE < 256);
-        let yx_len = divisor.yx_coefficients.first().unwrap_or(&vec![]).len();
+        // TODO: Uncomment.
+        // let yx_len = divisor.yx_coefficients.first().unwrap_or(&vec![]).len();
         let x_len = divisor.x_coefficients.len().saturating_sub(1);
         // TODO: Uncomment.
         // assert!(yx_len <= 126, "yx-len={yx_len}");
@@ -218,7 +219,7 @@ fn test_divisor<C: DivisorCurve>() {
             test(divisor.clone());
         }
     }
-    
+
     // Calculate medians
     new_divisor_times.sort();
     check_divisor_times.sort();
@@ -385,7 +386,7 @@ fn scalar_mul_divisor_correctness<C: DivisorCurve>() {
              decomposition_median, decomposition_times.len(), scalar_mul_median, scalar_mul_times.len());
 }
 
-#[cfg(feature = "ed25519")]
+/*#[cfg(feature = "ed25519")]
 #[test]
 fn test_divisor_ed25519() {
     use ark_ed25519::EdwardsProjective;
@@ -430,28 +431,41 @@ fn test_divisor_ed25519() {
     test_same_point::<EdwardsProjective>();
     test_subset_sum_to_infinity::<EdwardsProjective>();
     test_divisor::<EdwardsProjective>();
+}*/
+
+macro_rules! divisor_tests {
+    ($curve_name:ident) => {
+        use crate::curves::$curve_name::Point;
+
+        test_same_point::<Point>();
+        test_subset_sum_to_infinity::<Point>();
+        test_divisor::<Point>();
+        decomposition_correctness::<Point>();
+        scalar_mul_divisor_correctness::<Point>();
+    };
 }
 
-#[cfg(feature = "pallas")]
 #[test]
 fn test_divisor_pallas() {
-    use crate::curves::pallas::Point;
-
-    test_same_point::<Point>();
-    test_subset_sum_to_infinity::<Point>();
-    test_divisor::<Point>();
-    decomposition_correctness::<Point>();
-    scalar_mul_divisor_correctness::<Point>();
+    divisor_tests!(pallas);
 }
 
-#[cfg(feature = "vesta")]
 #[test]
 fn test_divisor_vesta() {
-    use crate::curves::vesta::Point;
+    divisor_tests!(vesta);
+}
 
-    test_same_point::<Point>();
-    test_subset_sum_to_infinity::<Point>();
-    test_divisor::<Point>();
-    decomposition_correctness::<Point>();
-    scalar_mul_divisor_correctness::<Point>();
+#[test]
+fn test_divisor_helios() {
+    divisor_tests!(helios);
+}
+
+#[test]
+fn test_divisor_selene() {
+    divisor_tests!(selene);
+}
+
+#[test]
+fn test_divisor_wei25519() {
+    divisor_tests!(wei25519);
 }

@@ -5,15 +5,15 @@ use bulletproofs::r1cs::*;
 use crate::error::Error;
 use crate::single_level_select_and_rerandomize::*;
 
+use crate::batched_curve_tree_prover::RootChildrenCoordsVars;
 use crate::curve_tree::{CurveTree, Root, RootNode, SelectAndRerandomizeMultiPath};
+use crate::parameters::{SelRerandProofParameters, SingleLayerProofParameters};
+use crate::select::multi_select_public_set_ext_challenge;
 use ark_ec::{models::short_weierstrass::SWCurveConfig, short_weierstrass::Affine};
 use ark_ff::{PrimeField, Zero};
-use ark_std::{vec, vec::Vec, string::ToString, };
+use ark_std::{string::ToString, vec, vec::Vec};
 use core::borrow::BorrowMut;
 use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
-use crate::batched_curve_tree_prover::RootChildrenCoordsVars;
-use crate::select::multi_select_public_set_ext_challenge;
-use crate::parameters::{SelRerandProofParameters, SingleLayerProofParameters};
 
 impl<
         const L: usize,
@@ -90,7 +90,6 @@ impl<
         odd_verifier: &mut Verifier<T, Affine<P1>>,
         parameters: &SelRerandProofParameters<P0, P1>,
     ) -> Result<(), Error> {
-
         let num_indices = self.ensure_acceptable_num_indices()?;
 
         let root_is_even = match root {
@@ -133,7 +132,9 @@ impl<
     }
 
     /// Verify multiple multi-paths with a common root
-    pub fn batched_select_and_rerandomize_verifier_gadget_for_common_root<T: BorrowMut<MerlinTranscript>>(
+    pub fn batched_select_and_rerandomize_verifier_gadget_for_common_root<
+        T: BorrowMut<MerlinTranscript>,
+    >(
         paths: &[Self],
         root: &Root<L, M, P0, P1>,
         even_verifier: &mut Verifier<T, Affine<P0>>,
@@ -151,11 +152,17 @@ impl<
             let this_root_is_even = path.root_is_even()?;
             if is_root_even {
                 if !this_root_is_even {
-                    return Err(Error::RootTypeMismatch { expected: "even".to_string(), got: "odd".to_string() });
+                    return Err(Error::RootTypeMismatch {
+                        expected: "even".to_string(),
+                        got: "odd".to_string(),
+                    });
                 }
             } else {
                 if this_root_is_even {
-                    return Err(Error::RootTypeMismatch { expected: "odd".to_string(), got: "even".to_string() });
+                    return Err(Error::RootTypeMismatch {
+                        expected: "odd".to_string(),
+                        got: "even".to_string(),
+                    });
                 }
             }
             let num_indices = path.ensure_acceptable_num_indices()?;
@@ -212,14 +219,13 @@ impl<
         for root_index in 0..max_num_indices as usize {
             let children_of_root = root_node.x_coord_children[root_index].as_slice();
             // Enforce set membership for the i-th root
-            let xs = (0..selected_children_count_grp_by_root_index[root_index]).map(|_| verifier.allocate(None).unwrap().into()).collect::<Vec<_>>();
-            let c = verifier.transcript().challenge_scalar(b"challenge-for-multi_select");
-            multi_select_public_set_ext_challenge(
-                verifier,
-                xs.clone(),
-                children_of_root,
-                c
-            );
+            let xs = (0..selected_children_count_grp_by_root_index[root_index])
+                .map(|_| verifier.allocate(None).unwrap().into())
+                .collect::<Vec<_>>();
+            let c = verifier
+                .transcript()
+                .challenge_scalar(b"challenge-for-multi_select");
+            multi_select_public_set_ext_challenge(verifier, xs.clone(), children_of_root, c);
             for (j, x) in xs.into_iter().enumerate() {
                 selected_children_of_root_xs[j].push(x);
             }
@@ -249,7 +255,8 @@ impl<
         let res_odd = verify_odd(odd_verifier);
 
         #[cfg(feature = "parallel")]
-        let (res_even, res_odd) = rayon::join(|| verify_even(even_verifier), || verify_odd(odd_verifier));
+        let (res_even, res_odd) =
+            rayon::join(|| verify_even(even_verifier), || verify_odd(odd_verifier));
 
         res_even?;
         res_odd?;
@@ -272,11 +279,14 @@ impl<
             } else {
                 parent_index
             };
-            let variables =
-                even_verifier.commit_vec(L * num_indices as usize, self.even_commitments[parent_index])
-                    .into_iter()
-                    .map(|v| LinearCombination::<P0::ScalarField>::from(v))
-                    .collect();
+            let variables = even_verifier
+                .commit_vec(
+                    L * num_indices as usize,
+                    self.even_commitments[parent_index],
+                )
+                .into_iter()
+                .map(|v| LinearCombination::<P0::ScalarField>::from(v))
+                .collect();
             single_level_batched_select_and_rerandomize(
                 even_verifier,
                 odd_parameters,
@@ -305,11 +315,11 @@ impl<
             } else {
                 parent_index
             };
-            let variables =
-                odd_verifier.commit_vec(L * num_indices as usize, self.odd_commitments[parent_index])
-                    .into_iter()
-                    .map(|v| LinearCombination::<P1::ScalarField>::from(v))
-                    .collect();
+            let variables = odd_verifier
+                .commit_vec(L * num_indices as usize, self.odd_commitments[parent_index])
+                .into_iter()
+                .map(|v| LinearCombination::<P1::ScalarField>::from(v))
+                .collect();
             if parent_index < self.odd_commitments.len() - 1 {
                 single_level_batched_select_and_rerandomize(
                     odd_verifier,

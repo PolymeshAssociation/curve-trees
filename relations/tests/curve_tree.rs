@@ -8,15 +8,18 @@ use ark_ec::{
 };
 use ark_ec_divisors::{
     curves::{
-        pallas::PallasParams, pallas::Point as PallasPoint, vesta::Point as VestaPoint,
-        vesta::VestaParams,
+        helios::HeliosParams, helios::Point as HeliosPoint, pallas::PallasParams,
+        pallas::Point as PallasPoint, selene::Point as SelenePoint, selene::SeleneParams,
+        vesta::Point as VestaPoint, vesta::VestaParams,
     },
     DivisorCurve,
 };
 use ark_ff::PrimeField;
+use ark_helios::{Fq as HeliosBase, HeliosConfig};
 use ark_pallas::{Fq as PallasBase, PallasConfig};
 use ark_secp256k1::{Config as SecpConfig, Fq as SecpBase};
 use ark_secq256k1::Config as SecqConfig;
+use ark_selene::SeleneConfig;
 use ark_serialize::CanonicalSerialize;
 use ark_std::UniformRand;
 use ark_vesta::{Fq as VestaBase, VestaConfig};
@@ -31,13 +34,15 @@ use std::time::{Duration, Instant};
 mod common;
 use common::prove;
 use relations::curve_tree_prover::CurveTreeWitnessPath;
-use relations::parameters::{SelRerandParameters, SelRerandProofParameters, SelRerandProofParametersNew, SelRerandParametersRef};
+use relations::parameters::{
+    SelRerandParameters, SelRerandParametersRef, SelRerandProofParameters,
+    SelRerandProofParametersNew,
+};
 use relations::utils::verify;
 
 type PallasParameters = PallasConfig;
 type VestaParameters = VestaConfig;
 type PallasP = ark_pallas::Projective;
-type VestaP = ark_vesta::Projective;
 
 #[test]
 pub fn test_curve_tree_even_depth() {
@@ -201,7 +206,14 @@ fn test_curve_tree_inner<
         &mut rng,
     );
 
-    let (pallas_proof, vesta_proof) = prove(even_prover, odd_prover, &sr_params.even_parameters.bp_gens, &sr_params.odd_parameters.bp_gens, &mut rng).unwrap();
+    let (pallas_proof, vesta_proof) = prove(
+        even_prover,
+        odd_prover,
+        &sr_params.even_parameters.bp_gens,
+        &sr_params.odd_parameters.bp_gens,
+        &mut rng,
+    )
+    .unwrap();
 
     let root = curve_tree.root_node();
 
@@ -273,7 +285,8 @@ pub fn test_curve_tree_with_parameters_new<
     let mut rng = thread_rng();
     let generators_length = 1 << generators_length_log_2;
 
-    let sr_proof_params = SelRerandProofParameters::<P0, P1>::new(generators_length, generators_length).unwrap();
+    let sr_proof_params =
+        SelRerandProofParameters::<P0, P1>::new(generators_length, generators_length).unwrap();
 
     let set = (0..num_leaves)
         .map(|_| Affine::<P0>::rand(&mut rng))
@@ -300,8 +313,10 @@ pub fn test_curve_tree_with_parameters_new<
         let clock = Instant::now();
 
         let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
-        let mut pallas_prover: Prover<_, Affine<P0>> =
-            Prover::new(&sr_proof_params.even_parameters().pc_gens, pallas_transcript);
+        let mut pallas_prover: Prover<_, Affine<P0>> = Prover::new(
+            &sr_proof_params.even_parameters().pc_gens,
+            pallas_transcript,
+        );
 
         let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
         let mut vesta_prover: Prover<_, Affine<P1>> =
@@ -320,8 +335,14 @@ pub fn test_curve_tree_with_parameters_new<
 
         let nc1 = pallas_prover.constraints.len();
         let nc2 = vesta_prover.constraints.len();
-        let (pallas_proof, vesta_proof) =
-            prove(pallas_prover, vesta_prover, &sr_proof_params.even_parameters().bp_gens, &sr_proof_params.odd_parameters().bp_gens, &mut rng).unwrap();
+        let (pallas_proof, vesta_proof) = prove(
+            pallas_prover,
+            vesta_prover,
+            &sr_proof_params.even_parameters().bp_gens,
+            &sr_proof_params.odd_parameters().bp_gens,
+            &mut rng,
+        )
+        .unwrap();
 
         prover_time += clock.elapsed();
 
@@ -364,7 +385,8 @@ pub fn test_curve_tree_with_parameters_new<
             assert_eq!(
                 rerandomized_leaf.into_group(),
                 curve_tree.get_leaf(*leaf_index).unwrap()
-                    + (sr_proof_params.even_parameters().pc_gens.B_blinding * re_randomization_of_leaf)
+                    + (sr_proof_params.even_parameters().pc_gens.B_blinding
+                        * re_randomization_of_leaf)
             )
         }
     }
@@ -389,7 +411,8 @@ pub fn test_curve_tree_get_update<
     let mut rng = thread_rng();
     let generators_length = 1 << generators_length_log_2;
 
-    let sr_proof_params = SelRerandProofParameters::<P0, P1>::new(generators_length, generators_length).unwrap();
+    let sr_proof_params =
+        SelRerandProofParameters::<P0, P1>::new(generators_length, generators_length).unwrap();
 
     let leaves = (0..num_leaves)
         .map(|_| Affine::<P0>::rand(&mut rng))
@@ -436,8 +459,10 @@ pub fn test_curve_tree_get_update<
 
     for leaf_index in update_indices.clone() {
         let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
-        let mut pallas_prover: Prover<_, Affine<P0>> =
-            Prover::new(&sr_proof_params.even_parameters().pc_gens, pallas_transcript);
+        let mut pallas_prover: Prover<_, Affine<P0>> = Prover::new(
+            &sr_proof_params.even_parameters().pc_gens,
+            pallas_transcript,
+        );
 
         let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
         let mut vesta_prover: Prover<_, Affine<P1>> =
@@ -454,8 +479,14 @@ pub fn test_curve_tree_get_update<
                 &mut rng,
             );
 
-        let (pallas_proof, vesta_proof) =
-            prove(pallas_prover, vesta_prover, &sr_proof_params.even_parameters().bp_gens, &sr_proof_params.odd_parameters().bp_gens, &mut rng).unwrap();
+        let (pallas_proof, vesta_proof) = prove(
+            pallas_prover,
+            vesta_prover,
+            &sr_proof_params.even_parameters().bp_gens,
+            &sr_proof_params.odd_parameters().bp_gens,
+            &mut rng,
+        )
+        .unwrap();
 
         {
             let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
@@ -485,7 +516,8 @@ pub fn test_curve_tree_get_update<
             assert_eq!(
                 rerandomized_leaf.into_group(),
                 curve_tree.get_leaf(*leaf_index).unwrap()
-                    + (sr_proof_params.even_parameters().pc_gens.B_blinding * re_randomization_of_leaf)
+                    + (sr_proof_params.even_parameters().pc_gens.B_blinding
+                        * re_randomization_of_leaf)
             )
         }
     }
@@ -499,7 +531,8 @@ pub fn test_curve_tree_batch_verification() {
     let sr_proof_params = SelRerandProofParameters::<PallasParameters, VestaParameters>::new(
         generators_length,
         generators_length,
-    ).unwrap();
+    )
+    .unwrap();
 
     let batch_size = 5;
 
@@ -527,8 +560,10 @@ pub fn test_curve_tree_batch_verification() {
         // Choosing arbitrary labels
         let label = labels[i % labels.len()];
         let pallas_transcript = MerlinTranscript::new(label);
-        let mut pallas_prover: Prover<_, Affine<PallasParameters>> =
-            Prover::new(&sr_proof_params.even_parameters().pc_gens, pallas_transcript);
+        let mut pallas_prover: Prover<_, Affine<PallasParameters>> = Prover::new(
+            &sr_proof_params.even_parameters().pc_gens,
+            pallas_transcript,
+        );
 
         let vesta_transcript = MerlinTranscript::new(label);
         let mut vesta_prover: Prover<_, Affine<VestaParameters>> =
@@ -662,7 +697,8 @@ pub fn check_combined_vs_common_root_proofs_with_parameters<
     let mut rng = thread_rng();
     let generators_length = 1 << generators_length_log_2;
 
-    let sr_proof_params = SelRerandProofParameters::<P0, P1>::new(generators_length, generators_length).unwrap();
+    let sr_proof_params =
+        SelRerandProofParameters::<P0, P1>::new(generators_length, generators_length).unwrap();
 
     let mut set = Vec::<Affine<P0>>::new();
     for _ in 0..num_paths {
@@ -679,8 +715,10 @@ pub fn check_combined_vs_common_root_proofs_with_parameters<
     let clock = Instant::now();
 
     let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
-    let mut pallas_prover: Prover<_, Affine<P0>> =
-        Prover::new(&sr_proof_params.even_parameters().pc_gens, pallas_transcript);
+    let mut pallas_prover: Prover<_, Affine<P0>> = Prover::new(
+        &sr_proof_params.even_parameters().pc_gens,
+        pallas_transcript,
+    );
 
     let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
     let mut vesta_prover: Prover<_, Affine<P1>> =
@@ -751,7 +789,8 @@ pub fn check_combined_vs_common_root_proofs_with_parameters<
         assert_eq!(
             rerandomized_leaves[i].into_group(),
             curve_tree.get_leaf(i).unwrap()
-                + (sr_proof_params.even_parameters().pc_gens.B_blinding * all_leaf_rerandomizations[i])
+                + (sr_proof_params.even_parameters().pc_gens.B_blinding
+                    * all_leaf_rerandomizations[i])
         )
     }
 
@@ -760,8 +799,10 @@ pub fn check_combined_vs_common_root_proofs_with_parameters<
     let clock = Instant::now();
 
     let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
-    let mut pallas_prover: Prover<_, Affine<P0>> =
-        Prover::new(&sr_proof_params.even_parameters().pc_gens, pallas_transcript);
+    let mut pallas_prover: Prover<_, Affine<P0>> = Prover::new(
+        &sr_proof_params.even_parameters().pc_gens,
+        pallas_transcript,
+    );
 
     let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
     let mut vesta_prover: Prover<_, Affine<P1>> =
@@ -836,7 +877,8 @@ pub fn check_combined_vs_common_root_proofs_with_parameters<
         assert_eq!(
             rerandomized_leaves[i].into_group(),
             curve_tree.get_leaf(i).unwrap()
-                + (sr_proof_params.even_parameters().pc_gens.B_blinding * all_leaf_rerandomizations[i])
+                + (sr_proof_params.even_parameters().pc_gens.B_blinding
+                    * all_leaf_rerandomizations[i])
         )
     }
 }
@@ -1003,6 +1045,37 @@ pub fn test_curve_tree_odd_depth_divisor() {
         PallasPoint,
         VestaPoint,
     >(Some(3), 11, 16, 5);
+
+    test_curve_tree_with_parameters_newer::<
+        32,
+        HeliosBase,
+        HeliosConfig,
+        SeleneConfig,
+        HeliosParams,
+        SeleneParams,
+        HeliosPoint,
+        SelenePoint,
+    >(Some(3), 11, 8, 3);
+    test_curve_tree_with_parameters_newer::<
+        32,
+        HeliosBase,
+        HeliosConfig,
+        SeleneConfig,
+        HeliosParams,
+        SeleneParams,
+        HeliosPoint,
+        SelenePoint,
+    >(Some(3), 11, 4, 3);
+    test_curve_tree_with_parameters_newer::<
+        32,
+        HeliosBase,
+        HeliosConfig,
+        SeleneConfig,
+        HeliosParams,
+        SeleneParams,
+        HeliosPoint,
+        SelenePoint,
+    >(Some(3), 11, 16, 5);
 }
 
 #[test]
@@ -1036,6 +1109,37 @@ pub fn test_curve_tree_even_depth_divisor() {
         VestaParams,
         PallasPoint,
         VestaPoint,
+    >(Some(4), 11, 16, 5);
+
+    test_curve_tree_with_parameters_newer::<
+        32,
+        HeliosBase,
+        HeliosConfig,
+        SeleneConfig,
+        HeliosParams,
+        SeleneParams,
+        HeliosPoint,
+        SelenePoint,
+    >(Some(4), 11, 4, 3);
+    test_curve_tree_with_parameters_newer::<
+        32,
+        HeliosBase,
+        HeliosConfig,
+        SeleneConfig,
+        HeliosParams,
+        SeleneParams,
+        HeliosPoint,
+        SelenePoint,
+    >(Some(6), 11, 8, 3);
+    test_curve_tree_with_parameters_newer::<
+        32,
+        HeliosBase,
+        HeliosConfig,
+        SeleneConfig,
+        HeliosParams,
+        SeleneParams,
+        HeliosPoint,
+        SelenePoint,
     >(Some(4), 11, 16, 5);
 }
 
@@ -1072,15 +1176,98 @@ pub fn test_curve_tree_even_depth_large_divisor() {
         VestaPoint,
     >(Some(4), 13, 256, 15);
 
-    // test_curve_tree_with_parameters_newer::<256, PallasBase, PallasConfig, VestaConfig, PallasParams, VestaParams, PallasPoint, VestaPoint>(
-    //     None, 13, 64, 15,
-    // );
-    // test_curve_tree_with_parameters_newer::<256, PallasBase, PallasConfig, VestaConfig, PallasParams, VestaParams, PallasPoint, VestaPoint>(
-    //     None, 13, 128, 15,
-    // );
-    // test_curve_tree_with_parameters_newer::<256, PallasBase, PallasConfig, VestaConfig, PallasParams, VestaParams, PallasPoint, VestaPoint>(
-    //     None, 13, 256, 15,
-    // );
+    test_curve_tree_with_parameters_newer::<
+        256,
+        PallasBase,
+        PallasConfig,
+        VestaConfig,
+        PallasParams,
+        VestaParams,
+        PallasPoint,
+        VestaPoint,
+    >(None, 13, 64, 15);
+    test_curve_tree_with_parameters_newer::<
+        256,
+        PallasBase,
+        PallasConfig,
+        VestaConfig,
+        PallasParams,
+        VestaParams,
+        PallasPoint,
+        VestaPoint,
+    >(None, 13, 128, 15);
+    test_curve_tree_with_parameters_newer::<
+        256,
+        PallasBase,
+        PallasConfig,
+        VestaConfig,
+        PallasParams,
+        VestaParams,
+        PallasPoint,
+        VestaPoint,
+    >(None, 13, 256, 15);
+
+    test_curve_tree_with_parameters_newer::<
+        64,
+        HeliosBase,
+        HeliosConfig,
+        SeleneConfig,
+        HeliosParams,
+        SeleneParams,
+        HeliosPoint,
+        SelenePoint,
+    >(Some(4), 13, 64, 15);
+    test_curve_tree_with_parameters_newer::<
+        64,
+        HeliosBase,
+        HeliosConfig,
+        SeleneConfig,
+        HeliosParams,
+        SeleneParams,
+        HeliosPoint,
+        SelenePoint,
+    >(Some(4), 13, 128, 15);
+    test_curve_tree_with_parameters_newer::<
+        64,
+        HeliosBase,
+        HeliosConfig,
+        SeleneConfig,
+        HeliosParams,
+        SeleneParams,
+        HeliosPoint,
+        SelenePoint,
+    >(Some(4), 13, 256, 15);
+
+    test_curve_tree_with_parameters_newer::<
+        256,
+        HeliosBase,
+        HeliosConfig,
+        SeleneConfig,
+        HeliosParams,
+        SeleneParams,
+        HeliosPoint,
+        SelenePoint,
+    >(None, 13, 64, 15);
+    test_curve_tree_with_parameters_newer::<
+        256,
+        HeliosBase,
+        HeliosConfig,
+        SeleneConfig,
+        HeliosParams,
+        SeleneParams,
+        HeliosPoint,
+        SelenePoint,
+    >(None, 13, 128, 15);
+    test_curve_tree_with_parameters_newer::<
+        256,
+        HeliosBase,
+        HeliosConfig,
+        SeleneConfig,
+        HeliosParams,
+        SeleneParams,
+        HeliosPoint,
+        SelenePoint,
+    >(None, 13, 256, 15);
 }
 
 #[test]
@@ -1094,6 +1281,17 @@ pub fn test_curve_tree_odd_depth_large_divisor() {
         VestaParams,
         PallasPoint,
         VestaPoint,
+    >(Some(3), 11, 64, 10);
+
+    test_curve_tree_with_parameters_newer::<
+        32,
+        HeliosBase,
+        HeliosConfig,
+        SeleneConfig,
+        HeliosParams,
+        SeleneParams,
+        HeliosPoint,
+        SelenePoint,
     >(Some(3), 11, 64, 10);
 }
 
@@ -1115,7 +1313,11 @@ pub fn test_curve_tree_with_parameters_newer<
     let mut rng = thread_rng();
     let generators_length = 1 << generators_length_log_2;
 
-    let sr_proof_params = SelRerandProofParametersNew::<P0, P1, Params0, Params1>::new::<D0, D1>(generators_length, generators_length).unwrap();
+    let sr_proof_params = SelRerandProofParametersNew::<P0, P1, Params0, Params1>::new::<D0, D1>(
+        generators_length,
+        generators_length,
+    )
+    .unwrap();
 
     let set = (0..num_leaves)
         .map(|_| Affine::<P0>::rand(&mut rng))
@@ -1142,8 +1344,10 @@ pub fn test_curve_tree_with_parameters_newer<
         let clock = Instant::now();
 
         let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
-        let mut pallas_prover: Prover<_, Affine<P0>> =
-            Prover::new(&sr_proof_params.even_parameters().pc_gens, pallas_transcript);
+        let mut pallas_prover: Prover<_, Affine<P0>> = Prover::new(
+            &sr_proof_params.even_parameters().pc_gens,
+            pallas_transcript,
+        );
 
         let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
         let mut vesta_prover: Prover<_, Affine<P1>> =
@@ -1152,20 +1356,25 @@ pub fn test_curve_tree_with_parameters_newer<
         let path = curve_tree
             .get_path_to_leaf_for_proof(*leaf_index, 0)
             .unwrap();
-        let (
-            path_commitments,
-            re_randomization_of_leaf,
-        ) = path.select_and_rerandomize_prover_gadget_new::<_, D0, D1, Params0, Params1>(
-            &mut pallas_prover,
-            &mut vesta_prover,
-            &sr_proof_params,
-            &mut rng,
-        ).unwrap();
+        let (path_commitments, re_randomization_of_leaf) = path
+            .select_and_rerandomize_prover_gadget_new::<_, D0, D1, Params0, Params1>(
+                &mut pallas_prover,
+                &mut vesta_prover,
+                &sr_proof_params,
+                &mut rng,
+            )
+            .unwrap();
 
         let nc1 = pallas_prover.constraints.len();
         let nc2 = vesta_prover.constraints.len();
-        let (pallas_proof, vesta_proof) =
-            prove(pallas_prover, vesta_prover, &sr_proof_params.even_parameters().bp_gens, &sr_proof_params.odd_parameters().bp_gens, &mut rng).unwrap();
+        let (pallas_proof, vesta_proof) = prove(
+            pallas_prover,
+            vesta_prover,
+            &sr_proof_params.even_parameters().bp_gens,
+            &sr_proof_params.odd_parameters().bp_gens,
+            &mut rng,
+        )
+        .unwrap();
 
         prover_time += clock.elapsed();
 
@@ -1188,12 +1397,14 @@ pub fn test_curve_tree_with_parameters_newer<
             let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
             let mut vesta_verifier = Verifier::new(vesta_transcript);
 
-            path_commitments.select_and_rerandomize_verifier_gadget(
-                &root,
-                &mut pallas_verifier,
-                &mut vesta_verifier,
-                &sr_proof_params,
-            ).unwrap();
+            path_commitments
+                .select_and_rerandomize_verifier_gadget(
+                    &root,
+                    &mut pallas_verifier,
+                    &mut vesta_verifier,
+                    &sr_proof_params,
+                )
+                .unwrap();
 
             let rerandomized_leaf = path_commitments.path.get_rerandomized_leaf();
             verify(
@@ -1212,7 +1423,8 @@ pub fn test_curve_tree_with_parameters_newer<
             assert_eq!(
                 rerandomized_leaf.into_group(),
                 curve_tree.get_leaf(*leaf_index).unwrap()
-                    + (sr_proof_params.even_parameters().pc_gens.B_blinding * re_randomization_of_leaf)
+                    + (sr_proof_params.even_parameters().pc_gens.B_blinding
+                        * re_randomization_of_leaf)
             )
         }
     }
@@ -1285,6 +1497,67 @@ pub fn test_combined_vs_common_root_path_proofs_divisor() {
         PallasPoint,
         VestaPoint,
     >(3, 13, 4);
+
+    check_combined_vs_common_root_proofs_with_parameters_divisor::<
+        32,
+        HeliosBase,
+        HeliosConfig,
+        SeleneConfig,
+        HeliosParams,
+        SeleneParams,
+        HeliosPoint,
+        SelenePoint,
+    >(4, 12, 2);
+    check_combined_vs_common_root_proofs_with_parameters_divisor::<
+        32,
+        HeliosBase,
+        HeliosConfig,
+        SeleneConfig,
+        HeliosParams,
+        SeleneParams,
+        HeliosPoint,
+        SelenePoint,
+    >(4, 13, 3);
+    check_combined_vs_common_root_proofs_with_parameters_divisor::<
+        32,
+        HeliosBase,
+        HeliosConfig,
+        SeleneConfig,
+        HeliosParams,
+        SeleneParams,
+        HeliosPoint,
+        SelenePoint,
+    >(4, 13, 4);
+    check_combined_vs_common_root_proofs_with_parameters_divisor::<
+        32,
+        HeliosBase,
+        HeliosConfig,
+        SeleneConfig,
+        HeliosParams,
+        SeleneParams,
+        HeliosPoint,
+        SelenePoint,
+    >(3, 13, 2);
+    check_combined_vs_common_root_proofs_with_parameters_divisor::<
+        32,
+        HeliosBase,
+        HeliosConfig,
+        SeleneConfig,
+        HeliosParams,
+        SeleneParams,
+        HeliosPoint,
+        SelenePoint,
+    >(3, 13, 3);
+    check_combined_vs_common_root_proofs_with_parameters_divisor::<
+        32,
+        HeliosBase,
+        HeliosConfig,
+        SeleneConfig,
+        HeliosParams,
+        SeleneParams,
+        HeliosPoint,
+        SelenePoint,
+    >(3, 13, 4);
 }
 
 pub fn check_combined_vs_common_root_proofs_with_parameters_divisor<
@@ -1304,7 +1577,11 @@ pub fn check_combined_vs_common_root_proofs_with_parameters_divisor<
     let mut rng = thread_rng();
     let generators_length = 1 << generators_length_log_2;
 
-    let sr_proof_params = SelRerandProofParametersNew::<P0, P1, Params0, Params1>::new::<D0, D1>(generators_length, generators_length).unwrap();
+    let sr_proof_params = SelRerandProofParametersNew::<P0, P1, Params0, Params1>::new::<D0, D1>(
+        generators_length,
+        generators_length,
+    )
+    .unwrap();
 
     let mut set = Vec::<Affine<P0>>::new();
     for _ in 0..num_paths {
@@ -1323,14 +1600,17 @@ pub fn check_combined_vs_common_root_proofs_with_parameters_divisor<
     let clock = Instant::now();
 
     let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
-    let mut pallas_prover: Prover<_, Affine<P0>> =
-        Prover::new(&sr_proof_params.even_parameters().pc_gens, pallas_transcript);
+    let mut pallas_prover: Prover<_, Affine<P0>> = Prover::new(
+        &sr_proof_params.even_parameters().pc_gens,
+        pallas_transcript,
+    );
 
     let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
     let mut vesta_prover: Prover<_, Affine<P1>> =
         Prover::new(&sr_proof_params.odd_parameters().pc_gens, vesta_transcript);
 
-    let mut path_commitments_list: Vec<SelectAndRerandomizePathWithDivisorComms<L, P0, P1>> = vec![];
+    let mut path_commitments_list: Vec<SelectAndRerandomizePathWithDivisorComms<L, P0, P1>> =
+        vec![];
     let mut all_leaf_rerandomizations = vec![];
 
     for i in 0..num_paths {
@@ -1341,13 +1621,20 @@ pub fn check_combined_vs_common_root_proofs_with_parameters_divisor<
                 &mut vesta_prover,
                 &sr_proof_params,
                 &mut rng,
-            ).unwrap();
+            )
+            .unwrap();
         path_commitments_list.push(path_commitments);
         all_leaf_rerandomizations.push(rl);
     }
 
-    let (pallas_proof, vesta_proof) =
-        prove(pallas_prover, vesta_prover, &sr_proof_params.even_parameters().bp_gens, &sr_proof_params.odd_parameters().bp_gens, &mut rng).unwrap();
+    let (pallas_proof, vesta_proof) = prove(
+        pallas_prover,
+        vesta_prover,
+        &sr_proof_params.even_parameters().bp_gens,
+        &sr_proof_params.odd_parameters().bp_gens,
+        &mut rng,
+    )
+    .unwrap();
 
     println!("Proving time: {:?}", clock.elapsed());
 
@@ -1359,12 +1646,14 @@ pub fn check_combined_vs_common_root_proofs_with_parameters_divisor<
 
     let mut rerandomized_leaves = vec![];
     for path_commitments in path_commitments_list.iter() {
-        path_commitments.select_and_rerandomize_verifier_gadget::<Params0, Params1>(
-            &root,
-            &mut pallas_verifier,
-            &mut vesta_verifier,
-            &sr_proof_params,
-        ).unwrap();
+        path_commitments
+            .select_and_rerandomize_verifier_gadget::<Params0, Params1>(
+                &root,
+                &mut pallas_verifier,
+                &mut vesta_verifier,
+                &sr_proof_params,
+            )
+            .unwrap();
         rerandomized_leaves.push(path_commitments.path.get_rerandomized_leaf());
     }
 
@@ -1386,7 +1675,8 @@ pub fn check_combined_vs_common_root_proofs_with_parameters_divisor<
         assert_eq!(
             rerandomized_leaves[i].into_group(),
             curve_tree.get_leaf(i).unwrap()
-                + (sr_proof_params.even_parameters().pc_gens.B_blinding * all_leaf_rerandomizations[i])
+                + (sr_proof_params.even_parameters().pc_gens.B_blinding
+                    * all_leaf_rerandomizations[i])
         )
     }
 
@@ -1395,8 +1685,10 @@ pub fn check_combined_vs_common_root_proofs_with_parameters_divisor<
     let clock = Instant::now();
 
     let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
-    let mut pallas_prover: Prover<_, Affine<P0>> =
-        Prover::new(&sr_proof_params.even_parameters().pc_gens, pallas_transcript);
+    let mut pallas_prover: Prover<_, Affine<P0>> = Prover::new(
+        &sr_proof_params.even_parameters().pc_gens,
+        pallas_transcript,
+    );
 
     let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
     let mut vesta_prover: Prover<_, Affine<P1>> =
@@ -1407,19 +1699,23 @@ pub fn check_combined_vs_common_root_proofs_with_parameters_divisor<
         .get_paths_to_leaves_for_proof(&leaf_indices, 0)
         .unwrap();
 
-    let (
-        all_path_commitments,
-        all_leaf_rerandomizations,
-    ) = witness_paths_with_same_root
+    let (all_path_commitments, all_leaf_rerandomizations) = witness_paths_with_same_root
         .select_and_rerandomize_prover_gadget_new::<_, D0, D1, Params0, Params1>(
             &mut pallas_prover,
             &mut vesta_prover,
             &sr_proof_params,
             &mut rng,
-        ).unwrap();
+        )
+        .unwrap();
 
-    let (pallas_proof, vesta_proof) =
-        prove(pallas_prover, vesta_prover, &sr_proof_params.even_parameters().bp_gens, &sr_proof_params.odd_parameters().bp_gens, &mut rng).unwrap();
+    let (pallas_proof, vesta_proof) = prove(
+        pallas_prover,
+        vesta_prover,
+        &sr_proof_params.even_parameters().bp_gens,
+        &sr_proof_params.odd_parameters().bp_gens,
+        &mut rng,
+    )
+    .unwrap();
 
     println!("Proving time: {:?}", clock.elapsed());
 
@@ -1462,7 +1758,8 @@ pub fn check_combined_vs_common_root_proofs_with_parameters_divisor<
         assert_eq!(
             rerandomized_leaves[i].into_group(),
             curve_tree.get_leaf(i).unwrap()
-                + (sr_proof_params.even_parameters().pc_gens.B_blinding * all_leaf_rerandomizations[i])
+                + (sr_proof_params.even_parameters().pc_gens.B_blinding
+                    * all_leaf_rerandomizations[i])
         )
     }
 }

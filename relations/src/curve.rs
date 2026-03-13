@@ -12,14 +12,12 @@ pub fn curve_check<F: Field, Cs: ConstraintSystem<F>>(
     b: F,
 ) {
     let (_, _, x_squared) = cs.multiply(x.clone(), x.clone());
-    let (_, _, x_cubed) = cs.multiply(x, x_squared.into());
+    let (_, _, x_cubed) = cs.multiply(x.clone(), x_squared.into());
     let (_, _, y_squared) = cs.multiply(y.clone(), y);
-    
-    // x^3 + A*x^2 + B - y^2 = 0
+
+    // x^3 + A*x + B - y^2 = 0
     cs.constrain(
-        LinearCombination::<F>::from(x_cubed)
-            + LinearCombination::<F>::from(x_squared).scalar_mul(a)
-            + b
+        LinearCombination::<F>::from(x_cubed) + LinearCombination::<F>::from(x).scalar_mul(a) + b
             - y_squared,
     )
 }
@@ -48,8 +46,8 @@ pub fn incomplete_curve_addition_helper<
     let (out_witness, delta) = match (left.point, right.point) {
         (Some(left), Some(right)) => {
             let out = (left + right).into_affine();
-            let delta = (right.y().unwrap() - left.y().unwrap())
-                / (right.x().unwrap() - left.x().unwrap());
+            let delta =
+                (right.y().unwrap() - left.y().unwrap()) / (right.x().unwrap() - left.x().unwrap());
             (Some(out), Some(delta))
         }
         _ => (None, None),
@@ -90,8 +88,8 @@ pub fn checked_curve_addition_helper<
     let (out_witness, delta, x_l_minus_x_r_inv) = match (left.point, right.point) {
         (Some(left), Some(right)) => {
             let out = (left + right).into_affine();
-            let delta = (right.y().unwrap() - left.y().unwrap())
-                / (right.x().unwrap() - left.x().unwrap());
+            let delta =
+                (right.y().unwrap() - left.y().unwrap()) / (right.x().unwrap() - left.x().unwrap());
             assert_ne!(left.x().unwrap(), right.x().unwrap());
             let x_l_minus_x_r_inv = F::one() / (left.x().unwrap() - right.x().unwrap());
             (Some(out), Some(delta), Some(x_l_minus_x_r_inv))

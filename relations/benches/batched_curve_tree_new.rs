@@ -1,8 +1,8 @@
 #[macro_use]
 extern crate criterion;
 
-use std::hint::black_box;
 use criterion::{BenchmarkId, Criterion};
+use std::hint::black_box;
 use std::time::Duration;
 
 extern crate bulletproofs;
@@ -12,7 +12,7 @@ extern crate relations;
 use relations::curve_tree::*;
 use relations::utils::{prove, verify};
 
-use ark_ec::short_weierstrass::{Affine};
+use ark_ec::short_weierstrass::Affine;
 use ark_ec_divisors::curves::{
     pallas::PallasParams, pallas::Point as PallasPoint, vesta::Point as VestaPoint,
     vesta::VestaParams,
@@ -107,14 +107,16 @@ fn bench_batched_curve_tree_with_varying_batch_size_new<const L: usize, const M:
                     )
                     .expect("Failed to prove batched select and rerandomize");
 
-                    let (pallas_proof, vesta_proof) =
-                        prove(pallas_prover, vesta_prover, &SRProofParamsNewPallasLeaf.even_parameters.bp_gens(), &SRProofParamsNewPallasLeaf.odd_parameters.bp_gens(), &mut rng).unwrap();
+                    let (pallas_proof, vesta_proof) = prove(
+                        pallas_prover,
+                        vesta_prover,
+                        &SRProofParamsNewPallasLeaf.even_parameters.bp_gens(),
+                        &SRProofParamsNewPallasLeaf.odd_parameters.bp_gens(),
+                        &mut rng,
+                    )
+                    .unwrap();
 
-                    black_box((
-                        path_commitments,
-                        pallas_proof,
-                        vesta_proof,
-                    ))
+                    black_box((path_commitments, pallas_proof, vesta_proof))
                 });
             },
         );
@@ -148,14 +150,16 @@ fn bench_batched_curve_tree_with_varying_batch_size_new<const L: usize, const M:
                 )
                 .expect("Failed to prove batched select and rerandomize");
 
-            let (pallas_proof, vesta_proof) =
-                prove(pallas_prover, vesta_prover, &SRProofParamsNewPallasLeaf.even_parameters.bp_gens(), &SRProofParamsNewPallasLeaf.odd_parameters.bp_gens(), &mut rng).unwrap();
-
-            (
-                path_commitments,
-                pallas_proof,
-                vesta_proof,
+            let (pallas_proof, vesta_proof) = prove(
+                pallas_prover,
+                vesta_prover,
+                &SRProofParamsNewPallasLeaf.even_parameters.bp_gens(),
+                &SRProofParamsNewPallasLeaf.odd_parameters.bp_gens(),
+                &mut rng,
             )
+            .unwrap();
+
+            (path_commitments, pallas_proof, vesta_proof)
         };
 
         let proof_size = path_commitments.compressed_size()

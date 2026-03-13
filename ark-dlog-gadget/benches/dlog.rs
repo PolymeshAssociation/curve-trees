@@ -1,15 +1,20 @@
 use ark_ec::AffineRepr;
 use ark_ec_divisors::curves::pallas::{PallasParams, Point as PallasPoint};
 use ark_ec_divisors::curves::vesta::{Point as VestaPoint, VestaParams};
+use ark_ec_divisors::curves::helios::{HeliosParams, Point as HeliosPoint};
+use ark_ec_divisors::curves::selene::{Point as SelenePoint, SeleneParams};
 use ark_ff::PrimeField;
 use ark_pallas::{Affine as PallasAffine, Fq, Fr};
 use ark_vesta::{Affine as VestaAffine};
+use ark_helios::{Affine as HeliosAffine, Fq as HeliosFq, Fr as HeliosFr};
+use ark_selene::{Affine as SeleneAffine};
 use bulletproofs::r1cs::{Prover, Verifier};
 use bulletproofs::{BulletproofGens, PedersenGens};
 use criterion::{criterion_group, criterion_main, Criterion};
 use dock_crypto_utils::transcript::MerlinTranscript;
 use rand::prelude::StdRng;
 use std::hint::black_box;
+use ark_ec::short_weierstrass::SWCurveConfig;
 use ark_serialize::CanonicalSerialize;
 use rand_core::SeedableRng;
 use ark_dlog_gadget::dlog::{
@@ -19,14 +24,22 @@ use ark_dlog_gadget::dlog::{
 use ark_dlog_gadget::utils::CurveSpec;
 use ark_ec_divisors::DivisorCurve;
 use ark_ec_divisors::util::GeneratorTable;
+use generic_array::ArrayLength;
+use generic_array::typenum::{Sum, U1};
+use std::ops::Add;
 
 type PallasBase = Fq;
 type PallasScalar = Fr;
 type VestaBase = Fr;
 type VestaScalar = Fq;
+type HeliosBase = HeliosFq;
+type HeliosScalar = HeliosFr;
+type SeleneBase = HeliosFr;
+type SeleneScalar = HeliosFq;
 
 fn bench_blinding_with_discrete_log_prove<C, Params, B, S, BP>(
   c: &mut Criterion,
+  curve_name: &str,
   count: usize,
   vc_len: usize,
 ) where
@@ -35,16 +48,19 @@ fn bench_blinding_with_discrete_log_prove<C, Params, B, S, BP>(
   B: PrimeField,
   S: PrimeField,
   BP: AffineRepr<ScalarField = B>,
+  C::Config: SWCurveConfig,
+  Params::ScalarBits: Add<U1>,
+  Sum<Params::ScalarBits, U1>: ArrayLength,
 {
   let mut rng = StdRng::seed_from_u64(0);
-  let curve = CurveSpec::<B> { a: B::ZERO, b: B::from(5u64) };
+  let curve = CurveSpec::<B> { a: C::Config::COEFF_A, b: C::Config::COEFF_B };
   let pc_gens = PedersenGens::<BP>::default();
   let bp_gens = BulletproofGens::<BP>::new(512, 1);
 
   let t = C::random(&mut rng);
   let t_table = GeneratorTable::<B, Params>::new(t);
 
-  let bench_name = format!("dlog_prove_count={},vc_len={}", count, vc_len);
+  let bench_name = format!("{}_dlog_prove_count={},vc_len={}", curve_name, count, vc_len);
   c.bench_function(&bench_name, |b| {
     b.iter(|| {
       for _ in 0..count {
@@ -98,6 +114,7 @@ fn bench_blinding_with_discrete_log_prove<C, Params, B, S, BP>(
 
 fn bench_blinding_with_discrete_log_verify<C, Params, B, S, BP>(
   c: &mut Criterion,
+  curve_name: &str,
   count: usize,
   vc_len: usize,
 ) where
@@ -106,9 +123,12 @@ fn bench_blinding_with_discrete_log_verify<C, Params, B, S, BP>(
   B: PrimeField,
   S: PrimeField,
   BP: AffineRepr<ScalarField = B>,
+  C::Config: SWCurveConfig,
+  Params::ScalarBits: Add<U1>,
+  Sum<Params::ScalarBits, U1>: ArrayLength,
 {
   let mut rng = StdRng::seed_from_u64(0);
-  let curve = CurveSpec::<B> { a: B::ZERO, b: B::from(5u64) };
+  let curve = CurveSpec::<B> { a: C::Config::COEFF_A, b: C::Config::COEFF_B };
   let pc_gens = PedersenGens::<BP>::default();
   let bp_gens = BulletproofGens::<BP>::new(512, 1);
 
@@ -158,7 +178,7 @@ fn bench_blinding_with_discrete_log_verify<C, Params, B, S, BP>(
       (o_tilde_x, o_tilde_y),
       &curve,
       &[&t_table],
-    );
+    ).unwrap();
 
     let proof = prover.prove(&bp_gens).unwrap();
     if proof_size == 0 {
@@ -170,9 +190,9 @@ fn bench_blinding_with_discrete_log_verify<C, Params, B, S, BP>(
     all_o_tilde_points.push(o_tilde_point);
   }
 
-  println!("Proof size (single) for vc len={vc_len}: {proof_size}");
+  println!("{curve_name} - Proof size (single) for vc len={vc_len}: {proof_size}");
 
-  let bench_name = format!("dlog_verify_count={},vc_len={}", count, vc_len);
+  let bench_name = format!("{}_dlog_verify_count={},vc_len={}", curve_name, count, vc_len);
   c.bench_function(&bench_name, |b| {
     b.iter(|| {
       for i in 0..count {
@@ -198,7 +218,7 @@ fn bench_blinding_with_discrete_log_verify<C, Params, B, S, BP>(
           (o_tilde_x, o_tilde_y),
           &curve,
           &[&t_table],
-        );
+        ).unwrap();
 
         let result = verifier.verify(&all_proofs[i], &pc_gens, &bp_gens).unwrap();
         black_box(result);
@@ -209,6 +229,7 @@ fn bench_blinding_with_discrete_log_verify<C, Params, B, S, BP>(
 
 fn bench_blinding_with_discrete_log_combined_prove<C, Params, B, S, BP>(
   c: &mut Criterion,
+  curve_name: &str,
   count: usize,
   vc_len: usize,
 ) where
@@ -217,16 +238,19 @@ fn bench_blinding_with_discrete_log_combined_prove<C, Params, B, S, BP>(
   B: PrimeField,
   S: PrimeField,
   BP: AffineRepr<ScalarField = B>,
+  C::Config: SWCurveConfig,
+  Params::ScalarBits: Add<U1>,
+  Sum<Params::ScalarBits, U1>: ArrayLength,
 {
   let mut rng = StdRng::seed_from_u64(0);
-  let curve = CurveSpec::<B> { a: B::ZERO, b: B::from(5u64) };
+  let curve = CurveSpec::<B> { a: C::Config::COEFF_A, b: C::Config::COEFF_B };
   let pc_gens = PedersenGens::<BP>::default();
   let bp_gens = BulletproofGens::<BP>::new(512, 1);
 
   let t = C::random(&mut rng);
   let t_table = GeneratorTable::<B, Params>::new(t);
 
-  let bench_name = format!("dlog_combined_prove_count={},vc_len={}", count, vc_len);
+  let bench_name = format!("{}_dlog_combined_prove_count={},vc_len={}", curve_name, count, vc_len);
   c.bench_function(&bench_name, |b| {
     b.iter(|| {
       let transcript = MerlinTranscript::new(b"bench");
@@ -284,7 +308,7 @@ fn bench_blinding_with_discrete_log_combined_prove<C, Params, B, S, BP>(
           (o_tilde_x, o_tilde_y),
           &curve,
           &[&t_table],
-        );
+        ).unwrap();
       }
 
       let proof = prover.prove(&bp_gens).unwrap();
@@ -297,6 +321,7 @@ fn bench_blinding_with_discrete_log_combined_prove<C, Params, B, S, BP>(
 
 fn bench_blinding_with_discrete_log_combined_verify<C, Params, B, S, BP>(
   c: &mut Criterion,
+  curve_name: &str,
   count: usize,
   vc_len: usize,
 ) where
@@ -305,9 +330,12 @@ fn bench_blinding_with_discrete_log_combined_verify<C, Params, B, S, BP>(
   B: PrimeField,
   S: PrimeField,
   BP: AffineRepr<ScalarField = B>,
+  C::Config: SWCurveConfig,
+  Params::ScalarBits: Add<U1>,
+  Sum<Params::ScalarBits, U1>: ArrayLength,
 {
   let mut rng = StdRng::seed_from_u64(0);
-  let curve = CurveSpec::<B> { a: B::ZERO, b: B::from(5u64) };
+  let curve = CurveSpec::<B> { a: C::Config::COEFF_A, b: C::Config::COEFF_B };
   let pc_gens = PedersenGens::<BP>::default();
   let bp_gens = BulletproofGens::<BP>::new(512, 1);
 
@@ -370,18 +398,19 @@ fn bench_blinding_with_discrete_log_combined_verify<C, Params, B, S, BP>(
       (o_tilde_x, o_tilde_y),
       &curve,
       &[&t_table],
-    );
+    ).unwrap();
   }
 
   let proof = prover.prove(&bp_gens).unwrap();
   println!(
-    "For {count} discrete log proofs, vc len={vc_len}, proof size: {}",
+    "{} - For {count} discrete log proofs, vc len={vc_len}, proof size: {}",
+    curve_name,
     proof.compressed_size()
       + comm_orig.compressed_size()
       + all_divisor_commitments.compressed_size(),
   );
 
-  let bench_name = format!("dlog_combined_verify_count={},vc_len={}", count, vc_len);
+  let bench_name = format!("{}_dlog_combined_verify_count={},vc_len={}", curve_name, count, vc_len);
   c.bench_function(&bench_name, |b| {
     b.iter(|| {
       let transcript = MerlinTranscript::new(b"bench");
@@ -412,7 +441,7 @@ fn bench_blinding_with_discrete_log_combined_verify<C, Params, B, S, BP>(
           (o_tilde_x, o_tilde_y),
           &curve,
           &[&t_table],
-        );
+        ).unwrap();
       }
 
       let result = verifier.verify(&proof, &pc_gens, &bp_gens).unwrap();
@@ -428,7 +457,7 @@ fn dlog_prove_1_32_pallas(c: &mut Criterion) {
     PallasBase,
     PallasScalar,
     VestaAffine,
-  >(c, 1, 32);
+  >(c, "pallas", 1, 32);
 }
 fn dlog_verify_1_32_pallas(c: &mut Criterion) {
   bench_blinding_with_discrete_log_verify::<
@@ -437,7 +466,7 @@ fn dlog_verify_1_32_pallas(c: &mut Criterion) {
     PallasBase,
     PallasScalar,
     VestaAffine,
-  >(c, 1, 32);
+  >(c, "pallas", 1, 32);
 }
 fn dlog_prove_5_32_pallas(c: &mut Criterion) {
   bench_blinding_with_discrete_log_prove::<
@@ -446,7 +475,7 @@ fn dlog_prove_5_32_pallas(c: &mut Criterion) {
     PallasBase,
     PallasScalar,
     VestaAffine,
-  >(c, 5, 32);
+  >(c, "pallas", 5, 32);
 }
 fn dlog_verify_5_32_pallas(c: &mut Criterion) {
   bench_blinding_with_discrete_log_verify::<
@@ -455,7 +484,7 @@ fn dlog_verify_5_32_pallas(c: &mut Criterion) {
     PallasBase,
     PallasScalar,
     VestaAffine,
-  >(c, 5, 32);
+  >(c, "pallas", 5, 32);
 }
 fn dlog_prove_1_64_pallas(c: &mut Criterion) {
   bench_blinding_with_discrete_log_prove::<
@@ -464,7 +493,7 @@ fn dlog_prove_1_64_pallas(c: &mut Criterion) {
     PallasBase,
     PallasScalar,
     VestaAffine,
-  >(c, 1, 64);
+  >(c, "pallas", 1, 64);
 }
 fn dlog_verify_1_64_pallas(c: &mut Criterion) {
   bench_blinding_with_discrete_log_verify::<
@@ -473,7 +502,7 @@ fn dlog_verify_1_64_pallas(c: &mut Criterion) {
     PallasBase,
     PallasScalar,
     VestaAffine,
-  >(c, 1, 64);
+  >(c, "pallas", 1, 64);
 }
 fn dlog_prove_5_64_pallas(c: &mut Criterion) {
   bench_blinding_with_discrete_log_prove::<
@@ -482,7 +511,7 @@ fn dlog_prove_5_64_pallas(c: &mut Criterion) {
     PallasBase,
     PallasScalar,
     VestaAffine,
-  >(c, 5, 64);
+  >(c, "pallas", 5, 64);
 }
 fn dlog_verify_5_64_pallas(c: &mut Criterion) {
   bench_blinding_with_discrete_log_verify::<
@@ -491,7 +520,7 @@ fn dlog_verify_5_64_pallas(c: &mut Criterion) {
     PallasBase,
     PallasScalar,
     VestaAffine,
-  >(c, 5, 64);
+  >(c, "pallas", 5, 64);
 }
 fn dlog_combined_prove_5_32_pallas(c: &mut Criterion) {
   bench_blinding_with_discrete_log_combined_prove::<
@@ -500,7 +529,7 @@ fn dlog_combined_prove_5_32_pallas(c: &mut Criterion) {
     PallasBase,
     PallasScalar,
     VestaAffine,
-  >(c, 5, 32);
+  >(c, "pallas", 5, 32);
 }
 fn dlog_combined_verify_5_32_pallas(c: &mut Criterion) {
   bench_blinding_with_discrete_log_combined_verify::<
@@ -509,7 +538,7 @@ fn dlog_combined_verify_5_32_pallas(c: &mut Criterion) {
     PallasBase,
     PallasScalar,
     VestaAffine,
-  >(c, 5, 32);
+  >(c, "pallas", 5, 32);
 }
 fn dlog_combined_prove_10_32_pallas(c: &mut Criterion) {
   bench_blinding_with_discrete_log_combined_prove::<
@@ -518,7 +547,7 @@ fn dlog_combined_prove_10_32_pallas(c: &mut Criterion) {
     PallasBase,
     PallasScalar,
     VestaAffine,
-  >(c, 10, 32);
+  >(c, "pallas", 10, 32);
 }
 fn dlog_combined_verify_10_32_pallas(c: &mut Criterion) {
   bench_blinding_with_discrete_log_combined_verify::<
@@ -527,7 +556,7 @@ fn dlog_combined_verify_10_32_pallas(c: &mut Criterion) {
     PallasBase,
     PallasScalar,
     VestaAffine,
-  >(c, 10, 32);
+  >(c, "pallas", 10, 32);
 }
 fn dlog_combined_prove_5_64_pallas(c: &mut Criterion) {
   bench_blinding_with_discrete_log_combined_prove::<
@@ -536,7 +565,7 @@ fn dlog_combined_prove_5_64_pallas(c: &mut Criterion) {
     PallasBase,
     PallasScalar,
     VestaAffine,
-  >(c, 5, 64);
+  >(c, "pallas", 5, 64);
 }
 fn dlog_combined_verify_5_64_pallas(c: &mut Criterion) {
   bench_blinding_with_discrete_log_combined_verify::<
@@ -545,7 +574,7 @@ fn dlog_combined_verify_5_64_pallas(c: &mut Criterion) {
     PallasBase,
     PallasScalar,
     VestaAffine,
-  >(c, 5, 64);
+  >(c, "pallas", 5, 64);
 }
 fn dlog_combined_prove_10_64_pallas(c: &mut Criterion) {
   bench_blinding_with_discrete_log_combined_prove::<
@@ -554,7 +583,7 @@ fn dlog_combined_prove_10_64_pallas(c: &mut Criterion) {
     PallasBase,
     PallasScalar,
     VestaAffine,
-  >(c, 10, 64);
+  >(c, "pallas", 10, 64);
 }
 fn dlog_combined_verify_10_64_pallas(c: &mut Criterion) {
   bench_blinding_with_discrete_log_combined_verify::<
@@ -563,7 +592,7 @@ fn dlog_combined_verify_10_64_pallas(c: &mut Criterion) {
     PallasBase,
     PallasScalar,
     VestaAffine,
-  >(c, 10, 64);
+  >(c, "pallas", 10, 64);
 }
 fn dlog_prove_1_128_pallas(c: &mut Criterion) {
   bench_blinding_with_discrete_log_prove::<
@@ -572,7 +601,7 @@ fn dlog_prove_1_128_pallas(c: &mut Criterion) {
     PallasBase,
     PallasScalar,
     VestaAffine,
-  >(c, 1, 128);
+  >(c, "pallas", 1, 128);
 }
 fn dlog_verify_1_128_pallas(c: &mut Criterion) {
   bench_blinding_with_discrete_log_verify::<
@@ -581,7 +610,7 @@ fn dlog_verify_1_128_pallas(c: &mut Criterion) {
     PallasBase,
     PallasScalar,
     VestaAffine,
-  >(c, 1, 128);
+  >(c, "pallas", 1, 128);
 }
 fn dlog_prove_5_128_pallas(c: &mut Criterion) {
   bench_blinding_with_discrete_log_prove::<
@@ -590,7 +619,7 @@ fn dlog_prove_5_128_pallas(c: &mut Criterion) {
     PallasBase,
     PallasScalar,
     VestaAffine,
-  >(c, 5, 128);
+  >(c, "pallas", 5, 128);
 }
 fn dlog_verify_5_128_pallas(c: &mut Criterion) {
   bench_blinding_with_discrete_log_verify::<
@@ -599,7 +628,7 @@ fn dlog_verify_5_128_pallas(c: &mut Criterion) {
     PallasBase,
     PallasScalar,
     VestaAffine,
-  >(c, 5, 128);
+  >(c, "pallas", 5, 128);
 }
 fn dlog_combined_prove_5_128_pallas(c: &mut Criterion) {
   bench_blinding_with_discrete_log_combined_prove::<
@@ -608,7 +637,7 @@ fn dlog_combined_prove_5_128_pallas(c: &mut Criterion) {
     PallasBase,
     PallasScalar,
     VestaAffine,
-  >(c, 5, 128);
+  >(c, "pallas", 5, 128);
 }
 fn dlog_combined_verify_5_128_pallas(c: &mut Criterion) {
   bench_blinding_with_discrete_log_combined_verify::<
@@ -617,7 +646,7 @@ fn dlog_combined_verify_5_128_pallas(c: &mut Criterion) {
     PallasBase,
     PallasScalar,
     VestaAffine,
-  >(c, 5, 128);
+  >(c, "pallas", 5, 128);
 }
 fn dlog_combined_prove_10_128_pallas(c: &mut Criterion) {
   bench_blinding_with_discrete_log_combined_prove::<
@@ -626,7 +655,7 @@ fn dlog_combined_prove_10_128_pallas(c: &mut Criterion) {
     PallasBase,
     PallasScalar,
     VestaAffine,
-  >(c, 10, 128);
+  >(c, "pallas", 10, 128);
 }
 fn dlog_combined_verify_10_128_pallas(c: &mut Criterion) {
   bench_blinding_with_discrete_log_combined_verify::<
@@ -635,7 +664,7 @@ fn dlog_combined_verify_10_128_pallas(c: &mut Criterion) {
     PallasBase,
     PallasScalar,
     VestaAffine,
-  >(c, 10, 128);
+  >(c, "pallas", 10, 128);
 }
 
 fn dlog_prove_1_32_vesta(c: &mut Criterion) {
@@ -645,7 +674,7 @@ fn dlog_prove_1_32_vesta(c: &mut Criterion) {
     VestaBase,
     VestaScalar,
     PallasAffine,
-  >(c, 1, 32);
+  >(c, "vesta", 1, 32);
 }
 fn dlog_verify_1_32_vesta(c: &mut Criterion) {
   bench_blinding_with_discrete_log_verify::<
@@ -654,7 +683,7 @@ fn dlog_verify_1_32_vesta(c: &mut Criterion) {
     VestaBase,
     VestaScalar,
     PallasAffine,
-  >(c, 1, 32);
+  >(c, "vesta", 1, 32);
 }
 fn dlog_prove_5_32_vesta(c: &mut Criterion) {
   bench_blinding_with_discrete_log_prove::<
@@ -663,7 +692,7 @@ fn dlog_prove_5_32_vesta(c: &mut Criterion) {
     VestaBase,
     VestaScalar,
     PallasAffine,
-  >(c, 5, 32);
+  >(c, "vesta", 5, 32);
 }
 fn dlog_verify_5_32_vesta(c: &mut Criterion) {
   bench_blinding_with_discrete_log_verify::<
@@ -672,7 +701,7 @@ fn dlog_verify_5_32_vesta(c: &mut Criterion) {
     VestaBase,
     VestaScalar,
     PallasAffine,
-  >(c, 5, 32);
+  >(c, "vesta", 5, 32);
 }
 fn dlog_prove_1_64_vesta(c: &mut Criterion) {
   bench_blinding_with_discrete_log_prove::<
@@ -681,7 +710,7 @@ fn dlog_prove_1_64_vesta(c: &mut Criterion) {
     VestaBase,
     VestaScalar,
     PallasAffine,
-  >(c, 1, 64);
+  >(c, "vesta", 1, 64);
 }
 fn dlog_verify_1_64_vesta(c: &mut Criterion) {
   bench_blinding_with_discrete_log_verify::<
@@ -690,7 +719,7 @@ fn dlog_verify_1_64_vesta(c: &mut Criterion) {
     VestaBase,
     VestaScalar,
     PallasAffine,
-  >(c, 1, 64);
+  >(c, "vesta", 1, 64);
 }
 fn dlog_prove_5_64_vesta(c: &mut Criterion) {
   bench_blinding_with_discrete_log_prove::<
@@ -699,7 +728,7 @@ fn dlog_prove_5_64_vesta(c: &mut Criterion) {
     VestaBase,
     VestaScalar,
     PallasAffine,
-  >(c, 5, 64);
+  >(c, "vesta", 5, 64);
 }
 fn dlog_verify_5_64_vesta(c: &mut Criterion) {
   bench_blinding_with_discrete_log_verify::<
@@ -708,7 +737,7 @@ fn dlog_verify_5_64_vesta(c: &mut Criterion) {
     VestaBase,
     VestaScalar,
     PallasAffine,
-  >(c, 5, 64);
+  >(c, "vesta", 5, 64);
 }
 fn dlog_combined_prove_5_32_vesta(c: &mut Criterion) {
   bench_blinding_with_discrete_log_combined_prove::<
@@ -717,7 +746,7 @@ fn dlog_combined_prove_5_32_vesta(c: &mut Criterion) {
     VestaBase,
     VestaScalar,
     PallasAffine,
-  >(c, 5, 32);
+  >(c, "vesta", 5, 32);
 }
 fn dlog_combined_verify_5_32_vesta(c: &mut Criterion) {
   bench_blinding_with_discrete_log_combined_verify::<
@@ -726,7 +755,7 @@ fn dlog_combined_verify_5_32_vesta(c: &mut Criterion) {
     VestaBase,
     VestaScalar,
     PallasAffine,
-  >(c, 5, 32);
+  >(c, "vesta", 5, 32);
 }
 fn dlog_combined_prove_10_32_vesta(c: &mut Criterion) {
   bench_blinding_with_discrete_log_combined_prove::<
@@ -735,7 +764,7 @@ fn dlog_combined_prove_10_32_vesta(c: &mut Criterion) {
     VestaBase,
     VestaScalar,
     PallasAffine,
-  >(c, 10, 32);
+  >(c, "vesta", 10, 32);
 }
 fn dlog_combined_verify_10_32_vesta(c: &mut Criterion) {
   bench_blinding_with_discrete_log_combined_verify::<
@@ -744,7 +773,7 @@ fn dlog_combined_verify_10_32_vesta(c: &mut Criterion) {
     VestaBase,
     VestaScalar,
     PallasAffine,
-  >(c, 10, 32);
+  >(c, "vesta", 10, 32);
 }
 fn dlog_combined_prove_5_64_vesta(c: &mut Criterion) {
   bench_blinding_with_discrete_log_combined_prove::<
@@ -753,7 +782,7 @@ fn dlog_combined_prove_5_64_vesta(c: &mut Criterion) {
     VestaBase,
     VestaScalar,
     PallasAffine,
-  >(c, 5, 64);
+  >(c, "vesta", 5, 64);
 }
 fn dlog_combined_verify_5_64_vesta(c: &mut Criterion) {
   bench_blinding_with_discrete_log_combined_verify::<
@@ -762,7 +791,7 @@ fn dlog_combined_verify_5_64_vesta(c: &mut Criterion) {
     VestaBase,
     VestaScalar,
     PallasAffine,
-  >(c, 5, 64);
+  >(c, "vesta", 5, 64);
 }
 fn dlog_combined_prove_10_64_vesta(c: &mut Criterion) {
   bench_blinding_with_discrete_log_combined_prove::<
@@ -771,7 +800,7 @@ fn dlog_combined_prove_10_64_vesta(c: &mut Criterion) {
     VestaBase,
     VestaScalar,
     PallasAffine,
-  >(c, 10, 64);
+  >(c, "vesta", 10, 64);
 }
 fn dlog_combined_verify_10_64_vesta(c: &mut Criterion) {
   bench_blinding_with_discrete_log_combined_verify::<
@@ -780,7 +809,7 @@ fn dlog_combined_verify_10_64_vesta(c: &mut Criterion) {
     VestaBase,
     VestaScalar,
     PallasAffine,
-  >(c, 10, 64);
+  >(c, "vesta", 10, 64);
 }
 fn dlog_prove_1_128_vesta(c: &mut Criterion) {
   bench_blinding_with_discrete_log_prove::<
@@ -789,7 +818,7 @@ fn dlog_prove_1_128_vesta(c: &mut Criterion) {
     VestaBase,
     VestaScalar,
     PallasAffine,
-  >(c, 1, 128);
+  >(c, "vesta", 1, 128);
 }
 fn dlog_verify_1_128_vesta(c: &mut Criterion) {
   bench_blinding_with_discrete_log_verify::<
@@ -798,7 +827,7 @@ fn dlog_verify_1_128_vesta(c: &mut Criterion) {
     VestaBase,
     VestaScalar,
     PallasAffine,
-  >(c, 1, 128);
+  >(c, "vesta", 1, 128);
 }
 fn dlog_prove_5_128_vesta(c: &mut Criterion) {
   bench_blinding_with_discrete_log_prove::<
@@ -807,7 +836,7 @@ fn dlog_prove_5_128_vesta(c: &mut Criterion) {
     VestaBase,
     VestaScalar,
     PallasAffine,
-  >(c, 5, 128);
+  >(c, "vesta", 5, 128);
 }
 fn dlog_verify_5_128_vesta(c: &mut Criterion) {
   bench_blinding_with_discrete_log_verify::<
@@ -816,7 +845,7 @@ fn dlog_verify_5_128_vesta(c: &mut Criterion) {
     VestaBase,
     VestaScalar,
     PallasAffine,
-  >(c, 5, 128);
+  >(c, "vesta", 5, 128);
 }
 fn dlog_combined_prove_5_128_vesta(c: &mut Criterion) {
   bench_blinding_with_discrete_log_combined_prove::<
@@ -825,7 +854,7 @@ fn dlog_combined_prove_5_128_vesta(c: &mut Criterion) {
     VestaBase,
     VestaScalar,
     PallasAffine,
-  >(c, 5, 128);
+  >(c, "vesta", 5, 128);
 }
 fn dlog_combined_verify_5_128_vesta(c: &mut Criterion) {
   bench_blinding_with_discrete_log_combined_verify::<
@@ -834,7 +863,7 @@ fn dlog_combined_verify_5_128_vesta(c: &mut Criterion) {
     VestaBase,
     VestaScalar,
     PallasAffine,
-  >(c, 5, 128);
+  >(c, "vesta", 5, 128);
 }
 fn dlog_combined_prove_10_128_vesta(c: &mut Criterion) {
   bench_blinding_with_discrete_log_combined_prove::<
@@ -843,7 +872,7 @@ fn dlog_combined_prove_10_128_vesta(c: &mut Criterion) {
     VestaBase,
     VestaScalar,
     PallasAffine,
-  >(c, 10, 128);
+  >(c, "vesta", 10, 128);
 }
 fn dlog_combined_verify_10_128_vesta(c: &mut Criterion) {
   bench_blinding_with_discrete_log_combined_verify::<
@@ -852,7 +881,441 @@ fn dlog_combined_verify_10_128_vesta(c: &mut Criterion) {
     VestaBase,
     VestaScalar,
     PallasAffine,
-  >(c, 10, 128);
+  >(c, "vesta", 10, 128);
+}
+
+fn dlog_prove_1_32_helios(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_prove::<
+    HeliosPoint,
+    HeliosParams,
+    HeliosBase,
+    HeliosScalar,
+    SeleneAffine,
+  >(c, "helios", 1, 32);
+}
+fn dlog_verify_1_32_helios(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_verify::<
+    HeliosPoint,
+    HeliosParams,
+    HeliosBase,
+    HeliosScalar,
+    SeleneAffine,
+  >(c, "helios", 1, 32);
+}
+fn dlog_prove_5_32_helios(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_prove::<
+    HeliosPoint,
+    HeliosParams,
+    HeliosBase,
+    HeliosScalar,
+    SeleneAffine,
+  >(c, "helios", 5, 32);
+}
+fn dlog_verify_5_32_helios(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_verify::<
+    HeliosPoint,
+    HeliosParams,
+    HeliosBase,
+    HeliosScalar,
+    SeleneAffine,
+  >(c, "helios", 5, 32);
+}
+fn dlog_prove_1_64_helios(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_prove::<
+    HeliosPoint,
+    HeliosParams,
+    HeliosBase,
+    HeliosScalar,
+    SeleneAffine,
+  >(c, "helios", 1, 64);
+}
+fn dlog_verify_1_64_helios(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_verify::<
+    HeliosPoint,
+    HeliosParams,
+    HeliosBase,
+    HeliosScalar,
+    SeleneAffine,
+  >(c, "helios", 1, 64);
+}
+fn dlog_prove_5_64_helios(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_prove::<
+    HeliosPoint,
+    HeliosParams,
+    HeliosBase,
+    HeliosScalar,
+    SeleneAffine,
+  >(c, "helios", 5, 64);
+}
+fn dlog_verify_5_64_helios(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_verify::<
+    HeliosPoint,
+    HeliosParams,
+    HeliosBase,
+    HeliosScalar,
+    SeleneAffine,
+  >(c, "helios", 5, 64);
+}
+fn dlog_combined_prove_5_32_helios(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_combined_prove::<
+    HeliosPoint,
+    HeliosParams,
+    HeliosBase,
+    HeliosScalar,
+    SeleneAffine,
+  >(c, "helios", 5, 32);
+}
+fn dlog_combined_verify_5_32_helios(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_combined_verify::<
+    HeliosPoint,
+    HeliosParams,
+    HeliosBase,
+    HeliosScalar,
+    SeleneAffine,
+  >(c, "helios", 5, 32);
+}
+fn dlog_combined_prove_10_32_helios(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_combined_prove::<
+    HeliosPoint,
+    HeliosParams,
+    HeliosBase,
+    HeliosScalar,
+    SeleneAffine,
+  >(c, "helios", 10, 32);
+}
+fn dlog_combined_verify_10_32_helios(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_combined_verify::<
+    HeliosPoint,
+    HeliosParams,
+    HeliosBase,
+    HeliosScalar,
+    SeleneAffine,
+  >(c, "helios", 10, 32);
+}
+fn dlog_combined_prove_5_64_helios(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_combined_prove::<
+    HeliosPoint,
+    HeliosParams,
+    HeliosBase,
+    HeliosScalar,
+    SeleneAffine,
+  >(c, "helios", 5, 64);
+}
+fn dlog_combined_verify_5_64_helios(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_combined_verify::<
+    HeliosPoint,
+    HeliosParams,
+    HeliosBase,
+    HeliosScalar,
+    SeleneAffine,
+  >(c, "helios", 5, 64);
+}
+fn dlog_combined_prove_10_64_helios(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_combined_prove::<
+    HeliosPoint,
+    HeliosParams,
+    HeliosBase,
+    HeliosScalar,
+    SeleneAffine,
+  >(c, "helios", 10, 64);
+}
+fn dlog_combined_verify_10_64_helios(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_combined_verify::<
+    HeliosPoint,
+    HeliosParams,
+    HeliosBase,
+    HeliosScalar,
+    SeleneAffine,
+  >(c, "helios", 10, 64);
+}
+fn dlog_prove_1_128_helios(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_prove::<
+    HeliosPoint,
+    HeliosParams,
+    HeliosBase,
+    HeliosScalar,
+    SeleneAffine,
+  >(c, "helios", 1, 128);
+}
+fn dlog_verify_1_128_helios(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_verify::<
+    HeliosPoint,
+    HeliosParams,
+    HeliosBase,
+    HeliosScalar,
+    SeleneAffine,
+  >(c, "helios", 1, 128);
+}
+fn dlog_prove_5_128_helios(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_prove::<
+    HeliosPoint,
+    HeliosParams,
+    HeliosBase,
+    HeliosScalar,
+    SeleneAffine,
+  >(c, "helios", 5, 128);
+}
+fn dlog_verify_5_128_helios(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_verify::<
+    HeliosPoint,
+    HeliosParams,
+    HeliosBase,
+    HeliosScalar,
+    SeleneAffine,
+  >(c, "helios", 5, 128);
+}
+fn dlog_combined_prove_5_128_helios(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_combined_prove::<
+    HeliosPoint,
+    HeliosParams,
+    HeliosBase,
+    HeliosScalar,
+    SeleneAffine,
+  >(c, "helios", 5, 128);
+}
+fn dlog_combined_verify_5_128_helios(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_combined_verify::<
+    HeliosPoint,
+    HeliosParams,
+    HeliosBase,
+    HeliosScalar,
+    SeleneAffine,
+  >(c, "helios", 5, 128);
+}
+fn dlog_combined_prove_10_128_helios(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_combined_prove::<
+    HeliosPoint,
+    HeliosParams,
+    HeliosBase,
+    HeliosScalar,
+    SeleneAffine,
+  >(c, "helios", 10, 128);
+}
+fn dlog_combined_verify_10_128_helios(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_combined_verify::<
+    HeliosPoint,
+    HeliosParams,
+    HeliosBase,
+    HeliosScalar,
+    SeleneAffine,
+  >(c, "helios", 10, 128);
+}
+
+fn dlog_prove_1_32_selene(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_prove::<
+    SelenePoint,
+    SeleneParams,
+    SeleneBase,
+    SeleneScalar,
+    HeliosAffine,
+  >(c, "selene", 1, 32);
+}
+fn dlog_verify_1_32_selene(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_verify::<
+    SelenePoint,
+    SeleneParams,
+    SeleneBase,
+    SeleneScalar,
+    HeliosAffine,
+  >(c, "selene", 1, 32);
+}
+fn dlog_prove_5_32_selene(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_prove::<
+    SelenePoint,
+    SeleneParams,
+    SeleneBase,
+    SeleneScalar,
+    HeliosAffine,
+  >(c, "selene", 5, 32);
+}
+fn dlog_verify_5_32_selene(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_verify::<
+    SelenePoint,
+    SeleneParams,
+    SeleneBase,
+    SeleneScalar,
+    HeliosAffine,
+  >(c, "selene", 5, 32);
+}
+fn dlog_prove_1_64_selene(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_prove::<
+    SelenePoint,
+    SeleneParams,
+    SeleneBase,
+    SeleneScalar,
+    HeliosAffine,
+  >(c, "selene", 1, 64);
+}
+fn dlog_verify_1_64_selene(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_verify::<
+    SelenePoint,
+    SeleneParams,
+    SeleneBase,
+    SeleneScalar,
+    HeliosAffine,
+  >(c, "selene", 1, 64);
+}
+fn dlog_prove_5_64_selene(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_prove::<
+    SelenePoint,
+    SeleneParams,
+    SeleneBase,
+    SeleneScalar,
+    HeliosAffine,
+  >(c, "selene", 5, 64);
+}
+fn dlog_verify_5_64_selene(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_verify::<
+    SelenePoint,
+    SeleneParams,
+    SeleneBase,
+    SeleneScalar,
+    HeliosAffine,
+  >(c, "selene", 5, 64);
+}
+fn dlog_combined_prove_5_32_selene(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_combined_prove::<
+    SelenePoint,
+    SeleneParams,
+    SeleneBase,
+    SeleneScalar,
+    HeliosAffine,
+  >(c, "selene", 5, 32);
+}
+fn dlog_combined_verify_5_32_selene(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_combined_verify::<
+    SelenePoint,
+    SeleneParams,
+    SeleneBase,
+    SeleneScalar,
+    HeliosAffine,
+  >(c, "selene", 5, 32);
+}
+fn dlog_combined_prove_10_32_selene(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_combined_prove::<
+    SelenePoint,
+    SeleneParams,
+    SeleneBase,
+    SeleneScalar,
+    HeliosAffine,
+  >(c, "selene", 10, 32);
+}
+fn dlog_combined_verify_10_32_selene(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_combined_verify::<
+    SelenePoint,
+    SeleneParams,
+    SeleneBase,
+    SeleneScalar,
+    HeliosAffine,
+  >(c, "selene", 10, 32);
+}
+fn dlog_combined_prove_5_64_selene(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_combined_prove::<
+    SelenePoint,
+    SeleneParams,
+    SeleneBase,
+    SeleneScalar,
+    HeliosAffine,
+  >(c, "selene", 5, 64);
+}
+fn dlog_combined_verify_5_64_selene(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_combined_verify::<
+    SelenePoint,
+    SeleneParams,
+    SeleneBase,
+    SeleneScalar,
+    HeliosAffine,
+  >(c, "selene", 5, 64);
+}
+fn dlog_combined_prove_10_64_selene(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_combined_prove::<
+    SelenePoint,
+    SeleneParams,
+    SeleneBase,
+    SeleneScalar,
+    HeliosAffine,
+  >(c, "selene", 10, 64);
+}
+fn dlog_combined_verify_10_64_selene(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_combined_verify::<
+    SelenePoint,
+    SeleneParams,
+    SeleneBase,
+    SeleneScalar,
+    HeliosAffine,
+  >(c, "selene", 10, 64);
+}
+fn dlog_prove_1_128_selene(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_prove::<
+    SelenePoint,
+    SeleneParams,
+    SeleneBase,
+    SeleneScalar,
+    HeliosAffine,
+  >(c, "selene", 1, 128);
+}
+fn dlog_verify_1_128_selene(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_verify::<
+    SelenePoint,
+    SeleneParams,
+    SeleneBase,
+    SeleneScalar,
+    HeliosAffine,
+  >(c, "selene", 1, 128);
+}
+fn dlog_prove_5_128_selene(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_prove::<
+    SelenePoint,
+    SeleneParams,
+    SeleneBase,
+    SeleneScalar,
+    HeliosAffine,
+  >(c, "selene", 5, 128);
+}
+fn dlog_verify_5_128_selene(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_verify::<
+    SelenePoint,
+    SeleneParams,
+    SeleneBase,
+    SeleneScalar,
+    HeliosAffine,
+  >(c, "selene", 5, 128);
+}
+fn dlog_combined_prove_5_128_selene(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_combined_prove::<
+    SelenePoint,
+    SeleneParams,
+    SeleneBase,
+    SeleneScalar,
+    HeliosAffine,
+  >(c, "selene", 5, 128);
+}
+fn dlog_combined_verify_5_128_selene(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_combined_verify::<
+    SelenePoint,
+    SeleneParams,
+    SeleneBase,
+    SeleneScalar,
+    HeliosAffine,
+  >(c, "selene", 5, 128);
+}
+fn dlog_combined_prove_10_128_selene(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_combined_prove::<
+    SelenePoint,
+    SeleneParams,
+    SeleneBase,
+    SeleneScalar,
+    HeliosAffine,
+  >(c, "selene", 10, 128);
+}
+fn dlog_combined_verify_10_128_selene(c: &mut Criterion) {
+  bench_blinding_with_discrete_log_combined_verify::<
+    SelenePoint,
+    SeleneParams,
+    SeleneBase,
+    SeleneScalar,
+    HeliosAffine,
+  >(c, "selene", 10, 128);
 }
 
 criterion_group!(
@@ -911,4 +1374,60 @@ criterion_group!(
   dlog_combined_verify_10_128_vesta,
 );
 
-criterion_main!(dlog_pallas, dlog_vesta);
+criterion_group!(
+  dlog_helios,
+  dlog_prove_1_32_helios,
+  dlog_verify_1_32_helios,
+  dlog_prove_5_32_helios,
+  dlog_verify_5_32_helios,
+  dlog_prove_1_64_helios,
+  dlog_verify_1_64_helios,
+  dlog_prove_5_64_helios,
+  dlog_verify_5_64_helios,
+  dlog_prove_1_128_helios,
+  dlog_verify_1_128_helios,
+  dlog_prove_5_128_helios,
+  dlog_verify_5_128_helios,
+  dlog_combined_prove_5_32_helios,
+  dlog_combined_verify_5_32_helios,
+  dlog_combined_prove_10_32_helios,
+  dlog_combined_verify_10_32_helios,
+  dlog_combined_prove_5_64_helios,
+  dlog_combined_verify_5_64_helios,
+  dlog_combined_prove_10_64_helios,
+  dlog_combined_verify_10_64_helios,
+  dlog_combined_prove_5_128_helios,
+  dlog_combined_verify_5_128_helios,
+  dlog_combined_prove_10_128_helios,
+  dlog_combined_verify_10_128_helios,
+);
+
+criterion_group!(
+  dlog_selene,
+  dlog_prove_1_32_selene,
+  dlog_verify_1_32_selene,
+  dlog_prove_5_32_selene,
+  dlog_verify_5_32_selene,
+  dlog_prove_1_64_selene,
+  dlog_verify_1_64_selene,
+  dlog_prove_5_64_selene,
+  dlog_verify_5_64_selene,
+  dlog_prove_1_128_selene,
+  dlog_verify_1_128_selene,
+  dlog_prove_5_128_selene,
+  dlog_verify_5_128_selene,
+  dlog_combined_prove_5_32_selene,
+  dlog_combined_verify_5_32_selene,
+  dlog_combined_prove_10_32_selene,
+  dlog_combined_verify_10_32_selene,
+  dlog_combined_prove_5_64_selene,
+  dlog_combined_verify_5_64_selene,
+  dlog_combined_prove_10_64_selene,
+  dlog_combined_verify_10_64_selene,
+  dlog_combined_prove_5_128_selene,
+  dlog_combined_verify_5_128_selene,
+  dlog_combined_prove_10_128_selene,
+  dlog_combined_verify_10_128_selene,
+);
+
+criterion_main!(dlog_pallas, dlog_vesta, dlog_helios, dlog_selene);

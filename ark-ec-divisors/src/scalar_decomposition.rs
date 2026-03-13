@@ -227,20 +227,35 @@ impl<F: PrimeField> ScalarDecomposition<F> {
 mod tests {
   use std::time::{Duration, Instant};
   use super::*;
-  use ark_ec::{AffineRepr};
-  use ark_pallas::{Affine as PallasAffine, Fq, Fr};
   use ark_std::UniformRand;
-  use ark_vesta::Affine as VestaAffine;
   // use dock_crypto_utils::ff::powers;
   use rand::prelude::StdRng;
   use rand_core::SeedableRng;
-  use crate::curves::pallas::{PallasParams, Point as PallasPoint};
-  use crate::curves::vesta::{Point as VestaPoint, VestaParams};
   use crate::util::{DiscreteLogParameter, GeneratorTable, DirectGenerator};
   use crate::scalar_decomposition::ScalarDecomposition;
 
+  use ark_pallas::{Fq, Fr};
+  use crate::curves::pallas::{PallasParams, Point as PallasPoint};
+
+  use crate::curves::vesta::{Point as VestaPoint, VestaParams};
+
   type PallasBase = Fq;
+  type PallasScalar = Fr;
+
   type VestaBase = Fr;
+  type VestaScalar = Fq;
+
+  use crate::curves::helios::{Point as HeliosPoint, HeliosParams};
+  type HeliosBase = ark_helios::Fq;
+  type HeliosScalar = ark_helios::Fr;
+
+  use crate::curves::selene::{Point as SelenePoint, SeleneParams};
+  type SeleneBase = ark_selene::Fq;
+  type SeleneScalar = ark_selene::Fr;
+
+  use crate::curves::wei25519::{Point as Wei25519Point, Wei25519Params};
+  type Wei25519Base = ark_wei25519::Fq;
+  type Wei25519Scalar = ark_wei25519::Fr;
 
   #[test]
   fn generator_source_equivalence() {
@@ -281,11 +296,20 @@ mod tests {
 
     let count = 10;
 
-    println!("Testing Pallas generator source equivalence");
+    println!("Testing Pallas");
     check::<PallasPoint, PallasParams, PallasBase>(count);
 
-    println!("Testing Vesta generator source equivalence");
+    println!("Testing Vesta");
     check::<VestaPoint, VestaParams, VestaBase>(count);
+
+    println!("Testing Helios");
+    check::<HeliosPoint, HeliosParams, HeliosBase>(count);
+
+    println!("Testing Selene");
+    check::<SelenePoint, SeleneParams, SeleneBase>(count);
+
+    println!("Testing Wei25519");
+    check::<Wei25519Point, Wei25519Params, Wei25519Base>(count);
   }
   
   #[test]
@@ -378,10 +402,19 @@ mod tests {
 
     let count = 30;
 
-    println!("Testing Pallas scalar_mul_divisor correctness");
-    check::<PallasPoint, PallasBase, Fr>(count);
+    println!("Testing Pallas");
+    check::<PallasPoint, PallasBase, PallasScalar>(count);
 
-    println!("Testing Vesta scalar_mul_divisor correctness");
-    check::<VestaPoint, VestaBase, Fq>(count);
+    println!("Testing Vesta");
+    check::<VestaPoint, VestaBase, VestaScalar>(count);
+
+    println!("Testing Helios");
+    check::<HeliosPoint, HeliosBase, HeliosScalar>(count);
+
+    println!("Testing Selene");
+    check::<SelenePoint, SeleneBase, SeleneScalar>(count);
+
+    println!("Testing Wei25519");
+    check::<Wei25519Point, Wei25519Base, Wei25519Scalar>(count);
   }
 }

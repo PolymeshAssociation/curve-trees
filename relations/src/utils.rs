@@ -1,11 +1,11 @@
 use ark_ec::short_weierstrass::{Affine, SWCurveConfig};
 use ark_ff::PrimeField;
 use bulletproofs::r1cs::{Prover, R1CSError, R1CSProof, Verifier};
-use dock_crypto_utils::transcript::MerlinTranscript;
-use rand_core::CryptoRngCore;
-use rand_chacha::ChaChaRng;
-use rand_core::SeedableRng;
 use bulletproofs::{BulletproofGens, PedersenGens};
+use dock_crypto_utils::transcript::MerlinTranscript;
+use rand_chacha::ChaChaRng;
+use rand_core::CryptoRngCore;
+use rand_core::SeedableRng;
 
 /// Feature-gated parallel proving for even and odd provers.
 pub fn prove<
@@ -61,45 +61,20 @@ pub fn verify<
 
     #[cfg(feature = "parallel")]
     let (even_res, odd_res) = rayon::join(
-        || {
-            even_verifier.verify_with_rng(
-                even_proof,
-                even_pc_gens,
-                even_bp_gens,
-                &mut rng_even,
-            )
-        },
-        || {
-            odd_verifier.verify_with_rng(
-                odd_proof,
-                odd_pc_gens,
-                odd_bp_gens,
-                &mut rng_odd,
-            )
-        },
+        || even_verifier.verify_with_rng(even_proof, even_pc_gens, even_bp_gens, &mut rng_even),
+        || odd_verifier.verify_with_rng(odd_proof, odd_pc_gens, odd_bp_gens, &mut rng_odd),
     );
 
     #[cfg(not(feature = "parallel"))]
     let (even_res, odd_res) = (
-        even_verifier.verify_with_rng(
-            even_proof,
-            even_pc_gens,
-            even_bp_gens,
-            &mut rng_even,
-        ),
-        odd_verifier.verify_with_rng(
-            odd_proof,
-            odd_pc_gens,
-            odd_bp_gens,
-            &mut rng_odd,
-        ),
+        even_verifier.verify_with_rng(even_proof, even_pc_gens, even_bp_gens, &mut rng_even),
+        odd_verifier.verify_with_rng(odd_proof, odd_pc_gens, odd_bp_gens, &mut rng_odd),
     );
 
     even_res?;
     odd_res?;
     Ok(())
 }
-
 
 pub fn get_2_rngs_from_one<R: CryptoRngCore>(rng: &mut R) -> (ChaChaRng, ChaChaRng) {
     let mut buf_1 = [0u8; 32];

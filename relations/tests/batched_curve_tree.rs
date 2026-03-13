@@ -3,11 +3,12 @@ extern crate relations;
 
 use ark_dlog_gadget::dlog::DiscreteLogParameters;
 use ark_ec::short_weierstrass::Projective;
-use ark_ec::{AffineRepr};
+use ark_ec::AffineRepr;
 use ark_ec_divisors::{
     curves::{
-        pallas::PallasParams, pallas::Point as PallasPoint, vesta::Point as VestaPoint,
-        vesta::VestaParams,
+        helios::HeliosParams, helios::Point as HeliosPoint, pallas::PallasParams,
+        pallas::Point as PallasPoint, selene::Point as SelenePoint, selene::SeleneParams,
+        vesta::Point as VestaPoint, vesta::VestaParams,
     },
     DivisorCurve,
 };
@@ -21,13 +22,17 @@ use std::time::Instant;
 use ark_ec::short_weierstrass::{Affine, SWCurveConfig};
 use ark_std::UniformRand;
 
+use ark_helios::{Fq as HeliosBase, Fr as HeliosFr, HeliosConfig};
 use ark_pallas::{Fq as PallasBase, Fr as PallasFr, PallasConfig};
+use ark_selene::{SeleneConfig};
 use ark_vesta::VestaConfig;
 
 use ark_serialize::CanonicalSerialize;
 use dock_crypto_utils::transcript::MerlinTranscript;
 use rand::thread_rng;
-use relations::parameters::{SelRerandParameters, SelRerandProofParameters, SelRerandProofParametersNew};
+use relations::parameters::{
+    SelRerandParameters, SelRerandProofParameters, SelRerandProofParametersNew,
+};
 
 #[test]
 pub fn test_batched_curve_tree_even_depth() {
@@ -154,8 +159,14 @@ pub fn test_batched_curve_tree_with_parameters<
         vesta_prover.constraints.len()
     );
 
-    let (pallas_proof, vesta_proof) =
-        prove(pallas_prover, vesta_prover, &sr_params.even_parameters.bp_gens, &sr_params.odd_parameters.bp_gens, &mut rng).unwrap();
+    let (pallas_proof, vesta_proof) = prove(
+        pallas_prover,
+        vesta_prover,
+        &sr_params.even_parameters.bp_gens,
+        &sr_params.odd_parameters.bp_gens,
+        &mut rng,
+    )
+    .unwrap();
     println!("Proving time: {:?}", clock.elapsed());
     println!(
         "Proof size: {}",
@@ -287,8 +298,14 @@ pub fn check_individual_vs_batched_proofs_with_parameters<
             &mut rng,
         );
 
-        let (pallas_proof, vesta_proof) =
-            prove(pallas_prover, vesta_prover, &sr_params.even_parameters.bp_gens, &sr_params.odd_parameters.bp_gens, &mut rng).unwrap();
+        let (pallas_proof, vesta_proof) = prove(
+            pallas_prover,
+            vesta_prover,
+            &sr_params.even_parameters.bp_gens,
+            &sr_params.odd_parameters.bp_gens,
+            &mut rng,
+        )
+        .unwrap();
 
         total_individual_proof_size += path_commitments.compressed_size()
             + pallas_proof.compressed_size()
@@ -360,8 +377,14 @@ pub fn check_individual_vs_batched_proofs_with_parameters<
         path_commitments_list.push(path_commitments);
     }
 
-    let (pallas_proof, vesta_proof) =
-        prove(pallas_prover, vesta_prover, &sr_params.even_parameters.bp_gens, &sr_params.odd_parameters.bp_gens, &mut rng).unwrap();
+    let (pallas_proof, vesta_proof) = prove(
+        pallas_prover,
+        vesta_prover,
+        &sr_params.even_parameters.bp_gens,
+        &sr_params.odd_parameters.bp_gens,
+        &mut rng,
+    )
+    .unwrap();
 
     let combined_proof_size = path_commitments_list.compressed_size()
         + pallas_proof.compressed_size()
@@ -432,8 +455,14 @@ pub fn check_individual_vs_batched_proofs_with_parameters<
         )
         .expect("Failed to prove batched select and rerandomize");
 
-    let (pallas_proof, vesta_proof) =
-        prove(pallas_prover, vesta_prover, &sr_params.even_parameters.bp_gens, &sr_params.odd_parameters.bp_gens, &mut rng).unwrap();
+    let (pallas_proof, vesta_proof) = prove(
+        pallas_prover,
+        vesta_prover,
+        &sr_params.even_parameters.bp_gens,
+        &sr_params.odd_parameters.bp_gens,
+        &mut rng,
+    )
+    .unwrap();
 
     let batched_proof_size = path_commitments.compressed_size()
         + pallas_proof.compressed_size()
@@ -603,8 +632,14 @@ pub fn check_batched_combined_vs_common_root_proofs_with_parameters<
     }
     assert_eq!(expected_num_leaves, num_leaves);
 
-    let (pallas_proof, vesta_proof) =
-        prove(pallas_prover, vesta_prover, &sr_params.even_parameters.bp_gens, &sr_params.odd_parameters.bp_gens, &mut rng).unwrap();
+    let (pallas_proof, vesta_proof) = prove(
+        pallas_prover,
+        vesta_prover,
+        &sr_params.even_parameters.bp_gens,
+        &sr_params.odd_parameters.bp_gens,
+        &mut rng,
+    )
+    .unwrap();
 
     let combined_proof_size = pallas_proof.compressed_size() + vesta_proof.compressed_size();
 
@@ -683,8 +718,14 @@ pub fn check_batched_combined_vs_common_root_proofs_with_parameters<
         )
         .unwrap();
 
-    let (pallas_proof, vesta_proof) =
-        prove(pallas_prover, vesta_prover, &sr_params.even_parameters.bp_gens, &sr_params.odd_parameters.bp_gens, &mut rng).unwrap();
+    let (pallas_proof, vesta_proof) = prove(
+        pallas_prover,
+        vesta_prover,
+        &sr_params.even_parameters.bp_gens,
+        &sr_params.odd_parameters.bp_gens,
+        &mut rng,
+    )
+    .unwrap();
 
     let all_paths_proof_size = pallas_proof.compressed_size() + vesta_proof.compressed_size();
 
@@ -909,6 +950,32 @@ pub fn test_batched_curve_tree_even_depth_divisor() {
         PallasPoint,
         VestaPoint,
     >(6, 13, 2);
+
+    test_batched_curve_tree_with_parameters_new::<
+        32,
+        2,
+        HeliosFr,
+        HeliosBase,
+        HeliosConfig,
+        SeleneConfig,
+        HeliosParams,
+        SeleneParams,
+        HeliosPoint,
+        SelenePoint,
+    >(4, 12, 2);
+
+    test_batched_curve_tree_with_parameters_new::<
+        32,
+        2,
+        HeliosFr,
+        HeliosBase,
+        HeliosConfig,
+        SeleneConfig,
+        HeliosParams,
+        SeleneParams,
+        HeliosPoint,
+        SelenePoint,
+    >(6, 13, 2);
 }
 
 #[test]
@@ -938,9 +1005,34 @@ pub fn test_batched_curve_tree_odd_depth_divisor() {
         PallasPoint,
         VestaPoint,
     >(5, 12, 2);
+
+    test_batched_curve_tree_with_parameters_new::<
+        32,
+        2,
+        HeliosFr,
+        HeliosBase,
+        HeliosConfig,
+        SeleneConfig,
+        HeliosParams,
+        SeleneParams,
+        HeliosPoint,
+        SelenePoint,
+    >(3, 12, 2);
+
+    test_batched_curve_tree_with_parameters_new::<
+        32,
+        2,
+        HeliosFr,
+        HeliosBase,
+        HeliosConfig,
+        SeleneConfig,
+        HeliosParams,
+        SeleneParams,
+        HeliosPoint,
+        SelenePoint,
+    >(5, 12, 2);
 }
 
-/// Divisor-based batched curve tree test with configurable parameters
 pub fn test_batched_curve_tree_with_parameters_new<
     const L: usize,
     const M: usize,
@@ -965,7 +1057,10 @@ pub fn test_batched_curve_tree_with_parameters_new<
     let sr_params = SelRerandParameters::<P0, P1>::new(generators_length, generators_length)
         .expect("Failed to create SelRerandParameters");
 
-    let sr_proof_params = SelRerandProofParametersNew::<P0, P1, Params0, Params1>::from_sr_params::<D0, D1>(sr_params.clone());
+    let sr_proof_params = SelRerandProofParametersNew::<P0, P1, Params0, Params1>::from_sr_params::<
+        D0,
+        D1,
+    >(sr_params.clone());
 
     let mut set = Vec::<Affine<P0>>::new();
     let mut indices = vec![0u32; num_indices_to_prove as usize];
@@ -991,10 +1086,7 @@ pub fn test_batched_curve_tree_with_parameters_new<
     let mut vesta_prover: Prover<_, Affine<P1>> =
         Prover::new(&sr_params.odd_parameters.pc_gens, vesta_transcript);
 
-    let (
-        path_commitments,
-        leaf_randomizations,
-    ) = paths
+    let (path_commitments, leaf_randomizations) = paths
         .batched_select_and_rerandomize_prover_gadget_new::<_, D0, D1, Params0, Params1>(
             &mut pallas_prover,
             &mut vesta_prover,
@@ -1009,8 +1101,14 @@ pub fn test_batched_curve_tree_with_parameters_new<
         vesta_prover.constraints.len()
     );
 
-    let (pallas_proof, vesta_proof) =
-        prove(pallas_prover, vesta_prover, &sr_params.even_parameters.bp_gens, &sr_params.odd_parameters.bp_gens, &mut rng).unwrap();
+    let (pallas_proof, vesta_proof) = prove(
+        pallas_prover,
+        vesta_prover,
+        &sr_params.even_parameters.bp_gens,
+        &sr_params.odd_parameters.bp_gens,
+        &mut rng,
+    )
+    .unwrap();
     println!("Proving time: {:?}", clock.elapsed());
     println!(
         "Proof size: {}",

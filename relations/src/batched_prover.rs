@@ -1,27 +1,27 @@
 use crate::batched_curve_tree_prover::CurveTreeWitnessMultiPath;
 use crate::curve::{checked_curve_addition_helper, curve_check, PointRepresentation};
-use crate::curve_tree::{SelectAndRerandomizeMultiPath, SelectAndRerandomizeMultiPathWithDivisorComms};
+use crate::curve_tree::{
+    SelectAndRerandomizeMultiPath, SelectAndRerandomizeMultiPathWithDivisorComms,
+};
 use crate::curve_tree_prover::WitnessNode;
 use crate::error::{Error, Result};
-use crate::prover::{
-    constraints_for_dlogs, create_and_commit_divisor,
-};
+use crate::prover::{constraints_for_dlogs, create_and_commit_divisor};
 use crate::select::{select, select_public_set};
 use ark_dlog_gadget::dlog::{DiscreteLogParameters, DivisorComms, PointWithDlog};
 
+use crate::parameters::{SelRerandProofParametersNew, SingleLayerProofParametersNew};
 use ark_ec::short_weierstrass::{Affine, Projective, SWCurveConfig};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ec_divisors::DivisorCurve;
 use ark_ff::{PrimeField, Zero};
 use ark_std::marker::PhantomData;
-use ark_std::vec::Vec;
 use ark_std::vec;
+use ark_std::vec::Vec;
 use bulletproofs::r1cs::{constant, ConstraintSystem, LinearCombination, Prover, Variable};
+use bulletproofs::BulletproofGens;
 use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
 use rand_core::CryptoRngCore;
 use zeroize::Zeroize;
-use bulletproofs::BulletproofGens;
-use crate::parameters::{SelRerandProofParametersNew, SingleLayerProofParametersNew};
 
 impl<
         const L: usize,
@@ -46,12 +46,10 @@ impl<
         odd_prover: &mut Prover<MerlinTranscript, Affine<P1>>,
         parameters: &SelRerandProofParametersNew<P0, P1, Parameters0, Parameters1>,
         rng: &mut R,
-    ) -> Result<
-        (
-            SelectAndRerandomizeMultiPathWithDivisorComms<L, M, P0, P1>,
-            Vec<P0::ScalarField>,
-        ),
-    > {
+    ) -> Result<(
+        SelectAndRerandomizeMultiPathWithDivisorComms<L, M, P0, P1>,
+        Vec<P0::ScalarField>,
+    )> {
         let num_indices = self.num_indices();
         if num_indices > M as u32 {
             return Err(Error::MoreIndicesThanSupportedBatchSize(
@@ -67,41 +65,45 @@ impl<
             mut odd_rerandomization_scalars,
             rerandomizations_of_selected,
             rerandomization_scalars_of_selected,
-        ) = self.randomize_nodes(
-            parameters.pc_gens(),
-            rng);
+        ) = self.randomize_nodes(parameters.pc_gens(), rng);
 
         let root_is_even = self.root_is_even();
-        
+
         let mut even_node_divisors = Vec::new();
         let mut even_node_comms = Vec::new();
         let mut odd_node_divisors = Vec::new();
         let mut odd_node_comms = Vec::new();
 
         if root_is_even {
-            let (sum_x_var, sum_y_var, x, y, divisor_comms, p) = Self::select_and_commit_divisor_for_root::<_, D1, Parameters0>(
-                rng,
-                even_prover,
-                num_indices,
-                &self.even_internal_nodes[0],
-                odd_rerandomized_sum_of_nodes[0],
-                odd_rerandomization_scalars[0],
-                &parameters.odd_parameters,
-                &parameters.even_parameters.sl_params.bp_gens,
-            )?;
+            let (sum_x_var, sum_y_var, x, y, divisor_comms, p) =
+                Self::select_and_commit_divisor_for_root::<_, D1, Parameters0>(
+                    rng,
+                    even_prover,
+                    num_indices,
+                    &self.even_internal_nodes[0],
+                    odd_rerandomized_sum_of_nodes[0],
+                    odd_rerandomization_scalars[0],
+                    &parameters.odd_parameters,
+                    &parameters.even_parameters.sl_params.bp_gens,
+                )?;
             even_node_comms.push(divisor_comms);
             even_node_divisors.push((sum_x_var, sum_y_var, x, y, p));
         } else {
-            let (sum_x_var, sum_y_var, x, y, divisor_comms, p) = CurveTreeWitnessMultiPath::<L, M, P1, P0>::select_and_commit_divisor_for_root::<_, D0, Parameters1>(
-                rng,
-                odd_prover,
-                num_indices,
-                &self.odd_internal_nodes[0],
-                even_rerandomized_sum_of_nodes[0],
-                even_rerandomization_scalars[0],
-                &parameters.even_parameters,
-                &parameters.odd_parameters.sl_params.bp_gens,
-            )?;
+            let (sum_x_var, sum_y_var, x, y, divisor_comms, p) =
+                CurveTreeWitnessMultiPath::<L, M, P1, P0>::select_and_commit_divisor_for_root::<
+                    _,
+                    D0,
+                    Parameters1,
+                >(
+                    rng,
+                    odd_prover,
+                    num_indices,
+                    &self.odd_internal_nodes[0],
+                    even_rerandomized_sum_of_nodes[0],
+                    even_rerandomization_scalars[0],
+                    &parameters.even_parameters,
+                    &parameters.odd_parameters.sl_params.bp_gens,
+                )?;
             odd_node_comms.push(divisor_comms);
             odd_node_divisors.push((sum_x_var, sum_y_var, x, y, p));
         }
@@ -113,18 +115,19 @@ impl<
                 continue;
             }
 
-            let (sum_x_var, sum_y_var, x, y, divisor_comms, p) = Self::select_and_commit_divisor_for_non_root::<_, D1, Parameters0>(
-                rng,
-                even_prover,
-                num_indices,
-                &self.even_internal_nodes[index],
-                odd_rerandomized_sum_of_nodes[index],
-                odd_rerandomization_scalars[index],
-                &even_rerandomized_sum_of_nodes[i],
+            let (sum_x_var, sum_y_var, x, y, divisor_comms, p) =
+                Self::select_and_commit_divisor_for_non_root::<_, D1, Parameters0>(
+                    rng,
+                    even_prover,
+                    num_indices,
+                    &self.even_internal_nodes[index],
+                    odd_rerandomized_sum_of_nodes[index],
+                    odd_rerandomization_scalars[index],
+                    &even_rerandomized_sum_of_nodes[i],
                     even_rerandomization_scalars[i],
-                &parameters.odd_parameters,
-                &parameters.even_parameters.sl_params.bp_gens,
-            )?;
+                    &parameters.odd_parameters,
+                    &parameters.even_parameters.sl_params.bp_gens,
+                )?;
             even_node_comms.push(divisor_comms);
             even_node_divisors.push((sum_x_var, sum_y_var, x, y, p));
         }
@@ -220,7 +223,7 @@ impl<
                         rng,
                         odd_prover,
                         rerandomization_scalars_of_selected[i],
-                        &parameters.even_parameters.table,
+                        &parameters.even_parameters.table_b_blinding,
                         &parameters.odd_parameters.sl_params.bp_gens,
                     )?;
 
@@ -228,12 +231,12 @@ impl<
                 odd_node_divisors.push((x_var.into(), y_var.into(), x, y, p));
             }
         }
-        
+
         constraints_for_dlogs::<_, _, _, _, P0, P1, Parameters0, Parameters1>(
             even_prover,
             odd_prover,
-            &parameters.even_parameters.table,
-            &parameters.odd_parameters.table,
+            &parameters.even_parameters.table_b_blinding,
+            &parameters.odd_parameters.table_b_blinding,
             even_node_divisors,
             odd_node_divisors,
         )?;
@@ -274,18 +277,16 @@ impl<
         F0,
         F0,
         DivisorComms<Affine<P0>>,
-        PointWithDlog<F0, Parameters0>
+        PointWithDlog<F0, Parameters0>,
     )> {
         let mut all_children_x: Vec<F0> = Vec::with_capacity(L * num_indices as usize);
         let mut selected_children_plus_delta: Vec<Affine<P1>> =
             Vec::with_capacity(num_indices as usize);
 
         for i in 0..num_indices as usize {
-            all_children_x
-                .extend_from_slice(witness_nodes[i].x_coord_children.as_slice());
+            all_children_x.extend_from_slice(witness_nodes[i].x_coord_children.as_slice());
             selected_children_plus_delta.push(
-                (witness_nodes[i].child_node_to_randomize
-                    + parameters.sl_params.delta)
+                (witness_nodes[i].child_node_to_randomize + parameters.sl_params.delta)
                     .into_affine(),
             );
         }
@@ -301,7 +302,7 @@ impl<
         // Compute the target point for discrete log verification
         let shifted_rerandomized = (re_randomized_sum_of_children
             + (parameters.sl_params.delta * P1::ScalarField::from(num_indices as u64)))
-            .into_affine();
+        .into_affine();
         let (x, y) = shifted_rerandomized.xy().unwrap();
 
         // Create single divisor proof for the sum
@@ -309,7 +310,7 @@ impl<
             rng,
             prover,
             child_re_randomization,
-            &parameters.table,
+            &parameters.table_b_blinding,
             bp_gens,
         )?;
         Ok((sum_x_var, sum_y_var, x, y, divisor_comms, p))
@@ -336,7 +337,7 @@ impl<
         F0,
         F0,
         DivisorComms<Affine<P0>>,
-        PointWithDlog<F0, Parameters0>
+        PointWithDlog<F0, Parameters0>,
     )> {
         let children_vars = WitnessNode::allocate_multi_node_variables(
             witness_nodes,
@@ -345,12 +346,10 @@ impl<
             parent_rerandomization_scalar,
         );
 
-        let mut selected_children_plus_delta =
-            vec![Projective::<P1>::zero(); num_indices as usize];
+        let mut selected_children_plus_delta = vec![Projective::<P1>::zero(); num_indices as usize];
         for j in 0..num_indices as usize {
-            selected_children_plus_delta[j] = witness_nodes[j]
-                .child_node_to_randomize
-                + parameters.sl_params.delta;
+            selected_children_plus_delta[j] =
+                witness_nodes[j].child_node_to_randomize + parameters.sl_params.delta;
         }
         let selected_children_plus_delta =
             Projective::normalize_batch(&selected_children_plus_delta);
@@ -364,14 +363,14 @@ impl<
 
         let shifted_rerandomized = (re_randomized_sum_of_children
             + (parameters.sl_params.delta * P1::ScalarField::from(num_indices)))
-            .into_affine();
+        .into_affine();
         let (x, y) = shifted_rerandomized.xy().unwrap();
 
         let (divisor_comms, p) = create_and_commit_divisor::<_, F0, F1, P0, P1, D1, Parameters0>(
             rng,
             prover,
             child_re_randomization,
-            &parameters.table,
+            &parameters.table_b_blinding,
             bp_gens,
         )?;
         Ok((sum_x_var, sum_y_var, x, y, divisor_comms, p))

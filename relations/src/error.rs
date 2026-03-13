@@ -1,5 +1,5 @@
-use ark_serialize::SerializationError;
 use ark_dlog_gadget::error::Error as DivisorError;
+use ark_serialize::SerializationError;
 use ark_std::string::String;
 use thiserror::Error;
 
@@ -54,7 +54,7 @@ pub enum Error {
     /// Mismatched commitment lengths
     #[error("Mismatched commitment lengths: expected {expected}, got {got}")]
     InconsistentCommitmentLengths { expected: usize, got: usize },
-    
+
     /// Paths count must be greater than 0
     #[error("Paths count must be greater than 0")]
     NeedNonZeroNumberOfPaths,

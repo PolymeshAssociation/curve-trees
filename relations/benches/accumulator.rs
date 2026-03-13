@@ -98,14 +98,16 @@ fn bench_accumulator_with_parameters<
         let mut vesta_prover: Prover<_, Affine<P1>> =
             Prover::new(&sr_params.odd_parameters.pc_gens, vesta_transcript);
 
-        let (path, rerandomization) = curve_tree.select_and_rerandomize_prover_gadget(
-            0,
-            0,
-            &mut pallas_prover,
-            &mut vesta_prover,
-            &sr_proof_params,
-            &mut rand::thread_rng(),
-        ).unwrap();
+        let (path, rerandomization) = curve_tree
+            .select_and_rerandomize_prover_gadget(
+                0,
+                0,
+                &mut pallas_prover,
+                &mut vesta_prover,
+                &sr_proof_params,
+                &mut rand::thread_rng(),
+            )
+            .unwrap();
 
         let (leaf_commitment, leaf_vars) = pallas_prover.commit_vec(
             &leaf_elements,
@@ -168,8 +170,8 @@ fn bench_accumulator_with_parameters<
 
     let group_name = format!("{}_batch_verification", &prefix_string);
     let mut group = c.benchmark_group(group_name);
-    use std::iter;
     use relations::parameters::SelRerandParameters;
+    use std::iter;
 
     for n in [1, 100] {
         group.bench_with_input(
@@ -182,7 +184,8 @@ fn bench_accumulator_with_parameters<
                         let root = curve_tree.root_node();
                         rayon::join(
                             || {
-                                let pallas_verification_scalars_and_points: Vec<_> = proofs.par_iter()
+                                let pallas_verification_scalars_and_points: Vec<_> = proofs
+                                    .par_iter()
                                     .map(|path| {
                                         let pallas_transcript = MerlinTranscript::new(b"acc");
                                         let mut pallas_verifier = Verifier::new(pallas_transcript);
@@ -195,10 +198,8 @@ fn bench_accumulator_with_parameters<
                                             &sr_proof_params,
                                         );
                                         let rerandomized_leaf = path.get_rerandomized_leaf();
-                                        let leaf_vars = pallas_verifier.commit_vec(
-                                            leaf_width,
-                                            rerandomized_leaf,
-                                        );
+                                        let leaf_vars = pallas_verifier
+                                            .commit_vec(leaf_width, rerandomized_leaf);
                                         select(
                                             &mut pallas_verifier,
                                             LinearCombination::from(element),
@@ -220,7 +221,8 @@ fn bench_accumulator_with_parameters<
                                 .unwrap()
                             },
                             || {
-                                let vesta_verification_scalars_and_points: Vec<_> = proofs.par_iter()
+                                let vesta_verification_scalars_and_points: Vec<_> = proofs
+                                    .par_iter()
                                     .map(|path| {
                                         let pallas_transcript = MerlinTranscript::new(b"acc");
                                         let mut pallas_verifier = Verifier::new(pallas_transcript);
