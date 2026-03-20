@@ -1,7 +1,7 @@
 use ark_ff::PrimeField;
-use core::ops::{Add, Neg, Sub, Mul};
-use zeroize::Zeroize;
 use ark_std::{vec, vec::Vec};
+use core::ops::{Add, Mul, Neg, Sub};
+use zeroize::Zeroize;
 
 /// A structure representing a Polynomial with x^i, y^i, and y^i * x^j terms.
 ///
@@ -26,7 +26,9 @@ impl<F: PrimeField> PartialEq for DivisorPoly<F> {
     fn eq(&self, b: &DivisorPoly<F>) -> bool {
         {
             let mutual_y_coefficients = self.y_coefficients.len().min(b.y_coefficients.len());
-            if self.y_coefficients[..mutual_y_coefficients] != b.y_coefficients[..mutual_y_coefficients] {
+            if self.y_coefficients[..mutual_y_coefficients]
+                != b.y_coefficients[..mutual_y_coefficients]
+            {
                 return false;
             }
             for coeff in &self.y_coefficients[mutual_y_coefficients..] {
@@ -44,14 +46,27 @@ impl<F: PrimeField> PartialEq for DivisorPoly<F> {
         {
             for (i, yx_coeffs) in self.yx_coefficients.iter().enumerate() {
                 for (j, coeff) in yx_coeffs.iter().enumerate() {
-                    if coeff != b.yx_coefficients.get(i).unwrap_or(&vec![]).get(j).unwrap_or(&F::zero()) {
+                    if coeff
+                        != b.yx_coefficients
+                            .get(i)
+                            .unwrap_or(&vec![])
+                            .get(j)
+                            .unwrap_or(&F::zero())
+                    {
                         return false;
                     }
                 }
             }
             for (i, yx_coeffs) in b.yx_coefficients.iter().enumerate() {
                 for (j, coeff) in yx_coeffs.iter().enumerate() {
-                    if coeff != self.yx_coefficients.get(i).unwrap_or(&vec![]).get(j).unwrap_or(&F::zero()) {
+                    if coeff
+                        != self
+                            .yx_coefficients
+                            .get(i)
+                            .unwrap_or(&vec![])
+                            .get(j)
+                            .unwrap_or(&F::zero())
+                    {
                         return false;
                     }
                 }
@@ -60,7 +75,9 @@ impl<F: PrimeField> PartialEq for DivisorPoly<F> {
 
         {
             let mutual_x_coefficients = self.x_coefficients.len().min(b.x_coefficients.len());
-            if self.x_coefficients[..mutual_x_coefficients] != b.x_coefficients[..mutual_x_coefficients] {
+            if self.x_coefficients[..mutual_x_coefficients]
+                != b.x_coefficients[..mutual_x_coefficients]
+            {
                 return false;
             }
             for coeff in &self.x_coefficients[mutual_x_coefficients..] {
@@ -304,23 +321,34 @@ impl<F: PrimeField> DivisorPoly<F> {
     #[must_use]
     pub fn eval(&self, x: F, y: F) -> F {
         let mut res = self.zero_coefficient;
-        for (pow, coeff) in
-            self.y_coefficients.iter().enumerate().map(|(i, v)| (u64::try_from(i + 1).unwrap(), v))
+        for (pow, coeff) in self
+            .y_coefficients
+            .iter()
+            .enumerate()
+            .map(|(i, v)| (u64::try_from(i + 1).unwrap(), v))
         {
             res += y.pow([pow]) * coeff;
         }
-        for (y_pow, coeffs) in
-            self.yx_coefficients.iter().enumerate().map(|(i, v)| (u64::try_from(i + 1).unwrap(), v))
+        for (y_pow, coeffs) in self
+            .yx_coefficients
+            .iter()
+            .enumerate()
+            .map(|(i, v)| (u64::try_from(i + 1).unwrap(), v))
         {
             let y_pow = y.pow([y_pow]);
-            for (x_pow, coeff) in
-                coeffs.iter().enumerate().map(|(i, v)| (u64::try_from(i + 1).unwrap(), v))
+            for (x_pow, coeff) in coeffs
+                .iter()
+                .enumerate()
+                .map(|(i, v)| (u64::try_from(i + 1).unwrap(), v))
             {
                 res += y_pow * x.pow([x_pow]) * coeff;
             }
         }
-        for (pow, coeff) in
-            self.x_coefficients.iter().enumerate().map(|(i, v)| (u64::try_from(i + 1).unwrap(), v))
+        for (pow, coeff) in self
+            .x_coefficients
+            .iter()
+            .enumerate()
+            .map(|(i, v)| (u64::try_from(i + 1).unwrap(), v))
         {
             res += x.pow([pow]) * coeff;
         }

@@ -5,7 +5,7 @@ use alloc::{borrow::ToOwned, boxed::Box, vec, vec::Vec};
 
 use ark_ec::{AffineRepr, CurveGroup, VariableBaseMSM};
 use ark_ff::Field;
-use ark_std::{One, UniformRand, Zero, format};
+use ark_std::{format, One, UniformRand, Zero};
 use core::borrow::BorrowMut;
 use dock_crypto_utils::transcript::MerlinTranscript;
 use rand_core::{CryptoRng, RngCore};
@@ -560,9 +560,13 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
         let op_degree = 2 + 2 * (ncomm / 2);
 
         if util::T_LABELS.len() < (2 * (op_degree + 1) + 1) {
-            return Err(R1CSError::ProofGenerationError(format!("Not enough labels for t polynomial: {} {}", (2 * (op_degree + 1) + 1), util::T_LABELS.len())))
+            return Err(R1CSError::ProofGenerationError(format!(
+                "Not enough labels for t polynomial: {} {}",
+                (2 * (op_degree + 1) + 1),
+                util::T_LABELS.len()
+            )));
         }
-        
+
         let ops = op_splits(op_degree);
         let veccom_ops = &ops[2..];
 

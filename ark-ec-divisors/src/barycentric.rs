@@ -3,13 +3,13 @@
 //! This module provides efficient Lagrange interpolation using the barycentric form,
 //! which allows for O(n) interpolation given precomputed weights, where n is the degree.
 
+use crate::error::Error;
 use ark_ff::{Field, PrimeField};
 use ark_std::{vec, vec::Vec};
 use core::{
-    ops::{AddAssign, Mul},
     iter::successors,
+    ops::{AddAssign, Mul},
 };
-use crate::error::Error;
 
 /// The coefficients for a univariate polynomial with the leading coefficient _first_.
 // TODO: This is opposite to how Poly stores coefficients, make these consistent
@@ -41,7 +41,9 @@ impl<F: Field> UnivariatePoly<F> {
     #[cfg(test)]
     /// Evaluation with Horner's rule
     fn eval(&self, x: F) -> F {
-        self.0.iter().fold(F::zero(), |acc, coeff| (acc * x) + coeff)
+        self.0
+            .iter()
+            .fold(F::zero(), |acc, coeff| (acc * x) + coeff)
     }
 
     /// Multiply by `(x + c)`.
@@ -103,7 +105,7 @@ impl<F: PrimeField> Weights<F> {
 
         // Calculate barycentric weights:
         // w_i = 1 / ∏_{j≠i} (i - j)
-        
+
         let start = Some(-F::ONE);
         let diffs = successors(start, |prev| Some(*prev - F::ONE));
         let diff_products = diffs.scan(F::ONE, |product, diff| {
@@ -122,13 +124,18 @@ impl<F: PrimeField> Weights<F> {
         });
         let diff_products_left = [F::ONE].into_iter().chain(diff_products_left);
 
-        let weights: Vec<F> =
-            diff_products_left.zip(diff_products_right).map(|(left, right)| left * right).collect();
+        let weights: Vec<F> = diff_products_left
+            .zip(diff_products_right)
+            .map(|(left, right)| left * right)
+            .collect();
 
         let mut inverted_weights = weights.clone();
         // Batch invert the weights
         ark_ff::batch_inversion(&mut inverted_weights);
-        Weights { inverted_weights, l: Self::l(domain_size) }
+        Weights {
+            inverted_weights,
+            l: Self::l(domain_size),
+        }
     }
 
     /// Get the i-th Lagrange basis polynomial `L_i(x) = w_i * l(x)/(x - i)`
@@ -189,7 +196,10 @@ impl<F: PrimeField> Interpolator<F> {
     /// Returns garbage if the polynomial's degree exceeds this interpolator's degree.
     pub fn interpolate(&self, evals: &[F]) -> Result<Vec<F>, Error> {
         if evals.len() < self.lagrange_polys.len() {
-            return Err(Error::InsufficientEvaluations(evals.len(), self.lagrange_polys.len()));
+            return Err(Error::InsufficientEvaluations(
+                evals.len(),
+                self.lagrange_polys.len(),
+            ));
         }
 
         let mut poly = vec![F::zero(); evals.len()];
@@ -207,7 +217,10 @@ impl<F: PrimeField> Interpolator<F> {
     #[cfg(test)]
     pub fn evaluate_at(&self, x: F, evals: &[F]) -> Result<F, Error> {
         if evals.len() < self.lagrange_polys.len() {
-            return Err(Error::InsufficientEvaluations(evals.len(), self.lagrange_polys.len()));
+            return Err(Error::InsufficientEvaluations(
+                evals.len(),
+                self.lagrange_polys.len(),
+            ));
         }
 
         let mut numerator = F::zero();
@@ -270,13 +283,13 @@ mod tests {
             }
             let denom = F::rand(&mut OsRng);
             let (coeffs_div, coeffs_rem) = coeffs.clone().div_x_c(denom);
-            
+
             // Test that dividing by (x + denom) and multiplying back gives original
             let mut reconstructed = coeffs_div.clone();
             reconstructed.mul_x_c(denom);
             // Add remainder to the constant term (last coefficient)
             *reconstructed.0.last_mut().unwrap() += coeffs_rem;
-            
+
             assert_eq!(coeffs.0, reconstructed.0);
         }
     }
@@ -295,7 +308,12 @@ mod tests {
             }
 
             let coeffs = UnivariatePoly(
-                Interpolator::new((i - 1) as u16).interpolate(&evals).unwrap().into_iter().rev().collect(),
+                Interpolator::new((i - 1) as u16)
+                    .interpolate(&evals)
+                    .unwrap()
+                    .into_iter()
+                    .rev()
+                    .collect(),
             );
             for (i, eval) in evals.into_iter().enumerate() {
                 assert_eq!(coeffs.eval(F::from(u64::try_from(i).unwrap())), eval);
@@ -313,7 +331,7 @@ mod tests {
         // Test with small domain sizes
         for size in 2..10 {
             let weights = Weights::<F>::new(size as u16);
-            
+
             // Test that the weights are correctly inverted
             for (i, weight) in weights.inverted_weights.iter().enumerate() {
                 let mut product = F::ONE;

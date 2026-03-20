@@ -1,14 +1,20 @@
+use crate::Interpolator;
+use ark_ec::CurveConfig;
+use ark_ff::{Field, PrimeField};
 use ark_std::borrow::Borrow;
 use ark_std::ops::{Add, Neg};
 use ark_std::vec::Vec;
-use zeroize::Zeroize;
-use ark_ec::CurveConfig;
-use ark_ff::{Field, PrimeField};
 use rand_core::CryptoRngCore;
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
-use crate::Interpolator;
+use zeroize::Zeroize;
 
-#[cfg(any(feature = "pallas", feature = "vesta", feature = "helios", feature = "selene", feature = "wei25519"))]
+#[cfg(any(
+    feature = "pallas",
+    feature = "vesta",
+    feature = "helios",
+    feature = "selene",
+    feature = "wei25519"
+))]
 pub mod sw;
 
 #[cfg(any(test, feature = "pallas"))]
@@ -28,7 +34,6 @@ pub mod wei25519;
 
 #[cfg(test)]
 mod tests;
-
 
 /// This trait is for short Weierstrass curves and needed especially when dealing with Ed25119 curve
 pub trait DivisorCurve: Sized + Clone + Copy + Zeroize + PartialEq + Eq {
@@ -68,7 +73,7 @@ pub trait DivisorCurve: Sized + Clone + Copy + Zeroize + PartialEq + Eq {
 
     /// Multiply a curve point by a scalar.
     fn mul(self, scalar: Self::ScalarField) -> Self;
-    
+
     fn double(&self) -> Self;
 
     fn random<R: CryptoRngCore>(rng: &mut R) -> Self;
@@ -93,14 +98,14 @@ pub trait DivisorCurve: Sized + Clone + Copy + Zeroize + PartialEq + Eq {
 /// This makes no assumptions about how the point is represented yet expects the points to offer
 /// cheap conversions to affine coordinates.
 pub trait XyPoint<F: Field>:
-Sized
-+ Clone
-+ Copy
-+ Neg<Output = Self>
-+ Add<Output = Self>
-+ Zeroize
-+ ConstantTimeEq
-+ ConditionallySelectable
+    Sized
+    + Clone
+    + Copy
+    + Neg<Output = Self>
+    + Add<Output = Self>
+    + Zeroize
+    + ConstantTimeEq
+    + ConditionallySelectable
 {
     /// The additive identity.
     const IDENTITY: Self;

@@ -5,7 +5,7 @@ use alloc::{boxed::Box, vec, vec::Vec};
 
 use ark_ec::{AffineRepr, VariableBaseMSM};
 use ark_ff::Field;
-use ark_std::{One, UniformRand, Zero, format};
+use ark_std::{format, One, UniformRand, Zero};
 use core::borrow::BorrowMut;
 use core::mem;
 use dock_crypto_utils::randomized_mult_checker::RandomizedMultChecker;
@@ -536,10 +536,18 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
         let op_vec = &ops[2..];
 
         if proof.T.len() != (t_poly_deg + 1) {
-            return Err(R1CSError::VerificationErrorWithReason(format!("Invalid length for proof.T: {} {}", proof.T.len(), t_poly_deg + 1)))
+            return Err(R1CSError::VerificationErrorWithReason(format!(
+                "Invalid length for proof.T: {} {}",
+                proof.T.len(),
+                t_poly_deg + 1
+            )));
         }
         if proof.T.len() > util::T_LABELS.len() {
-            return Err(R1CSError::VerificationErrorWithReason(format!("Not enough labels for proof.T: {} {}", proof.T.len(), util::T_LABELS.len())))
+            return Err(R1CSError::VerificationErrorWithReason(format!(
+                "Not enough labels for proof.T: {} {}",
+                proof.T.len(),
+                util::T_LABELS.len()
+            )));
         }
 
         transcript.validate_and_append_point(b"A_I1", &proof.A_I1)?;
@@ -585,7 +593,7 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
 
         let u = TranscriptProtocol::challenge_scalar::<C>(transcript, b"u");
         let x = TranscriptProtocol::challenge_scalar::<C>(transcript, b"x");
-        
+
         // #[cfg(debug_assertions)]
         // println!("verifier: x = {}", x);
 

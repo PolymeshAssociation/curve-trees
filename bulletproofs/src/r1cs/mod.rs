@@ -17,14 +17,12 @@ pub use self::linear_combination::{constant, LinearCombination, Variable};
 pub use self::metrics::Metrics;
 pub use self::proof::R1CSProof;
 pub use self::prover::Prover;
+pub use self::verifier::{
+    add_verification_tuple_to_rmc, verify_given_verification_tuple, VerificationTuple, Verifier,
+};
 #[cfg(feature = "std")]
 pub use verifier::batch::batch_verify;
 pub use verifier::batch::batch_verify_with_rng;
-pub use self::verifier::{
-    add_verification_tuple_to_rmc,
-    verify_given_verification_tuple,
-    VerificationTuple, Verifier,
-};
 
 pub use crate::errors::R1CSError;
 

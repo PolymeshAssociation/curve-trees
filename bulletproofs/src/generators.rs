@@ -6,25 +6,25 @@
 
 extern crate alloc;
 
+use crate::hash_to_curve_pasta::{hash_to_pallas, hash_to_vesta};
 use crate::util;
 use alloc::vec::Vec;
 use ark_ec::hashing::curve_maps::swu::{SWUConfig, SWUMap};
 use ark_ec::hashing::map_to_curve_hasher::MapToCurveBasedHasher;
 use ark_ec::hashing::HashToCurve;
 use ark_ec::short_weierstrass::{Affine as SWAffine, Projective as SWProjective};
-use ark_ec::{AffineRepr, VariableBaseMSM, CurveGroup};
+use ark_ec::{AffineRepr, CurveGroup, VariableBaseMSM};
 use ark_ff::field_hashers::DefaultFieldHasher;
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use core::marker::PhantomData;
 use ark_helios::HeliosConfig;
+use ark_pallas::{Affine as PallasAffine, Projective as PallasProjective};
 use ark_selene::SeleneConfig;
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use ark_vesta::{Affine as VestaAffine, Projective as VestaProjective};
 use ark_wei25519::Wei25519Config;
+use core::marker::PhantomData;
 use digest::{ExtendableOutputDirty, Update, XofReader};
 use sha2::Sha256;
 use sha3::{Sha3XofReader, Shake256};
-use ark_pallas::{Affine as PallasAffine, Projective as PallasProjective};
-use ark_vesta::{Affine as VestaAffine, Projective as VestaProjective};
-use crate::hash_to_curve_pasta::{hash_to_pallas, hash_to_vesta};
 
 /// Represents a pair of base points for Pedersen commitments.
 ///
@@ -477,10 +477,10 @@ impl_bulletproof_gens_new_using_label!(
 mod tests {
     use super::*;
     use ark_ec::AffineRepr;
-    use ark_helios::{Affine as HeliosAffine};
-    use ark_selene::{Affine as SeleneAffine};
-    use ark_wei25519::{Affine as Wei25519Affine};
+    use ark_helios::Affine as HeliosAffine;
     use ark_pallas::*;
+    use ark_selene::Affine as SeleneAffine;
+    use ark_wei25519::Affine as Wei25519Affine;
 
     #[test]
     fn ped_gens_label() {

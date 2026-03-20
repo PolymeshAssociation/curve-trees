@@ -9,7 +9,7 @@ use ark_std::UniformRand;
 use std::time::Instant;
 
 use ark_pallas::Affine;
-use bulletproofs::r1cs::verifier::{batch_verify_with_rng, batch_verify_with_given_randomness};
+use bulletproofs::r1cs::verifier::{batch_verify_with_given_randomness, batch_verify_with_rng};
 use bulletproofs::r1cs::*;
 use bulletproofs::{BulletproofGens, PedersenGens};
 use dock_crypto_utils::randomized_mult_checker::RandomizedMultChecker;
@@ -651,24 +651,57 @@ fn test_batch_verify() {
     verify_given_verification_tuple(vt_ex.clone(), &pc_gens, &bp_gens).unwrap();
 
     // Size is different
-    assert_ne!(vt_ex.proof_dependent_points.len(), vt_rp.proof_dependent_points.len());
-    assert_ne!(vt_ex.proof_dependent_scalars.len(), vt_rp.proof_dependent_scalars.len());
-    assert_ne!(vt_ex.proof_independent_scalars.len(), vt_rp.proof_independent_scalars.len());
+    assert_ne!(
+        vt_ex.proof_dependent_points.len(),
+        vt_rp.proof_dependent_points.len()
+    );
+    assert_ne!(
+        vt_ex.proof_dependent_scalars.len(),
+        vt_rp.proof_dependent_scalars.len()
+    );
+    assert_ne!(
+        vt_ex.proof_independent_scalars.len(),
+        vt_rp.proof_independent_scalars.len()
+    );
 
     let mut rmc = RandomizedMultChecker::new_using_rng(&mut rng);
-    add_verification_tuples_to_rmc_0(vec![vt_ex.clone(), vt_rp.clone()], &pc_gens, &bp_gens, &mut rmc).unwrap();
+    add_verification_tuples_to_rmc_0(
+        vec![vt_ex.clone(), vt_rp.clone()],
+        &pc_gens,
+        &bp_gens,
+        &mut rmc,
+    )
+    .unwrap();
     assert!(rmc.verify());
 
     let mut rmc = RandomizedMultChecker::new_using_rng(&mut rng);
-    add_verification_tuples_to_rmc_0(vec![vt_rp.clone(), vt_ex.clone()], &pc_gens, &bp_gens, &mut rmc).unwrap();
+    add_verification_tuples_to_rmc_0(
+        vec![vt_rp.clone(), vt_ex.clone()],
+        &pc_gens,
+        &bp_gens,
+        &mut rmc,
+    )
+    .unwrap();
     assert!(rmc.verify());
 
     let mut rmc = RandomizedMultChecker::new_using_rng(&mut rng);
-    add_verification_tuples_to_rmc(vec![vt_ex.clone(), vt_rp.clone()], &pc_gens, &bp_gens, &mut rmc).unwrap();
+    add_verification_tuples_to_rmc(
+        vec![vt_ex.clone(), vt_rp.clone()],
+        &pc_gens,
+        &bp_gens,
+        &mut rmc,
+    )
+    .unwrap();
     assert!(rmc.verify());
 
     let mut rmc = RandomizedMultChecker::new_using_rng(&mut rng);
-    add_verification_tuples_to_rmc(vec![vt_rp.clone(), vt_ex.clone()], &pc_gens, &bp_gens, &mut rmc).unwrap();
+    add_verification_tuples_to_rmc(
+        vec![vt_rp.clone(), vt_ex.clone()],
+        &pc_gens,
+        &bp_gens,
+        &mut rmc,
+    )
+    .unwrap();
     assert!(rmc.verify());
 
     batch_verify(vec![vt_ex.clone(), vt_rp.clone()], &pc_gens, &bp_gens).unwrap();

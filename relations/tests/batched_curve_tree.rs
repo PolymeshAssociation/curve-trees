@@ -24,7 +24,7 @@ use ark_std::UniformRand;
 
 use ark_helios::{Fq as HeliosBase, Fr as HeliosFr, HeliosConfig};
 use ark_pallas::{Fq as PallasBase, Fr as PallasFr, PallasConfig};
-use ark_selene::{SeleneConfig};
+use ark_selene::SeleneConfig;
 use ark_vesta::VestaConfig;
 
 use ark_serialize::CanonicalSerialize;

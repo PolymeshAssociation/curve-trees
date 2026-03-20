@@ -3,12 +3,12 @@
 
 // This code is ported from [Monero's codebase](https://github.com/monero-oxide/monero-oxide/tree/fcmp%2B%2B/crypto/divisors)
 
-use core::{ops::Add};
 use ark_std::{vec, vec::Vec};
+use core::ops::Add;
 
 use subtle::{Choice, ConstantTimeEq, CtOption};
 
-use ark_ff::{batch_inversion, PrimeField, Zero};
+use ark_ff::{PrimeField, Zero, batch_inversion};
 use subtle::ConditionallySelectable;
 
 mod barycentric;
@@ -29,7 +29,10 @@ use error::Error;
 pub use curves::{DivisorCurve, XyPoint};
 pub use scalar_decomposition::ScalarDecomposition;
 
-type Xy<C> = (<C as DivisorCurve>::BaseField, <C as DivisorCurve>::BaseField);
+type Xy<C> = (
+    <C as DivisorCurve>::BaseField,
+    <C as DivisorCurve>::BaseField,
+);
 type Denom<C> = (
     CtOption<<C as DivisorCurve>::BaseField>,
     CtOption<<C as DivisorCurve>::BaseField>,
@@ -69,10 +72,7 @@ fn line_args<C: DivisorCurve>(
     //     <_>::conditional_select(&a_x, &b_x, a.is_identity()),
     // );
     let x_coordinate = if a_is_identity.into() { b_x } else { a_x };
-    let one_is_identity_or_additive_inverses = (
-        one_is_identity_or_additive_inverses,
-        x_coordinate,
-    );
+    let one_is_identity_or_additive_inverses = (one_is_identity_or_additive_inverses, x_coordinate);
 
     let a = <_>::conditional_select(&a, g, a_is_identity);
     let b = <_>::conditional_select(&b, g, b_is_identity);
@@ -138,14 +138,19 @@ fn finish_line<F: PrimeField>(
     let mut res = SmallDivisor::new(-slope, -intercept, F::ONE);
     // `x - x`, where the first `x` is the coefficient and the second `x` is a constant of the `x`
     // coordinate present within this pair of points
-    let (one_is_identity_or_additive_inverses, constant_term) = one_is_identity_or_additive_inverses;
+    let (one_is_identity_or_additive_inverses, constant_term) =
+        one_is_identity_or_additive_inverses;
     res = <_>::conditional_select(
         &res,
         &SmallDivisor::new(F::ONE, -constant_term, F::ZERO),
         one_is_identity_or_additive_inverses,
     );
     // 1
-    <_>::conditional_select(&res, &SmallDivisor::new(F::ZERO, F::ONE, F::ZERO), both_are_identity)
+    <_>::conditional_select(
+        &res,
+        &SmallDivisor::new(F::ZERO, F::ONE, F::ZERO),
+        both_are_identity,
+    )
 }
 
 /// Computes all lines required to construct a divisor, batching expensive operations.
@@ -225,7 +230,13 @@ fn lines_and_denoms<C: DivisorCurve>(
                 both_are_identity,
                 one_is_identity_or_additive_inverses,
             } = args;
-            (((both_are_identity, one_is_identity_or_additive_inverses), denom), b)
+            (
+                (
+                    (both_are_identity, one_is_identity_or_additive_inverses),
+                    denom,
+                ),
+                b,
+            )
         })
         .unzip();
 
@@ -235,8 +246,16 @@ fn lines_and_denoms<C: DivisorCurve>(
         .into_iter()
         .zip(slopes_and_intercepts)
         .map(
-            |(((both_are_identity, one_is_identity_or_additive_inverses), denom), (slope, intercept))| {
-                let line = finish_line(slope, intercept, both_are_identity, one_is_identity_or_additive_inverses);
+            |(
+                ((both_are_identity, one_is_identity_or_additive_inverses), denom),
+                (slope, intercept),
+            )| {
+                let line = finish_line(
+                    slope,
+                    intercept,
+                    both_are_identity,
+                    one_is_identity_or_additive_inverses,
+                );
                 (line, denom)
             },
         )
@@ -298,7 +317,8 @@ pub fn new_divisor<C: DivisorCurve>(
 
     let points_len = points.len();
 
-    let modulus = DivisorEvals::compute_modulus(C::a(), C::b(), interpolator.required_evaluations());
+    let modulus =
+        DivisorEvals::compute_modulus(C::a(), C::b(), interpolator.required_evaluations());
     // Create the initial set of divisors
     let mut divs = vec![];
     let mut all_lines = lines_and_denoms::<C>(points)?.into_iter();
@@ -356,4 +376,3 @@ pub fn new_divisor<C: DivisorCurve>(
     trim(&mut divisor, points_len);
     Ok(divisor)
 }
-

@@ -1,11 +1,11 @@
-use core::borrow::Borrow;
+use crate::util::DirectGenerator;
+use crate::{DivisorCurve, DivisorPoly, ScalarDecomposition, new_divisor};
 use ark_ff::{AdditiveGroup, Field, PrimeField, Zero};
 use ark_std::UniformRand;
-use rand_core::{CryptoRngCore, SeedableRng};
+use core::borrow::Borrow;
 use rand::rngs::StdRng;
-use crate::{new_divisor, DivisorCurve, DivisorPoly, ScalarDecomposition};
+use rand_core::{CryptoRngCore, SeedableRng};
 use std::time::Instant;
-use crate::util::DirectGenerator;
 
 // Helper function to convert points to XyPoint format
 fn points_xy<C: DivisorCurve>(points: &[C]) -> Vec<C::XyPoint> {
@@ -42,9 +42,7 @@ pub(crate) fn slope_intercept<C: DivisorCurve>(a: C, b: C) -> (C::BaseField, C::
     debug_assert_eq!(divisor_modulus::<C>().eval(ax, ay), C::BaseField::zero());
     let (bx, by) = C::to_xy(b).unwrap();
     debug_assert_eq!(divisor_modulus::<C>().eval(bx, by), C::BaseField::zero());
-    let slope = (by - ay) *
-        Option::<C::BaseField>::from((bx - ax).inverse())
-            .unwrap();
+    let slope = (by - ay) * Option::<C::BaseField>::from((bx - ax).inverse()).unwrap();
 
     // y = slope.x + intercept => intercept = y - slope.x
     let intercept = by - (slope * bx);
@@ -88,14 +86,14 @@ fn test_divisor<C: DivisorCurve>() {
     let mut rng = StdRng::seed_from_u64(0);
     let precomputation = C::interpolator_for_scalar_mul();
     let num_bits = u64::from(C::ScalarField::MODULUS_BIT_SIZE);
-    
+
     let mut new_divisor_times = Vec::new();
     let mut check_divisor_times = Vec::new();
     let mut total_times = Vec::new();
 
     for i in 1..=(num_bits as usize + 1) {
         let start_total = Instant::now();
-        
+
         // Select points
         let mut points = vec![];
         for _ in 0..i {
@@ -115,7 +113,7 @@ fn test_divisor<C: DivisorCurve>() {
         let start_check = Instant::now();
         check_divisor(&mut rng, points.clone());
         check_divisor_times.push(start_check.elapsed());
-        
+
         total_times.push(start_total.elapsed());
 
         // For a divisor interpolating 256 points, as one does when interpreting a 255-bit discrete log
@@ -224,20 +222,31 @@ fn test_divisor<C: DivisorCurve>() {
     new_divisor_times.sort();
     check_divisor_times.sort();
     total_times.sort();
-    
+
     let new_divisor_median = new_divisor_times[new_divisor_times.len() / 2];
     let check_divisor_median = check_divisor_times[check_divisor_times.len() / 2];
     let total_median = total_times[total_times.len() / 2];
 
-    println!("test_divisor: new_divisor median {:?} ({} iterations), check_divisor median {:?} ({} iterations), total median {:?} ({} iterations)",
-             new_divisor_median, new_divisor_times.len(), check_divisor_median, check_divisor_times.len(), total_median, total_times.len());
+    println!(
+        "test_divisor: new_divisor median {:?} ({} iterations), check_divisor median {:?} ({} iterations), total median {:?} ({} iterations)",
+        new_divisor_median,
+        new_divisor_times.len(),
+        check_divisor_median,
+        check_divisor_times.len(),
+        total_median,
+        total_times.len()
+    );
 }
 
 fn test_same_point<C: DivisorCurve>() {
     let mut rng = StdRng::seed_from_u64(0);
     let mut points = vec![C::random(&mut rng)];
     points.push(points[0]);
-    let sum = points.iter().copied().reduce(C::add).unwrap_or(C::generator());
+    let sum = points
+        .iter()
+        .copied()
+        .reduce(C::add)
+        .unwrap_or(C::generator());
     points.push(C::neg(sum));
     check_divisor(&mut rng, points);
 }
@@ -245,7 +254,7 @@ fn test_same_point<C: DivisorCurve>() {
 fn test_subset_sum_to_infinity<C: DivisorCurve>() {
     let mut rng = StdRng::seed_from_u64(0);
     let mut check_divisor_times = Vec::new();
-    
+
     // Internally, a binary tree algorithm is used
     // This executes the first pass to end up with [0, 0] for further reductions
     {
@@ -255,7 +264,7 @@ fn test_subset_sum_to_infinity<C: DivisorCurve>() {
         let next = C::random(&mut rng);
         points.push(next);
         points.push(C::neg(next));
-        
+
         let start = Instant::now();
         check_divisor(&mut rng, points);
         check_divisor_times.push(start.elapsed());
@@ -277,25 +286,29 @@ fn test_subset_sum_to_infinity<C: DivisorCurve>() {
         let next = C::random(&mut rng);
         points.push(next);
         points.push(C::neg(next));
-        
+
         let start = Instant::now();
         check_divisor(&mut rng, points);
         check_divisor_times.push(start.elapsed());
     }
-    
+
     // Calculate median
     check_divisor_times.sort();
     let median = check_divisor_times[check_divisor_times.len() / 2];
 
-    println!("test_subset_sum_to_infinity: median time {:?} ({} iterations)", median, check_divisor_times.len());
+    println!(
+        "test_subset_sum_to_infinity: median time {:?} ({} iterations)",
+        median,
+        check_divisor_times.len()
+    );
 }
 
 fn decomposition_correctness<C: DivisorCurve>() {
     let mut rng = StdRng::seed_from_u64(0);
     let count = 100;
-    
+
     let mut decomposition_times = Vec::new();
-    
+
     // Test random scalars and specific edge cases like ONE
     let mut scalars = Vec::new();
     for _ in 0..count {
@@ -328,12 +341,16 @@ fn decomposition_correctness<C: DivisorCurve>() {
         }
         assert_eq!(reconstructed, scalar);
     }
-    
+
     // Calculate median
     decomposition_times.sort();
     let median = decomposition_times[decomposition_times.len() / 2];
-    
-    println!("decomposition_correctness: ScalarDecomposition::new median time {:?} ({} iterations)", median, decomposition_times.len());
+
+    println!(
+        "decomposition_correctness: ScalarDecomposition::new median time {:?} ({} iterations)",
+        median,
+        decomposition_times.len()
+    );
 }
 
 fn scalar_mul_divisor_correctness<C: DivisorCurve>() {
@@ -352,11 +369,13 @@ fn scalar_mul_divisor_correctness<C: DivisorCurve>() {
         let decomposition_start = Instant::now();
         let decomposition = ScalarDecomposition::<C::ScalarField>::new(scalar).unwrap();
         decomposition_times.push(decomposition_start.elapsed());
-        
+
         let generator = C::random(&mut rng);
 
         let mul_start = Instant::now();
-        let poly = decomposition.scalar_mul_divisor(DirectGenerator::from(generator)).unwrap();
+        let poly = decomposition
+            .scalar_mul_divisor(DirectGenerator::from(generator))
+            .unwrap();
         scalar_mul_times.push(mul_start.elapsed());
 
         // 1. Verify it vanishes at -(s * G)
@@ -374,16 +393,21 @@ fn scalar_mul_divisor_correctness<C: DivisorCurve>() {
             p = C::add(p, p);
         }
     }
-    
+
     // Calculate medians
     decomposition_times.sort();
     scalar_mul_times.sort();
-    
+
     let decomposition_median = decomposition_times[decomposition_times.len() / 2];
     let scalar_mul_median = scalar_mul_times[scalar_mul_times.len() / 2];
 
-    println!("scalar_mul_divisor_correctness: ScalarDecomposition::new median {:?} ({} iterations), scalar_mul_divisor median {:?} ({} iterations)",
-             decomposition_median, decomposition_times.len(), scalar_mul_median, scalar_mul_times.len());
+    println!(
+        "scalar_mul_divisor_correctness: ScalarDecomposition::new median {:?} ({} iterations), scalar_mul_divisor median {:?} ({} iterations)",
+        decomposition_median,
+        decomposition_times.len(),
+        scalar_mul_median,
+        scalar_mul_times.len()
+    );
 }
 
 /*#[cfg(feature = "ed25519")]

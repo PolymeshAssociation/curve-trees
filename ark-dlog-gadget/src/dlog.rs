@@ -12,13 +12,13 @@ use bulletproofs::BulletproofGens;
 use bulletproofs::r1cs::{
     ConstraintSystem, LinearCombination, Prover, Variable, Verifier, constant,
 };
+use core::marker::PhantomData;
 use core::ops::{Add, Div, Sub};
 use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
 pub use generic_array::typenum::{Diff, Quot, Sum, U1, U2, Unsigned};
 use generic_array::typenum::{U255, U256};
 pub use generic_array::{ArrayLength, GenericArray};
 use rand_core::CryptoRngCore;
-use core::marker::PhantomData;
 
 pub const DECOMPOSITION_SIZE: usize = 256;
 pub const MAX_BITS_SUPPORTED: usize = 255;
@@ -908,7 +908,11 @@ pub fn create_divisor_and_decomposition_multi_gen<
     }
 
     let decomposition = GenericArray::from_slice(&decomposition_vec).clone();
-    Ok(DivisorWitnessMulti::<F, Parameters>::new(decomposition, result_xs, divisors))
+    Ok(DivisorWitnessMulti::<F, Parameters>::new(
+        decomposition,
+        result_xs,
+        divisors,
+    ))
 }
 
 /// Takes variables for resulting points and divisors and create the struct [`PointsWithDlog`].

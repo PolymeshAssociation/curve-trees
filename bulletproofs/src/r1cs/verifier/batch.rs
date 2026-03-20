@@ -1,13 +1,13 @@
-use ark_ec::{AffineRepr, VariableBaseMSM};
-use ark_std::{vec, vec::Vec};
-use rand_core::{CryptoRng, RngCore};
-use ark_std::UniformRand;
-use ark_ff::{One, Zero};
-use dock_crypto_utils::randomized_mult_checker::RandomizedMultChecker;
-use crate::{BulletproofGens, PedersenGens};
 use crate::errors::R1CSError;
-use crate::r1cs::VerificationTuple;
 use crate::r1cs::verifier::{bases_and_scalars, msm_check};
+use crate::r1cs::VerificationTuple;
+use crate::{BulletproofGens, PedersenGens};
+use ark_ec::{AffineRepr, VariableBaseMSM};
+use ark_ff::{One, Zero};
+use ark_std::UniformRand;
+use ark_std::{vec, vec::Vec};
+use dock_crypto_utils::randomized_mult_checker::RandomizedMultChecker;
+use rand_core::{CryptoRng, RngCore};
 
 #[cfg(feature = "std")]
 pub fn batch_verify<C: AffineRepr>(
@@ -48,12 +48,8 @@ pub fn batch_verify_core_different_sizes<C: AffineRepr, R>(
 where
     R: FnMut(C::ScalarField) -> C::ScalarField,
 {
-    let (b, s) = bases_and_scalars_for_batch(
-        verification_tuples,
-        pc_gens,
-        bp_gens,
-        new_randomness_getter,
-    )?;
+    let (b, s) =
+        bases_and_scalars_for_batch(verification_tuples, pc_gens, bp_gens, new_randomness_getter)?;
 
     let mega_check = C::Group::msm_unchecked(&b, &s);
     if !mega_check.is_zero() {
@@ -83,8 +79,7 @@ where
     }
     let max_padded_n = max_padded_n as usize;
 
-    let mut proof_points =
-        Vec::with_capacity(max_proof_dep_scalars * verification_tuples.len());
+    let mut proof_points = Vec::with_capacity(max_proof_dep_scalars * verification_tuples.len());
     let mut proof_dependent_scalars =
         Vec::with_capacity(max_proof_dep_scalars * verification_tuples.len());
     let mut linear_combination = vec![C::ScalarField::zero(); (2 * max_padded_n) + 2];
@@ -122,12 +117,13 @@ where
 
         // For G
         for i in 0..padded_n {
-            linear_combination[2+i] += random_scalar * vt.proof_independent_scalars[2+i];
+            linear_combination[2 + i] += random_scalar * vt.proof_independent_scalars[2 + i];
         }
 
         // For H
         for i in 0..padded_n {
-            linear_combination[2+max_padded_n+i] += random_scalar * vt.proof_independent_scalars[2+padded_n+i];
+            linear_combination[2 + max_padded_n + i] +=
+                random_scalar * vt.proof_independent_scalars[2 + padded_n + i];
         }
     }
 
@@ -163,7 +159,10 @@ where
 
     for mut vt in ver_iter {
         if padded_n != vt.padded_n() {
-            return Err(R1CSError::IncompatibleVerificationTuple(vt.padded_n(), padded_n));
+            return Err(R1CSError::IncompatibleVerificationTuple(
+                vt.padded_n(),
+                padded_n,
+            ));
         }
         proof_points.append(&mut vt.proof_dependent_points);
 
@@ -218,19 +217,14 @@ where
     }
     if same_size {
         // println!("Same size: {}", padded_n);
-        batch_verify_core_same_size(
-            verification_tuples,
-            pc_gens,
-            bp_gens,
-            new_randomness_getter
-        )
+        batch_verify_core_same_size(verification_tuples, pc_gens, bp_gens, new_randomness_getter)
     } else {
         // println!("Different size: {}", padded_n);
         batch_verify_core_different_sizes(
             verification_tuples,
             pc_gens,
             bp_gens,
-            new_randomness_getter
+            new_randomness_getter,
         )
     }
 }
@@ -278,12 +272,14 @@ pub fn add_verification_tuples_to_rmc_0<C: AffineRepr>(
 
         // length of vt.proof_independent_scalars = 2 + 2*padded_n
 
-        let b = vt.proof_dependent_points.into_iter()
+        let b = vt
+            .proof_dependent_points
+            .into_iter()
             .chain(iter::repeat(C::zero()).take(max_proof_dep_scalars - proof_dep_scalars))
             .chain(fixed_points.clone())
             .collect::<Vec<_>>();
 
-        let mut s = Vec::with_capacity(max_proof_dep_scalars + 2*(max_padded_n as usize) + 2);
+        let mut s = Vec::with_capacity(max_proof_dep_scalars + 2 * (max_padded_n as usize) + 2);
         s.append(&mut vt.proof_dependent_scalars);
         // Padding
         for _ in 0..(max_proof_dep_scalars - proof_dep_scalars) {
@@ -296,7 +292,7 @@ pub fn add_verification_tuples_to_rmc_0<C: AffineRepr>(
 
         // For G
         for i in 0..padded_n as usize {
-            s.push(vt.proof_independent_scalars[2+i]);
+            s.push(vt.proof_independent_scalars[2 + i]);
         }
         // Padding for G
         for _ in 0..(max_padded_n - padded_n) {
@@ -314,7 +310,10 @@ pub fn add_verification_tuples_to_rmc_0<C: AffineRepr>(
 
         debug_assert_eq!(b.len(), s.len());
         // debug_assert_eq!(vt.proof_independent_scalars.len(), 0);
-        debug_assert_eq!(s.len(), max_proof_dep_scalars + 2*(max_padded_n as usize) + 2);
+        debug_assert_eq!(
+            s.len(),
+            max_proof_dep_scalars + 2 * (max_padded_n as usize) + 2
+        );
         rmc.add_many(b, &s, C::zero());
     }
     Ok(())
@@ -328,16 +327,11 @@ pub fn add_verification_tuples_to_rmc<C: AffineRepr>(
     bp_gens: &BulletproofGens<C>,
     rmc: &mut RandomizedMultChecker<C>,
 ) -> Result<(), R1CSError> {
-    let (b, s) = bases_and_scalars_for_batch(
-        verification_tuples,
-        pc_gens,
-        bp_gens,
-        |_| {
-            let random_scalar = rmc.current_random;
-            rmc.update_random();
-            random_scalar
-        }
-    )?;
+    let (b, s) = bases_and_scalars_for_batch(verification_tuples, pc_gens, bp_gens, |_| {
+        let random_scalar = rmc.current_random;
+        rmc.update_random();
+        random_scalar
+    })?;
 
     for (b_i, s_i) in b.into_iter().zip(s.into_iter()) {
         rmc.add(b_i, s_i);

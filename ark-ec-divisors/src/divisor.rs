@@ -1,7 +1,7 @@
-use ark_ff::{batch_inversion, PrimeField};
+use ark_ff::{PrimeField, batch_inversion};
+use ark_std::{vec, vec::Vec};
 use core::ops::Div;
 use subtle::{Choice, ConditionallySelectable, CtOption};
-use ark_std::{vec, vec::Vec};
 
 use crate::barycentric::Interpolator;
 use crate::error::Error;
@@ -68,15 +68,27 @@ where
         // let y_coefficient = <_>::conditional_select(&a.y_coefficient, &b.y_coefficient, choice);
         let c = bool::from(choice);
         let x_coefficient = if !c { a.x_coefficient } else { b.x_coefficient };
-        let zero_coefficient = if !c { a.zero_coefficient } else { b.zero_coefficient };
+        let zero_coefficient = if !c {
+            a.zero_coefficient
+        } else {
+            b.zero_coefficient
+        };
         let y_coefficient = if !c { a.y_coefficient } else { b.y_coefficient };
-        SmallDivisor { x_coefficient, zero_coefficient, y_coefficient }
+        SmallDivisor {
+            x_coefficient,
+            zero_coefficient,
+            y_coefficient,
+        }
     }
 }
 
 impl<F: PrimeField> SmallDivisor<F> {
     pub(super) fn new(x_coefficient: F, zero_coefficient: F, y_coefficient: F) -> Self {
-        Self { x_coefficient, zero_coefficient, y_coefficient }
+        Self {
+            x_coefficient,
+            zero_coefficient,
+            y_coefficient,
+        }
     }
 }
 
@@ -98,7 +110,13 @@ impl<F: PrimeField> Div<Evals<F>> for DivisorEvals<F> {
         debug_assert_eq!(self.a.len(), rhs.len());
 
         batch_inversion(&mut rhs.evals);
-        for ((a, b), denom) in self.a.evals.iter_mut().zip(self.b.evals.iter_mut()).zip(rhs.evals) {
+        for ((a, b), denom) in self
+            .a
+            .evals
+            .iter_mut()
+            .zip(self.b.evals.iter_mut())
+            .zip(rhs.evals)
+        {
             *a *= denom;
             *b *= denom;
         }
@@ -124,7 +142,11 @@ impl<F: PrimeField> DivisorEvals<F> {
     }
 
     pub(super) fn from_small(small: SmallDivisor<F>, modulus: &Evals<F>) -> Self {
-        let SmallDivisor { x_coefficient, zero_coefficient, y_coefficient } = small;
+        let SmallDivisor {
+            x_coefficient,
+            zero_coefficient,
+            y_coefficient,
+        } = small;
         let evals = modulus.len() as u16;
         let a = Evals::from_degree_1(x_coefficient, zero_coefficient, evals);
         let b = Evals::from_degree_0(y_coefficient, evals);
@@ -144,11 +166,7 @@ impl<F: PrimeField> DivisorEvals<F> {
     }
 
     /// The degrees of the A/B polynomials after the multiplication of these divisors.
-    fn degree_after_multiplication(
-        &self,
-        other_a_degree: u16,
-        other_b_degree: u16,
-    ) -> (u16, u16) {
+    fn degree_after_multiplication(&self, other_a_degree: u16, other_b_degree: u16) -> (u16, u16) {
         // f1 * f2 = A1A2 - y(A1B2 + A2B1) + (x^3 + ax + b) B1B2
         // A = A1A2 + (x^3 + ax + b) B1B2
         // B = A1B2 + A2B1
@@ -178,7 +196,8 @@ impl<F: PrimeField> DivisorEvals<F> {
 
         let len = self.a.len();
 
-        let degree_after_multiplication = self.degree_after_multiplication(rhs.a.degree, rhs.b.degree);
+        let degree_after_multiplication =
+            self.degree_after_multiplication(rhs.a.degree, rhs.b.degree);
         // f1 * f2 = A1A2 - y(A1B2 + A2B1) + y^2 B1B2
         // f1 * f2 = A1A2 - y(A1B2 + A2B1) + (x^3 + ax + b) B1B2
         // (A1+B1)(A2+B2)
@@ -260,7 +279,10 @@ impl<F: PrimeField> DivisorEvals<F> {
             x_l += inc_l;
             x_r += inc_r;
         }
-        let denominator = Evals { evals: denominator, degree: 2 };
+        let denominator = Evals {
+            evals: denominator,
+            degree: 2,
+        };
         self / denominator
     }
 
@@ -279,7 +301,10 @@ impl<F: PrimeField> DivisorEvals<F> {
     pub(super) fn interpolate(&self, interpolator: &Interpolator<F>) -> Result<[Vec<F>; 2], Error> {
         let max_degree = self.a.degree.max(self.b.degree);
         if max_degree > interpolator.degree() {
-            return Err(Error::DegreeExceedsInterpolator(max_degree, interpolator.degree()));
+            return Err(Error::DegreeExceedsInterpolator(
+                max_degree,
+                interpolator.degree(),
+            ));
         }
         let a = interpolator.interpolate(&self.a.evals)?;
         let b = interpolator.interpolate(&self.b.evals)?;

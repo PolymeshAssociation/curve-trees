@@ -77,7 +77,7 @@ pub trait ConstraintSystem<F: Field> {
     /// lc = 0
     /// ```
     fn constrain(&mut self, lc: LinearCombination<F>);
-    
+
     fn evaluate(&self, lc: &LinearCombination<F>) -> Option<F>;
 }
 

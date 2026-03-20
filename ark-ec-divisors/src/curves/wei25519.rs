@@ -1,15 +1,17 @@
-use ark_wei25519::{Wei25519Config, Fq, Fr, Affine};
-use ark_ff::{PrimeField, MontFp, Field};
-use generic_array::typenum::U;
-use crate::{Interpolator};
-use spin::Once;
+use crate::Interpolator;
 use crate::curves::sw::{HasInterpolator, SwCurvePoint};
 use crate::util::DiscreteLogParameter;
+use ark_ff::{Field, MontFp, PrimeField};
+use ark_wei25519::{Affine, Fq, Fr, Wei25519Config};
+use generic_array::typenum::U;
+use spin::Once;
 
-use ark_ed25519::{EdwardsAffine as Ed25519Affine, EdwardsProjective as Ed25519Projective};
-use ark_curve25519::{EdwardsAffine as Curve25519Affine, EdwardsProjective as Curve25519Projective, Curve25519Config};
+use ark_curve25519::{
+    Curve25519Config, EdwardsAffine as Curve25519Affine, EdwardsProjective as Curve25519Projective,
+};
 use ark_ec::AffineRepr;
 use ark_ec::twisted_edwards::MontgomeryAffine;
+use ark_ed25519::{EdwardsAffine as Ed25519Affine, EdwardsProjective as Ed25519Projective};
 
 static WEI25519_INTERPOLATOR: Once<Interpolator<Fq>> = Once::new();
 
@@ -31,19 +33,19 @@ impl DiscreteLogParameter for Wei25519Params {
 
 /// A/3 mod p, the shift constant for Curve25519 <-> Wei25519
 /// Computed in GF(2^255-19): A/3 = 486662/3 mod (2^255-19)
-const MONTGOMERY_TO_WEI_SHIFT: Fq = MontFp!("19298681539552699237261830834781317975544997444273427339909597334652188435537");
+const MONTGOMERY_TO_WEI_SHIFT: Fq =
+    MontFp!("19298681539552699237261830834781317975544997444273427339909597334652188435537");
 
 /// Conversion constant for Ed25519 (twisted Edwards) to Wei25519
 /// Ed25519 uses TWISTED Edwards form: -x^2 + y^2 = 1 + d·x^2·y^2  (note the negative on x^2)
 /// The twist changes the sign of the conversion constant.
-/// 
+///
 /// For twisted Edwards: c = -sqrt(-(A+2)) mod p
 /// Computed: c = -sqrt(-486664) mod p = 51042569399160536130206135233146329284152202253034631822681833788666877215207
-/// 
+///
 /// For comparison, untwisted Edwards (like Curve25519) would use: +sqrt(-(A+2))
-const EDWARDS_TO_WEI_C: Fq = MontFp!("51042569399160536130206135233146329284152202253034631822681833788666877215207");
-
-
+const EDWARDS_TO_WEI_C: Fq =
+    MontFp!("51042569399160536130206135233146329284152202253034631822681833788666877215207");
 
 // Curve25519 (Montgomery) <-> Wei25519 Conversions
 // Curve25519 is a Montgomery curve. In arkworks, it's represented in twisted Edwards form ([`Curve25519Affine`])
@@ -57,11 +59,11 @@ pub fn montgomery_to_wei25519(montgomery: &MontgomeryAffine<Curve25519Config>) -
     // Montgomery curve point (u, v)
     let u = montgomery.x;
     let v = montgomery.y;
-    
+
     // Wei25519 coordinates
     let x_w = u + MONTGOMERY_TO_WEI_SHIFT;
     let y_w = v;
-    
+
     Some(Affine::new_unchecked(x_w, y_w))
 }
 
@@ -71,11 +73,11 @@ pub fn montgomery_to_wei25519(montgomery: &MontgomeryAffine<Curve25519Config>) -
 pub fn wei25519_to_montgomery(wei: &Affine) -> MontgomeryAffine<Curve25519Config> {
     let x_w = wei.x;
     let y_w = wei.y;
-    
+
     // Montgomery coordinates
     let u = x_w - MONTGOMERY_TO_WEI_SHIFT;
     let v = y_w;
-    
+
     MontgomeryAffine::<Curve25519Config>::new(u, v)
 }
 
@@ -95,7 +97,7 @@ pub fn curve25519_to_wei25519(edwards: &Curve25519Affine) -> Option<Affine> {
     let one_minus_y = Fq::ONE - edwards.y;
     let u = one_plus_y * one_minus_y.inverse()?;
     let v = u * edwards.x.inverse()?;
-    
+
     let montgomery = MontgomeryAffine::<Curve25519Config>::new(u, v);
 
     montgomery_to_wei25519(&montgomery)
@@ -111,12 +113,12 @@ pub fn wei25519_to_curve25519(wei: &Affine) -> Option<Curve25519Affine> {
 
     let u = montgomery.x;
     let v = montgomery.y;
-    
+
     let x = u * v.inverse()?;
     let u_minus_1 = u - Fq::ONE;
     let u_plus_1 = u + Fq::ONE;
     let y = u_minus_1 * u_plus_1.inverse()?;
-    
+
     Some(Curve25519Affine::new_unchecked(x, y))
 }
 
@@ -124,34 +126,34 @@ pub fn wei25519_to_curve25519(wei: &Affine) -> Option<Curve25519Affine> {
 // Ed25519 is an Edwards curve. The conversion is: Ed25519 Edwards -> Montgomery -> Wei25519
 
 /// Convert an Ed25519 Edwards point to Wei25519
-/// 
+///
 /// Ed25519 uses TWISTED Edwards form: -x^2 + y^2 = 1 + d·x^2·y^2
 /// The negative coefficient on x^2 requires a sign adjustment in the conversion constant.
-/// 
+///
 /// Formula (from IETF draft Appendix E.2 for twisted Edwards):
 /// For twisted Edwards point (x_e, y_e):
 /// - X_W = (1 + y_e) / (1 - y_e) + A/3
 /// - Y_W = c * (1 + y_e) / ((1 - y_e) * x_e)
-/// 
+///
 /// where c = -sqrt(-(A+2)) for twisted Edwards curves
 pub fn ed25519_to_wei25519(edwards: &Ed25519Affine) -> Option<Affine> {
     if edwards.is_zero() {
         return None;
     }
-    
+
     let x_e = edwards.x;
     let y_e = edwards.y;
-    
+
     let one_plus_y = Fq::ONE + y_e;
     let one_minus_y = Fq::ONE - y_e;
-    
+
     // X_W = (1 + y_e) / (1 - y_e) + A/3
     let x_w = one_plus_y * one_minus_y.inverse()? + MONTGOMERY_TO_WEI_SHIFT;
-    
+
     // Y_W = c * (1 + y_e) / ((1 - y_e) * x_e)
     let denominator = one_minus_y * x_e;
     let y_w = EDWARDS_TO_WEI_C * one_plus_y * denominator.inverse()?;
-    
+
     Some(Affine::new_unchecked(x_w, y_w))
 }
 
@@ -161,20 +163,18 @@ pub fn ed25519_to_wei25519(edwards: &Ed25519Affine) -> Option<Affine> {
 /// - x_e = c * u / Y_W
 /// - y_e = (u - 1) / (u + 1)
 pub fn wei25519_to_ed25519(wei: &Affine) -> Option<Ed25519Affine> {
-
-    
     let x_w = wei.x;
     let y_w = wei.y;
-    
+
     // Convert to Montgomery u-coordinate
     let u = x_w - MONTGOMERY_TO_WEI_SHIFT;
-    
+
     // x_e = c * u / Y_W
     let x_e = EDWARDS_TO_WEI_C * u * y_w.inverse()?;
-    
+
     // y_e = (u - 1) / (u + 1)
     let y_e = (u - Fq::ONE) * (u + Fq::ONE).inverse()?;
-    
+
     Some(Ed25519Affine::new_unchecked(x_e, y_e))
 }
 
@@ -189,7 +189,6 @@ pub fn ed25519_projective_to_wei25519(edwards: &Ed25519Projective) -> Option<Aff
     let affine = edwards.into_affine();
     ed25519_to_wei25519(&affine)
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -223,7 +222,7 @@ mod tests {
             // multiply in Curve25519, convert to Wei25519
             let p1_mul_curve = (p1 * scalar).into_affine();
             let p1_mul_wei = (w1 * scalar).into_affine();
-            
+
             assert_eq!(curve25519_to_wei25519(&p1_mul_curve).unwrap(), p1_mul_wei);
             assert_eq!(wei25519_to_curve25519(&p1_mul_wei).unwrap(), p1_mul_curve);
 
@@ -265,7 +264,7 @@ mod tests {
             // multiply in Ed25519, convert to Wei25519
             let p1_mul_ed = (p1 * scalar).into_affine();
             let p1_mul_wei = (w1 * scalar).into_affine();
-            
+
             assert_eq!(ed25519_to_wei25519(&p1_mul_ed).unwrap(), p1_mul_wei);
             assert_eq!(wei25519_to_ed25519(&p1_mul_wei).unwrap(), p1_mul_ed);
 

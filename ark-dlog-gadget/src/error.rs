@@ -29,7 +29,9 @@ pub enum Error {
     #[error("X coefficient at position 0 is not 1")]
     InvalidXCoefficientAtZero,
     /// Incorrect divisor witness structure.
-    #[error("Incorrect divisor witness structure: yx coefficients length is {0}, expected at most {1}")]
+    #[error(
+        "Incorrect divisor witness structure: yx coefficients length is {0}, expected at most {1}"
+    )]
     IncorrectDivisorWitness(usize, usize),
     /// Divisor witness length exceeded maximum (255).
     #[error("Divisor witness length exceeded maximum: got {0}, expected at most 255")]

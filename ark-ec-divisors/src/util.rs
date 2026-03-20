@@ -1,10 +1,13 @@
-use core::ops::Add;
+use crate::DivisorCurve;
+use ark_ff::PrimeField;
+use ark_serialize::{
+    CanonicalDeserialize, CanonicalSerialize, Compress, Read, SerializationError, Valid, Validate,
+    Write,
+};
 use ark_std::{fmt::Debug, marker::PhantomData, vec::Vec};
-use ark_ff::{PrimeField};
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Read, SerializationError, Valid, Validate, Write};
+use core::ops::Add;
+use generic_array::typenum::{U1, Unsigned};
 use generic_array::{ArrayLength, GenericArray};
-use generic_array::typenum::{Unsigned, U1};
-use crate::{DivisorCurve};
 
 /// Trait for providing generator multiples (powers of 2).
 pub trait GeneratorMultiplesSource<C: DivisorCurve> {
@@ -50,13 +53,11 @@ impl<C: DivisorCurve> GeneratorMultiplesSource<C> for DirectGenerator<C> {
     }
 }
 
-impl<
-    'a,
-    F: PrimeField,
-    Parameters: DiscreteLogParameter,
-    C: DivisorCurve<BaseField = F>
-> GeneratorMultiplesSource<C> for &'a GeneratorTable<F, Parameters>
-where Parameters: 'a {
+impl<'a, F: PrimeField, Parameters: DiscreteLogParameter, C: DivisorCurve<BaseField = F>>
+    GeneratorMultiplesSource<C> for &'a GeneratorTable<F, Parameters>
+where
+    Parameters: 'a,
+{
     type Iter = GeneratorTableIter<'a, F, Parameters, C>;
 
     fn iter(&self) -> Self::Iter {
@@ -68,18 +69,15 @@ where Parameters: 'a {
     }
 }
 
-pub struct GeneratorTableIter<'a, F: PrimeField, Parameters: DiscreteLogParameter, C: DivisorCurve> {
+pub struct GeneratorTableIter<'a, F: PrimeField, Parameters: DiscreteLogParameter, C: DivisorCurve>
+{
     table: &'a GeneratorTable<F, Parameters>,
     index: usize,
     _phantom: PhantomData<C>,
 }
 
-impl<
-    'a,
-    F: PrimeField,
-    Parameters: DiscreteLogParameter,
-    C: DivisorCurve<BaseField = F>
-> Iterator for GeneratorTableIter<'a, F, Parameters, C>
+impl<'a, F: PrimeField, Parameters: DiscreteLogParameter, C: DivisorCurve<BaseField = F>> Iterator
+    for GeneratorTableIter<'a, F, Parameters, C>
 {
     type Item = C;
 
@@ -112,7 +110,9 @@ pub struct GeneratorTable<F: PrimeField, Parameters: DiscreteLogParameter>(
     pub GenericArray<(F, F), Parameters::ScalarBits>,
 );
 
-impl<F: PrimeField, Parameters: DiscreteLogParameter> CanonicalSerialize for GeneratorTable<F, Parameters> {
+impl<F: PrimeField, Parameters: DiscreteLogParameter> CanonicalSerialize
+    for GeneratorTable<F, Parameters>
+{
     fn serialize_with_mode<W: Write>(
         &self,
         mut writer: W,
@@ -137,7 +137,9 @@ impl<F: PrimeField, Parameters: DiscreteLogParameter> Valid for GeneratorTable<F
     }
 }
 
-impl<F: PrimeField, Parameters: DiscreteLogParameter> CanonicalDeserialize for GeneratorTable<F, Parameters> {
+impl<F: PrimeField, Parameters: DiscreteLogParameter> CanonicalDeserialize
+    for GeneratorTable<F, Parameters>
+{
     fn deserialize_with_mode<R: Read>(
         mut reader: R,
         compress: Compress,
@@ -159,7 +161,7 @@ impl<F: PrimeField, Parameters: DiscreteLogParameter> GeneratorTable<F, Paramete
         let mut points = Vec::with_capacity(Parameters::ScalarBits::USIZE);
         points.push(generator);
         for i in 1..Parameters::ScalarBits::USIZE {
-            points.push(points[i-1].double());
+            points.push(points[i - 1].double());
         }
 
         let mut res = Self(GenericArray::default());
@@ -177,13 +179,13 @@ impl<F: PrimeField, Parameters: DiscreteLogParameter> GeneratorTable<F, Paramete
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::util::{DiscreteLogParameter, GeneratorTable};
     use ark_ff::Field;
     use rand::prelude::StdRng;
     use rand_core::SeedableRng;
-    use crate::util::{DiscreteLogParameter, GeneratorTable};
 
-    use ark_pallas::{Fq, Fr};
     use crate::curves::pallas::{PallasParams, Point as PallasPoint};
+    use ark_pallas::{Fq, Fr};
 
     use crate::curves::vesta::{Point as VestaPoint, VestaParams};
 
@@ -191,7 +193,7 @@ mod tests {
 
     type VestaBase = Fr;
 
-    use crate::curves::helios::{Point as HeliosPoint, HeliosParams};
+    use crate::curves::helios::{HeliosParams, Point as HeliosPoint};
     type HeliosBase = ark_helios::Fq;
 
     use crate::curves::selene::{Point as SelenePoint, SeleneParams};
@@ -202,12 +204,7 @@ mod tests {
 
     #[test]
     fn generator_table_creation() {
-        fn check<
-            C: DivisorCurve<BaseField= B>,
-            Params: DiscreteLogParameter,
-            B: PrimeField,
-        >() {
-
+        fn check<C: DivisorCurve<BaseField = B>, Params: DiscreteLogParameter, B: PrimeField>() {
             let mut rng = StdRng::seed_from_u64(0);
             let generator = C::random(&mut rng);
             let (gx, gy) = C::to_xy(generator).unwrap();
@@ -233,10 +230,10 @@ mod tests {
 
         println!("Testing Vesta");
         check::<VestaPoint, VestaParams, VestaBase>();
-        
+
         println!("Testing Helios");
         check::<HeliosPoint, HeliosParams, HeliosBase>();
-        
+
         println!("Testing Selene");
         check::<SelenePoint, SeleneParams, SeleneBase>();
 
@@ -246,30 +243,29 @@ mod tests {
 
     #[test]
     fn generator_table_serialization() {
-        fn check<
-            C: DivisorCurve<BaseField= B>,
-            Params: DiscreteLogParameter,
-            B: PrimeField,
-        >() {
+        fn check<C: DivisorCurve<BaseField = B>, Params: DiscreteLogParameter, B: PrimeField>() {
             let mut rng = StdRng::seed_from_u64(42);
-            
+
             for _ in 0..10 {
                 let generator = C::random(&mut rng);
                 let table = GeneratorTable::<B, Params>::new(generator);
-                
+
                 let mut serialized = Vec::new();
                 table.serialize_compressed(&mut serialized).unwrap();
-                
-                let deserialized = GeneratorTable::<B, Params>::deserialize_compressed(&serialized[..]).unwrap();
-                
+
+                let deserialized =
+                    GeneratorTable::<B, Params>::deserialize_compressed(&serialized[..]).unwrap();
+
                 let gen1 = table.generator::<C>();
                 let gen2 = deserialized.generator::<C>();
                 let (gen1_x, gen1_y) = C::to_xy(gen1).unwrap();
                 let (gen2_x, gen2_y) = C::to_xy(gen2).unwrap();
                 assert_eq!(gen1_x, gen2_x);
                 assert_eq!(gen1_y, gen2_y);
-                
-                for (i, ((x1, y1), (x2, y2))) in table.0.iter().zip(deserialized.0.iter()).enumerate() {
+
+                for (i, ((x1, y1), (x2, y2))) in
+                    table.0.iter().zip(deserialized.0.iter()).enumerate()
+                {
                     assert_eq!(x1, x2, "Mismatch at index {} for x coordinate", i);
                     assert_eq!(y1, y2, "Mismatch at index {} for y coordinate", i);
                 }
@@ -278,13 +274,13 @@ mod tests {
 
         println!("Testing Pallas");
         check::<PallasPoint, PallasParams, PallasBase>();
-        
+
         println!("Testing Vesta");
         check::<VestaPoint, VestaParams, VestaBase>();
-        
+
         println!("Testing Helios");
         check::<HeliosPoint, HeliosParams, HeliosBase>();
-        
+
         println!("Testing Selene");
         check::<SelenePoint, SeleneParams, SeleneBase>();
 

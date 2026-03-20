@@ -225,7 +225,8 @@ impl<F: Field> LinearCombination<F> {
     /// Useful when linear combinations become large. Takes ownership of linear combination as this function is useful
     /// when memory is limited and the obvious action after this function call will be to free the memory held by the passed linear combination
     pub fn simplify(self) -> LinearCombination<F> {
-        let mut vars: HashMap<Variable<F>, F, RandomState> = HashMap::with_hasher(RandomState::new());
+        let mut vars: HashMap<Variable<F>, F, RandomState> =
+            HashMap::with_hasher(RandomState::new());
         let terms = self.inner();
         for (var, val) in terms {
             *vars.entry(var).or_insert(F::zero()) += val;
