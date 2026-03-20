@@ -3,12 +3,12 @@
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
-use ark_ec::AffineRepr;
-use ark_ff::Field;
-use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
-
 use crate::errors::ProofError;
 use crate::util;
+use ark_ec::AffineRepr;
+use ark_ff::field_hashers::{DefaultFieldHasher, HashToField};
+use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
+use sha2::Sha256;
 
 pub trait TranscriptProtocol {
     /// Append a domain separator for an `n`-bit, `m`-party range proof.
@@ -43,6 +43,9 @@ pub trait TranscriptProtocol {
 
     /// Compute a `label`ed challenge variable.
     fn challenge_scalar<C: AffineRepr>(&mut self, label: &'static [u8]) -> C::ScalarField;
+
+    /// Append a `u64` index with the given `label`.
+    fn append_index(&mut self, label: &'static [u8], index: u64);
 }
 
 impl TranscriptProtocol for MerlinTranscript {
@@ -99,24 +102,15 @@ impl TranscriptProtocol for MerlinTranscript {
     }
 
     fn challenge_scalar<C: AffineRepr>(&mut self, label: &'static [u8]) -> C::ScalarField {
-        use sha3::{Digest, Sha3_256};
-
         let mut bytes = [0u8; 64];
         self.challenge_bytes(label, &mut bytes);
 
-        for i in 0..=u8::MAX {
-            let mut sha = Sha3_256::new();
-            sha.update(bytes);
-            sha.update([i]);
-            // let mut buf = [0u8; 32];
+        let hasher = <DefaultFieldHasher<Sha256> as HashToField<C::ScalarField>>::new(label);
+        let [result] = hasher.hash_to_field::<1>(&bytes);
+        result
+    }
 
-            let result = sha.finalize();
-            let res = <C::ScalarField as Field>::from_random_bytes(result.as_slice());
-
-            if let Some(scalar) = res {
-                return scalar;
-            }
-        }
-        panic!()
+    fn append_index(&mut self, label: &'static [u8], index: u64) {
+        self.merlin.append_u64(label, index);
     }
 }

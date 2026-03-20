@@ -542,14 +542,6 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
                 t_poly_deg + 1
             )));
         }
-        if proof.T.len() > util::T_LABELS.len() {
-            return Err(R1CSError::VerificationErrorWithReason(format!(
-                "Not enough labels for proof.T: {} {}",
-                proof.T.len(),
-                util::T_LABELS.len()
-            )));
-        }
-
         transcript.validate_and_append_point(b"A_I1", &proof.A_I1)?;
         transcript.validate_and_append_point(b"A_O1", &proof.A_O1)?;
         transcript.validate_and_append_point(b"S1", &proof.S1)?;
@@ -588,7 +580,8 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
                 continue;
             }
             // log::debug!("{}", &proof.T[d]);
-            transcript.validate_and_append_point(util::T_LABELS[d], &proof.T[d])?;
+            transcript.append_index(b"t_poly degree", d as u64);
+            transcript.validate_and_append_point(b"t_poly", &proof.T[d])?;
         }
 
         let u = TranscriptProtocol::challenge_scalar::<C>(transcript, b"u");

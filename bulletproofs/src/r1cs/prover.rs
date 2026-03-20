@@ -5,7 +5,7 @@ use alloc::{borrow::ToOwned, boxed::Box, vec, vec::Vec};
 
 use ark_ec::{AffineRepr, CurveGroup, VariableBaseMSM};
 use ark_ff::Field;
-use ark_std::{format, One, UniformRand, Zero};
+use ark_std::{One, UniformRand, Zero};
 use core::borrow::BorrowMut;
 use dock_crypto_utils::transcript::MerlinTranscript;
 use rand_core::{CryptoRng, RngCore};
@@ -559,14 +559,6 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
         // op_degree = 2 + 2 * floor(#comm / 2)
         let op_degree = 2 + 2 * (ncomm / 2);
 
-        if util::T_LABELS.len() < (2 * (op_degree + 1) + 1) {
-            return Err(R1CSError::ProofGenerationError(format!(
-                "Not enough labels for t polynomial: {} {}",
-                (2 * (op_degree + 1) + 1),
-                util::T_LABELS.len()
-            )));
-        }
-
         let ops = op_splits(op_degree);
         let veccom_ops = &ops[2..];
 
@@ -1091,7 +1083,8 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
             if d == op_degree {
                 continue;
             }
-            transcript.append_point(util::T_LABELS[d], td);
+            transcript.append_index(b"t_poly degree", d as u64);
+            transcript.append_point(b"t_poly", td);
         }
 
         let u = TranscriptProtocol::challenge_scalar::<C>(transcript, b"u");
