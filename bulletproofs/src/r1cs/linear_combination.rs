@@ -3,12 +3,29 @@
 #[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
 
-use ahash::RandomState;
 use ark_ff::Field;
 use core::iter::FromIterator;
 use core::marker::PhantomData;
 use core::ops::{Add, Mul, Neg, Sub};
 use hashbrown::HashMap;
+
+#[cfg(all(
+    target_has_atomic = "8",
+    target_has_atomic = "16",
+    target_has_atomic = "32",
+    target_has_atomic = "64",
+    target_has_atomic = "ptr"
+))]
+type DefaultHasher = ahash::AHasher;
+
+#[cfg(not(all(
+    target_has_atomic = "8",
+    target_has_atomic = "16",
+    target_has_atomic = "32",
+    target_has_atomic = "64",
+    target_has_atomic = "ptr"
+)))]
+type DefaultHasher = fnv::FnvHasher;
 
 /// Represents a variable in a constraint system.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -225,8 +242,8 @@ impl<F: Field> LinearCombination<F> {
     /// Useful when linear combinations become large. Takes ownership of linear combination as this function is useful
     /// when memory is limited and the obvious action after this function call will be to free the memory held by the passed linear combination
     pub fn simplify(self) -> LinearCombination<F> {
-        let mut vars: HashMap<Variable<F>, F, RandomState> =
-            HashMap::with_hasher(RandomState::new());
+        let mut vars: HashMap<Variable<F>, F, core::hash::BuildHasherDefault<DefaultHasher>> =
+            HashMap::with_hasher(core::hash::BuildHasherDefault::<DefaultHasher>::default());
         let terms = self.inner();
         for (var, val) in terms {
             *vars.entry(var).or_insert(F::zero()) += val;
