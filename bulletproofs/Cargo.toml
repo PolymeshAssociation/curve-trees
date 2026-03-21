@@ -33,7 +33,7 @@ ark-vesta = { workspace = true, default-features = false }
 ark-helios = { workspace = true, default-features = false }
 ark-selene = { workspace = true, default-features = false }
 ark-wei25519 = { workspace = true, default-features = false }
-hashbrown = { version = "0.16.0", default-features = false, features = ["alloc", "inline-more"] }
+hashbrown = { version = "0.16.0", default-features = false, features = ["alloc"] }
 ahash = { version = "0.8", default-features = false }
 
 [dev-dependencies]
