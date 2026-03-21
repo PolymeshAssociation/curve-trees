@@ -4,13 +4,29 @@ use crate::util::DiscreteLogParameter;
 use ark_ff::PrimeField;
 use ark_pallas::{Fq, Fr, PallasConfig};
 use generic_array::typenum::U;
-use spin::Once;
 
-static PALLAS_INTERPOLATOR: Once<Interpolator<Fq>> = Once::new();
+#[cfg(feature = "std")]
+static PALLAS_INTERPOLATOR: spin::Once<Interpolator<Fq>> = spin::Once::new();
+
+#[cfg(not(feature = "std"))]
+static mut PALLAS_INTERPOLATOR: Option<Interpolator<Fq>> = None;
 
 impl HasInterpolator for PallasConfig {
     fn get_interpolator() -> &'static Interpolator<Fq> {
-        PALLAS_INTERPOLATOR.call_once(|| Interpolator::new(130))
+        #[cfg(feature = "std")]
+        {
+            PALLAS_INTERPOLATOR.call_once(|| Interpolator::new(130))
+        }
+        #[cfg(not(feature = "std"))]
+        {
+            #[allow(static_mut_refs)]
+            unsafe {
+                if PALLAS_INTERPOLATOR.is_none() {
+                    PALLAS_INTERPOLATOR = Some(Interpolator::new(130));
+                }
+                PALLAS_INTERPOLATOR.as_ref().unwrap()
+            }
+        }
     }
 }
 

@@ -5,16 +5,32 @@ use ark_ec::short_weierstrass::SWCurveConfig;
 use ark_ff::PrimeField;
 use ark_selene::{Fq, Fr, SeleneConfig};
 use generic_array::typenum::U;
-use spin::Once;
 
-static SELENE_INTERPOLATOR: Once<Interpolator<Fq>> = Once::new();
+#[cfg(feature = "std")]
+static SELENE_INTERPOLATOR: spin::Once<Interpolator<Fq>> = spin::Once::new();
+
+#[cfg(not(feature = "std"))]
+static mut SELENE_INTERPOLATOR: Option<Interpolator<Fq>> = None;
 
 impl HasInterpolator for SeleneConfig {
     fn get_interpolator() -> &'static Interpolator<Fq>
     where
         Self: SWCurveConfig,
     {
-        SELENE_INTERPOLATOR.call_once(|| Interpolator::new(130))
+        #[cfg(feature = "std")]
+        {
+            SELENE_INTERPOLATOR.call_once(|| Interpolator::new(130))
+        }
+        #[cfg(not(feature = "std"))]
+        {
+            #[allow(static_mut_refs)]
+            unsafe {
+                if SELENE_INTERPOLATOR.is_none() {
+                    SELENE_INTERPOLATOR = Some(Interpolator::new(130));
+                }
+                SELENE_INTERPOLATOR.as_ref().unwrap()
+            }
+        }
     }
 }
 

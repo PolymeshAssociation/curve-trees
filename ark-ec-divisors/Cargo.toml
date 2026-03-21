@@ -22,7 +22,7 @@ ark-pallas = { workspace = true, optional = true }
 ark-vesta = { workspace = true, optional = true }
 ark-helios = { workspace = true, optional = true }
 ark-selene = { workspace = true, optional = true }
-spin = { version = "0.9", default-features = false, features = ["once"] }
+spin = { version = "0.9", default-features = false, optional = true, features = ["once"] }
 generic-array = { version = "1", default-features = false, features = ["alloc"] }
 thiserror = { version = "2", default-features = false }
 
@@ -44,6 +44,7 @@ default = [
 
 no_std = []
 std = [
+    "spin",
     "ark-ec/std",
     "ark-ff/std",
     "ark-serialize/std",

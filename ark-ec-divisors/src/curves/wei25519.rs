@@ -4,7 +4,6 @@ use crate::util::DiscreteLogParameter;
 use ark_ff::{Field, MontFp, PrimeField};
 use ark_wei25519::{Affine, Fq, Fr, Wei25519Config};
 use generic_array::typenum::U;
-use spin::Once;
 
 use ark_curve25519::{
     Curve25519Config, EdwardsAffine as Curve25519Affine, EdwardsProjective as Curve25519Projective,
@@ -13,11 +12,28 @@ use ark_ec::AffineRepr;
 use ark_ec::twisted_edwards::MontgomeryAffine;
 use ark_ed25519::{EdwardsAffine as Ed25519Affine, EdwardsProjective as Ed25519Projective};
 
-static WEI25519_INTERPOLATOR: Once<Interpolator<Fq>> = Once::new();
+#[cfg(feature = "std")]
+static WEI25519_INTERPOLATOR: spin::Once<Interpolator<Fq>> = spin::Once::new();
+
+#[cfg(not(feature = "std"))]
+static mut WEI25519_INTERPOLATOR: Option<Interpolator<Fq>> = None;
 
 impl HasInterpolator for Wei25519Config {
     fn get_interpolator() -> &'static Interpolator<Fq> {
-        WEI25519_INTERPOLATOR.call_once(|| Interpolator::new(128))
+        #[cfg(feature = "std")]
+        {
+            WEI25519_INTERPOLATOR.call_once(|| Interpolator::new(128))
+        }
+        #[cfg(not(feature = "std"))]
+        {
+            #[allow(static_mut_refs)]
+            unsafe {
+                if WEI25519_INTERPOLATOR.is_none() {
+                    WEI25519_INTERPOLATOR = Some(Interpolator::new(128));
+                }
+                WEI25519_INTERPOLATOR.as_ref().unwrap()
+            }
+        }
     }
 }
 
