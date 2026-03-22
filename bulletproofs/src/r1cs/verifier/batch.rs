@@ -262,8 +262,8 @@ pub fn add_verification_tuples_to_rmc_0<C: AffineRepr>(
     use core::iter;
     let fixed_points = iter::once(pc_gens.B)
         .chain(iter::once(pc_gens.B_blinding))
-        .chain(gens.G(max_padded_n).copied())
-        .chain(gens.H(max_padded_n).copied())
+        .chain(gens.G(max_padded_n))
+        .chain(gens.H(max_padded_n))
         .collect::<Vec<_>>();
 
     for mut vt in verification_tuples {

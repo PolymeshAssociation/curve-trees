@@ -491,12 +491,12 @@ impl<
     ) {
         let old_x_coord = self.x_coord_children[tree_index][child_node_index_to_update].clone();
         let old_comm = self.commitments_to_children[tree_index].clone();
-        let gen_iter = current_level_parameters
+        let mut gen_iter = current_level_parameters
             .bp_gens
             .share(0)
             .G((L * (tree_index + 1)) as u32)
             .skip(L * tree_index + child_node_index_to_update);
-        let gen = gen_iter.copied().next().unwrap();
+        let gen = gen_iter.next().unwrap();
         let new_x_coord = (child_commitment + child_level_parameters.delta)
             .into_affine()
             .x;

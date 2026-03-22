@@ -369,8 +369,8 @@ impl<
         child_level_params: &SingleLayerParameters<P0>,
     ) {
         let child_node_delta_x_coord = (child_node + child_level_params.delta).into_affine().x;
-        let gen_iter = node_level_params.bp_gens.share(0).G(L as u32).skip(pos);
-        let gen = gen_iter.copied().next().unwrap();
+        let mut gen_iter = node_level_params.bp_gens.share(0).G(L as u32).skip(pos);
+        let gen = gen_iter.next().unwrap();
 
         let diff = if pos < node_to_update.x_coords.len() {
             let old_x = node_to_update.x_coords[pos];

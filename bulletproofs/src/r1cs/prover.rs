@@ -356,9 +356,8 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
         let gens = bp_gens.share(0);
 
         // [b] * H + [v_1] * G1 + ... + [v_n] * Gn
-        let generators: Vec<_> = iter::once(&self.pc_gens.B_blinding)
+        let generators: Vec<_> = iter::once(self.pc_gens.B_blinding)
             .chain(gens.G(v.len() as u32))
-            .copied()
             .collect::<Vec<_>>();
 
         let scalars: Vec<C::ScalarField> =
@@ -645,10 +644,9 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
                 s.spawn(|_| {
                     A_I1 = Some(
                         C::Group::msm_unchecked(
-                            iter::once(&blinding)
+                            iter::once(blinding)
                                 .chain(gens.G(n1))
                                 .chain(gens.H(n1))
-                                .copied()
                                 .collect::<Vec<C>>()
                                 .as_slice(),
                             A_I1_scalars.as_slice(),
@@ -660,9 +658,8 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
                 s.spawn(|_| {
                     A_O1 = Some(
                         C::Group::msm_unchecked(
-                            iter::once(&blinding)
+                            iter::once(blinding)
                                 .chain(gens.G(n1))
-                                .copied()
                                 .collect::<Vec<C>>()
                                 .as_slice(),
                             A_O1_scalars.as_slice(),
@@ -678,10 +675,9 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
                 s.spawn(|_| {
                     S1 = Some(
                         C::Group::msm_unchecked(
-                            iter::once(&blinding)
+                            iter::once(blinding)
                                 .chain(gens.G(n1))
                                 .chain(gens.H(n1))
-                                .copied()
                                 .collect::<Vec<C>>()
                                 .as_slice(),
                             iter::once(&s_blinding1)
@@ -814,10 +810,9 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
             (
                 // A_I = <a_L, G> + <a_R, H> + i_blinding * B_blinding
                 C::Group::msm_unchecked(
-                    iter::once(&self.pc_gens.B_blinding)
+                    iter::once(self.pc_gens.B_blinding)
                         .chain(gens.G(n).skip(n1 as usize))
                         .chain(gens.H(n).skip(n1 as usize))
-                        .copied()
                         .collect::<Vec<C>>()
                         .as_slice(),
                     iter::once(&i_blinding2)
@@ -830,9 +825,8 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
                 .into(),
                 // A_O = <a_O, G> + o_blinding * B_blinding
                 C::Group::msm_unchecked(
-                    iter::once(&self.pc_gens.B_blinding)
+                    iter::once(self.pc_gens.B_blinding)
                         .chain(gens.G(n).skip(n1 as usize))
-                        .copied()
                         .collect::<Vec<C>>()
                         .as_slice(),
                     iter::once(&o_blinding2)
@@ -844,10 +838,9 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
                 .into(),
                 // S = <s_L, G> + <s_R, H> + s_blinding * B_blinding
                 C::Group::msm_unchecked(
-                    iter::once(&self.pc_gens.B_blinding)
+                    iter::once(self.pc_gens.B_blinding)
                         .chain(gens.G(n).skip(n1 as usize))
                         .chain(gens.H(n).skip(n1 as usize))
-                        .copied()
                         .collect::<Vec<C>>()
                         .as_slice(),
                     iter::once(&s_blinding2)
@@ -1236,8 +1229,8 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
             &Q,
             &G_factors,
             &H_factors,
-            gens.G(padded_n).copied().collect(),
-            gens.H(padded_n).copied().collect(),
+            gens.G(padded_n).collect(),
+            gens.H(padded_n).collect(),
             l_vec,
             r_vec,
         );

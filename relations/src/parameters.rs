@@ -71,7 +71,7 @@ impl<P: SWCurveConfig + Copy> SingleLayerParameters<P> {
 
         let (generators, scalars) = if v_blinding.is_zero() {
             (
-                gens.copied().collect::<Vec<_>>(),
+                gens.collect::<Vec<_>>(),
                 v.iter()
                     .map(|s| {
                         let s: P::ScalarField = *s;
@@ -81,9 +81,8 @@ impl<P: SWCurveConfig + Copy> SingleLayerParameters<P> {
             )
         } else {
             (
-                iter::once(&self.pc_gens.B_blinding)
+                iter::once(self.pc_gens.B_blinding)
                     .chain(gens)
-                    .copied()
                     .collect::<Vec<_>>(),
                 iter::once(&v_blinding)
                     .chain(v.iter())
@@ -110,7 +109,7 @@ impl<P: SWCurveConfig + Copy> SingleLayerParameters<P> {
             .share(0)
             .G(count * (generator_set_index + 1))
             .skip((count * generator_set_index) as usize);
-        let g = gens.copied().sum::<<Affine<P> as AffineRepr>::Group>();
+        let g = gens.sum::<<Affine<P> as AffineRepr>::Group>();
 
         (g * x).into_affine()
     }

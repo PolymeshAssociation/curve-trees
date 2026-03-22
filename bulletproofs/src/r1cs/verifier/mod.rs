@@ -890,8 +890,8 @@ fn bases_and_scalars<C: AffineRepr>(
     use core::iter;
     let fixed_points = iter::once(pc_gens.B)
         .chain(iter::once(pc_gens.B_blinding))
-        .chain(gens.G(padded_n).copied())
-        .chain(gens.H(padded_n).copied());
+        .chain(gens.G(padded_n))
+        .chain(gens.H(padded_n));
 
     let b = proof_dependent_points
         .into_iter()

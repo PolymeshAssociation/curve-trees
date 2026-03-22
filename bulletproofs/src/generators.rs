@@ -186,9 +186,13 @@ pub struct BulletproofGens<C: AffineRepr> {
     /// Number of values or parties
     pub party_capacity: u32,
     /// Precomputed \\(\mathbf G\\) generators for each party.
+    #[cfg(not(feature = "low_memory"))]
     pub(crate) G_vec: Vec<Vec<C>>,
     /// Precomputed \\(\mathbf H\\) generators for each party.
+    #[cfg(not(feature = "low_memory"))]
     pub(crate) H_vec: Vec<Vec<C>>,
+    #[cfg(feature = "low_memory")]
+    _marker: PhantomData<C>,
 }
 
 // todo we are not using the multi party stuff
@@ -209,10 +213,19 @@ impl<C: AffineRepr> BulletproofGens<C> {
         let mut gens = BulletproofGens {
             gens_capacity: 0,
             party_capacity,
+            #[cfg(not(feature = "low_memory"))]
             G_vec: (0..party_capacity).map(|_| Vec::new()).collect(),
+            #[cfg(not(feature = "low_memory"))]
             H_vec: (0..party_capacity).map(|_| Vec::new()).collect(),
+            #[cfg(feature = "low_memory")]
+            _marker: PhantomData,
         };
+        #[cfg(not(feature = "low_memory"))]
         gens.increase_capacity(gens_capacity);
+        #[cfg(feature = "low_memory")]
+        {
+            gens.gens_capacity = gens_capacity;
+        }
         gens
     }
 
@@ -227,6 +240,7 @@ impl<C: AffineRepr> BulletproofGens<C> {
 
     /// Increases the generators' capacity to the amount specified.
     /// If less than or equal to the current capacity, does nothing.
+    #[cfg(not(feature = "low_memory"))]
     fn increase_capacity(&mut self, new_capacity: u32) {
         use byteorder::{ByteOrder, LittleEndian};
 
@@ -255,6 +269,7 @@ impl<C: AffineRepr> BulletproofGens<C> {
     }
 
     /// Return an iterator over the aggregation of the parties' G generators with given size `n`.
+    #[cfg(not(feature = "low_memory"))]
     pub fn G(&self, n: u32, m: u32) -> impl Iterator<Item = &C> {
         AggregatedGensIter {
             n,
@@ -266,6 +281,7 @@ impl<C: AffineRepr> BulletproofGens<C> {
     }
 
     /// Return an iterator over the aggregation of the parties' H generators with given size `n`.
+    #[cfg(not(feature = "low_memory"))]
     pub fn H(&self, n: u32, m: u32) -> impl Iterator<Item = &C> {
         AggregatedGensIter {
             n,
@@ -273,6 +289,32 @@ impl<C: AffineRepr> BulletproofGens<C> {
             array: &self.H_vec,
             party_idx: 0,
             gen_idx: 0,
+        }
+    }
+
+    /// Return an iterator over the aggregation of the parties' G generators with given size `n`.
+    #[cfg(feature = "low_memory")]
+    pub fn G(&self, n: u32, m: u32) -> impl Iterator<Item = C> {
+        AggregatedGensIter::<C> {
+            label: b'G',
+            n,
+            m,
+            party_idx: 0,
+            gen_idx: 0,
+            _marker: PhantomData,
+        }
+    }
+
+    /// Return an iterator over the aggregation of the parties' H generators with given size `n`.
+    #[cfg(feature = "low_memory")]
+    pub fn H(&self, n: u32, m: u32) -> impl Iterator<Item = C> {
+        AggregatedGensIter::<C> {
+            label: b'H',
+            n,
+            m,
+            party_idx: 0,
+            gen_idx: 0,
+            _marker: PhantomData,
         }
     }
 }
@@ -286,6 +328,7 @@ impl BulletproofGensSWU for SeleneConfig {}
 
 impl BulletproofGensSWU for Wei25519Config {}
 
+#[cfg(not(feature = "low_memory"))]
 impl<C: BulletproofGensSWU> BulletproofGens<SWAffine<C>> {
     /// Creates by hashing the label using SWU algorithm from IETF draft on hash to curve
     pub fn new_using_label(label: &[u8], gens_capacity: u32, party_capacity: u32) -> Self {
@@ -335,6 +378,7 @@ impl<C: BulletproofGensSWU> BulletproofGens<SWAffine<C>> {
     }
 }
 
+#[cfg(not(feature = "low_memory"))]
 struct AggregatedGensIter<'a, C: AffineRepr> {
     array: &'a Vec<Vec<C>>,
     n: u32,
@@ -343,6 +387,7 @@ struct AggregatedGensIter<'a, C: AffineRepr> {
     gen_idx: u32,
 }
 
+#[cfg(not(feature = "low_memory"))]
 impl<'a, C: AffineRepr> Iterator for AggregatedGensIter<'a, C> {
     type Item = &'a C;
 
@@ -358,6 +403,46 @@ impl<'a, C: AffineRepr> Iterator for AggregatedGensIter<'a, C> {
             let cur_gen = self.gen_idx;
             self.gen_idx += 1;
             Some(&self.array[self.party_idx as usize][cur_gen as usize])
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.n * (self.m - self.party_idx) - self.gen_idx;
+        let size = remaining as usize;
+        (size, Some(size))
+    }
+}
+
+#[cfg(feature = "low_memory")]
+struct AggregatedGensIter<C: AffineRepr> {
+    label: u8,
+    n: u32,
+    m: u32,
+    party_idx: u32,
+    gen_idx: u32,
+    _marker: PhantomData<C>,
+}
+
+#[cfg(feature = "low_memory")]
+impl<C: AffineRepr> Iterator for AggregatedGensIter<C> {
+    type Item = C;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.gen_idx >= self.n {
+            self.gen_idx = 0;
+            self.party_idx += 1;
+        }
+
+        if self.party_idx >= self.m {
+            None
+        } else {
+            use byteorder::{ByteOrder, LittleEndian};
+            let cur_gen = self.gen_idx;
+            self.gen_idx += 1;
+            let mut label = [self.label, 0, 0, 0, 0, 0, 0, 0, 0];
+            LittleEndian::write_u32(&mut label[1..5], self.party_idx);
+            LittleEndian::write_u32(&mut label[5..9], cur_gen);
+            Some(util::affine_from_bytes_tai(&label).expect("Hashing to curve should never fail"))
         }
     }
 
@@ -384,6 +469,7 @@ pub struct BulletproofGensShare<'a, C: AffineRepr> {
     share: u32,
 }
 
+#[cfg(not(feature = "low_memory"))]
 impl<'a, C: AffineRepr> BulletproofGensShare<'a, C> {
     /// Return an iterator over this party's G generators with given size `n`.
     pub fn G(&self, n: u32) -> impl Iterator<Item = &'a C> {
@@ -393,6 +479,19 @@ impl<'a, C: AffineRepr> BulletproofGensShare<'a, C> {
     /// Return an iterator over this party's H generators with given size `n`.
     pub(crate) fn H(&self, n: u32) -> impl Iterator<Item = &'a C> {
         self.gens.H_vec[self.share as usize].iter().take(n as usize)
+    }
+}
+
+#[cfg(feature = "low_memory")]
+impl<'a, C: AffineRepr> BulletproofGensShare<'a, C> {
+    /// Return an iterator over this party's G generators with given size `n`.
+    pub fn G(&self, n: u32) -> impl Iterator<Item = C> {
+        self.gens.G(n, self.share + 1)
+    }
+
+    /// Return an iterator over this party's H generators with given size `n`.
+    pub(crate) fn H(&self, n: u32) -> impl Iterator<Item = C> {
+        self.gens.H(n, self.share + 1)
     }
 }
 
@@ -422,6 +521,7 @@ macro_rules! impl_bulletproof_gens_new_using_label {
     ($affine_type:ty, $projective_type:ty, $hash_fn:ident, $dst_g:expr, $dst_h:expr) => {
         impl BulletproofGens<$affine_type> {
             /// Creates by hashing the label. Do not call `increase_capacity` as it doesn't call standard hash to curve
+            #[cfg(not(feature = "low_memory"))]
             pub fn new_using_label(label: &[u8], gens_capacity: u32, party_capacity: u32) -> Self {
                 let dst_g = $dst_g;
                 let dst_h = $dst_h;
@@ -449,6 +549,16 @@ macro_rules! impl_bulletproof_gens_new_using_label {
                     party_capacity,
                     G_vec,
                     H_vec,
+                }
+            }
+
+            /// Creates by hashing the label. Do not call `increase_capacity` as it doesn't call standard hash to curve
+            #[cfg(feature = "low_memory")]
+            pub fn new_using_label(_label: &[u8], gens_capacity: u32, party_capacity: u32) -> Self {
+                Self {
+                    gens_capacity,
+                    party_capacity,
+                    _marker: PhantomData,
                 }
             }
         }
@@ -549,11 +659,11 @@ mod tests {
         gen_resized.increase_capacity(64);
 
         let helper = |n: u32, m: u32| {
-            let gens_G: Vec<Affine> = gens.G(n, m).copied().collect();
-            let gens_H: Vec<Affine> = gens.H(n, m).copied().collect();
+            let gens_G: Vec<Affine> = gens.G(n, m).collect();
+            let gens_H: Vec<Affine> = gens.H(n, m).collect();
 
-            let resized_G: Vec<Affine> = gen_resized.G(n, m).copied().collect();
-            let resized_H: Vec<Affine> = gen_resized.H(n, m).copied().collect();
+            let resized_G: Vec<Affine> = gen_resized.G(n, m).collect();
+            let resized_H: Vec<Affine> = gen_resized.H(n, m).collect();
 
             assert_eq!(gens_G, resized_G);
             assert_eq!(gens_H, resized_H);
@@ -571,7 +681,7 @@ mod tests {
                 let gens = BulletproofGens::<$affine_type>::new_using_label($label, 64, 8);
 
                 let helper = |n: u32, m: u32| {
-                    let agg_G: Vec<$affine_type> = gens.G(n, m).copied().collect();
+                    let agg_G: Vec<$affine_type> = gens.G(n, m).collect();
                     let flat_G: Vec<$affine_type> = gens
                         .G_vec
                         .iter()
@@ -580,7 +690,7 @@ mod tests {
                         .copied()
                         .collect();
 
-                    let agg_H: Vec<$affine_type> = gens.H(n, m).copied().collect();
+                    let agg_H: Vec<$affine_type> = gens.H(n, m).collect();
                     let flat_H: Vec<$affine_type> = gens
                         .H_vec
                         .iter()
