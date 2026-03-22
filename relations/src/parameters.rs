@@ -2,12 +2,9 @@ use crate::error::Error;
 use crate::lookup::Lookup3Bit;
 use crate::rerandomize::build_tables;
 use ark_dlog_gadget::dlog::DiscreteLogParameters;
-use ark_ec::short_weierstrass::{Affine, Projective, SWCurveConfig};
+use ark_ec::short_weierstrass::{Affine, SWCurveConfig};
 use ark_ec::{AffineRepr, CurveGroup, VariableBaseMSM};
-use ark_ec_divisors::curves::{
-    pallas::PallasParams, pallas::Point as PallasPoint, vesta::Point as VestaPoint,
-    vesta::VestaParams,
-};
+use ark_ec_divisors::curves::{pallas::PallasParams, vesta::VestaParams};
 use ark_ec_divisors::util::GeneratorTable;
 use ark_ec_divisors::DivisorCurve;
 use ark_ff::{PrimeField, Zero};
@@ -121,6 +118,10 @@ impl<P: SWCurveConfig + Copy> SingleLayerParameters<P> {
 
     pub fn pc_gens(&self) -> &PedersenGens<Affine<P>> {
         &self.pc_gens
+    }
+
+    pub fn delta(&self) -> Affine<P> {
+        self.delta
     }
 }
 
@@ -276,7 +277,6 @@ pub struct SingleLayerProofParametersNew<
     DLogParams: DiscreteLogParameters,
 > {
     pub sl_params: SingleLayerParameters<P>,
-    pub tables: Vec<Lookup3Bit<2, P::BaseField>>,
     pub table_b_blinding: GeneratorTable<P::BaseField, DLogParams>,
     pub table_b: GeneratorTable<P::BaseField, DLogParams>,
 }
@@ -284,23 +284,21 @@ pub struct SingleLayerProofParametersNew<
 impl<P: SWCurveConfig<BaseField: PrimeField> + Copy, DLogParams: DiscreteLogParameters>
     SingleLayerProofParametersNew<P, DLogParams>
 {
-    pub fn new<
-        D: DivisorCurve<BaseField = P::BaseField, ScalarField = P::ScalarField> + From<Projective<P>>,
-    >(
-        generators_length: u32,
-    ) -> Result<Self, Error> {
+    pub fn new(generators_length: u32) -> Result<Self, Error> {
         let sl_params = SingleLayerParameters::<P>::new(generators_length)?;
-        let tables = build_tables(sl_params.pc_gens.B_blinding)?;
-        let blinding_generator = D::from(sl_params.pc_gens.B_blinding.into_group());
-        let table_b_blinding = GeneratorTable::<P::BaseField, DLogParams>::new(blinding_generator);
-        let b_generator = D::from(sl_params.pc_gens.B.into_group());
+        Ok(Self::from_single_layer_params(sl_params))
+    }
+
+    pub fn from_single_layer_params(sl_params: SingleLayerParameters<P>) -> Self {
+        let blinding_generator = sl_params.pc_gens.B_blinding.into_group();
+        let table = GeneratorTable::<P::BaseField, DLogParams>::new(blinding_generator);
+        let b_generator = sl_params.pc_gens.B.into_group();
         let table_b = GeneratorTable::<P::BaseField, DLogParams>::new(b_generator);
-        Ok(Self {
+        Self {
             sl_params,
-            tables,
-            table_b_blinding,
+            table_b_blinding: table,
             table_b,
-        })
+        }
     }
 
     pub fn bp_gens(&self) -> &BulletproofGens<Affine<P>> {
@@ -310,27 +308,9 @@ impl<P: SWCurveConfig<BaseField: PrimeField> + Copy, DLogParams: DiscreteLogPara
     pub fn pc_gens(&self) -> &PedersenGens<Affine<P>> {
         self.sl_params.pc_gens()
     }
-}
 
-impl<P: SWCurveConfig<BaseField: PrimeField> + Copy, DLogParams: DiscreteLogParameters>
-    SingleLayerProofParametersNew<P, DLogParams>
-{
-    pub fn from_single_layer_params<
-        D: DivisorCurve<BaseField = P::BaseField, ScalarField = P::ScalarField> + From<Projective<P>>,
-    >(
-        sl_params: SingleLayerParameters<P>,
-    ) -> Self {
-        let tables = build_tables(sl_params.pc_gens.B_blinding).expect("Failed to build tables");
-        let blinding_generator = D::from(sl_params.pc_gens.B_blinding.into_group());
-        let table = GeneratorTable::<P::BaseField, DLogParams>::new(blinding_generator);
-        let b_generator = D::from(sl_params.pc_gens.B.into_group());
-        let table_b = GeneratorTable::<P::BaseField, DLogParams>::new(b_generator);
-        Self {
-            sl_params,
-            tables,
-            table_b_blinding: table,
-            table_b,
-        }
+    pub fn delta(&self) -> Affine<P> {
+        self.sl_params.delta()
     }
 }
 
@@ -346,50 +326,33 @@ pub struct SelRerandProofParametersNew<
 }
 
 impl<
-        P0: SWCurveConfig<BaseField: PrimeField> + Copy,
-        P1: SWCurveConfig<BaseField: PrimeField> + Copy,
+        P0: DivisorCurve + Copy,
+        P1: DivisorCurve + Copy,
         DLog0: DiscreteLogParameters,
         DLog1: DiscreteLogParameters,
     > SelRerandProofParametersNew<P0, P1, DLog0, DLog1>
 {
-    pub fn new<
-        D0: DivisorCurve<BaseField = P0::BaseField, ScalarField = P0::ScalarField>
-            + From<Projective<P0>>,
-        D1: DivisorCurve<BaseField = P1::BaseField, ScalarField = P1::ScalarField>
-            + From<Projective<P1>>,
-    >(
-        even_generators_length: u32,
-        odd_generators_length: u32,
-    ) -> Result<Self, Error> {
+    pub fn new(even_generators_length: u32, odd_generators_length: u32) -> Result<Self, Error> {
         Ok(Self {
-            even_parameters: SingleLayerProofParametersNew::<P0, DLog1>::new::<D0>(
+            even_parameters: SingleLayerProofParametersNew::<P0, DLog1>::new(
                 even_generators_length,
             )?,
-            odd_parameters: SingleLayerProofParametersNew::<P1, DLog0>::new::<D1>(
-                odd_generators_length,
-            )?,
+            odd_parameters: SingleLayerProofParametersNew::<P1, DLog0>::new(odd_generators_length)?,
         })
     }
 
-    pub fn from_sr_params<
-        D0: DivisorCurve<BaseField = P0::BaseField, ScalarField = P0::ScalarField>
-            + From<Projective<P0>>,
-        D1: DivisorCurve<BaseField = P1::BaseField, ScalarField = P1::ScalarField>
-            + From<Projective<P1>>,
-    >(
-        sr_params: SelRerandParameters<P0, P1>,
-    ) -> Self {
+    pub fn from_sr_params(sr_params: SelRerandParameters<P0, P1>) -> Self {
         let SelRerandParameters {
             even_parameters,
             odd_parameters,
         } = sr_params;
         Self {
-            even_parameters: SingleLayerProofParametersNew::<P0, DLog1>::from_single_layer_params::<
-                D0,
-            >(even_parameters),
-            odd_parameters: SingleLayerProofParametersNew::<P1, DLog0>::from_single_layer_params::<
-                D1,
-            >(odd_parameters),
+            even_parameters: SingleLayerProofParametersNew::<P0, DLog1>::from_single_layer_params(
+                even_parameters,
+            ),
+            odd_parameters: SingleLayerProofParametersNew::<P1, DLog0>::from_single_layer_params(
+                odd_parameters,
+            ),
         }
     }
 
@@ -463,7 +426,7 @@ macro_rules! impl_sel_rerand_new_using_label {
             }
         }
     };
-    (SelRerandProofParametersNew, $even_config:ty, $odd_config:ty, $dlog_params_0:ty, $dlog_params_1:ty, $div0:ty, $div1:ty) => {
+    (SelRerandProofParametersNew, $even_config:ty, $odd_config:ty, $dlog_params_0:ty, $dlog_params_1:ty) => {
         impl SelRerandProofParametersNew<$even_config, $odd_config, $dlog_params_0, $dlog_params_1> {
             pub fn new_using_label(
                 label: &[u8],
@@ -471,10 +434,10 @@ macro_rules! impl_sel_rerand_new_using_label {
                 odd_generators_length: u32,
             ) -> Result<Self, Error> {
                 Ok(Self {
-                    even_parameters: SingleLayerProofParametersNew::<$even_config, $dlog_params_1>::from_single_layer_params::<$div0>(
+                    even_parameters: SingleLayerProofParametersNew::<$even_config, $dlog_params_1>::from_single_layer_params(
                         SingleLayerParameters::<$even_config>::new_using_label(label, even_generators_length)?
                     ),
-                    odd_parameters: SingleLayerProofParametersNew::<$odd_config, $dlog_params_0>::from_single_layer_params::<$div1>(
+                    odd_parameters: SingleLayerProofParametersNew::<$odd_config, $dlog_params_0>::from_single_layer_params(
                         SingleLayerParameters::<$odd_config>::new_using_label(label, odd_generators_length)?
                     ),
                 })
@@ -494,16 +457,12 @@ impl_sel_rerand_new_using_label!(
     PallasConfig,
     VestaConfig,
     PallasParams,
-    VestaParams,
-    PallasPoint,
-    VestaPoint
+    VestaParams
 );
 impl_sel_rerand_new_using_label!(
     SelRerandProofParametersNew,
     VestaConfig,
     PallasConfig,
     VestaParams,
-    PallasParams,
-    VestaPoint,
-    PallasPoint
+    PallasParams
 );

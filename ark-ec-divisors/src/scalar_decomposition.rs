@@ -1,5 +1,7 @@
 use crate::util::GeneratorMultiplesSource;
-use crate::{DivisorCurve, DivisorPoly, XyPoint, error::Error, new_divisor};
+use crate::{DivisorCurve, DivisorPoly, error::Error, new_divisor};
+use ark_ec::AdditiveGroup;
+use ark_ec::short_weierstrass::Projective;
 use ark_ff::{BigInteger, PrimeField};
 use ark_std::borrow::Borrow;
 use ark_std::{vec, vec::Vec};
@@ -204,31 +206,29 @@ impl<F: PrimeField> ScalarDecomposition<F> {
         let _ = usize::try_from(F::MODULUS_BIT_SIZE + 2)
             .expect("MODULUS_BIT_SIZE + 2 didn't fit in usize");
         let num_bits = u64::from(F::MODULUS_BIT_SIZE);
-        let mut divisor_points = vec![C::XyPoint::IDENTITY; num_bits as usize + 1];
+        let mut divisor_points = vec![<Projective<C>>::ZERO; num_bits as usize + 1];
 
         let mut generator_iter = generator_source.iter();
-        let generator = generator_iter.next().unwrap();
+        let generator: Projective<C> = generator_iter.next().unwrap();
 
         // NOTE: Even this does not need to be direct multiplication as we have multiples of generator in the iterator
         // Write the inverse of the resulting point
         // divisor_points[0] = -(generator * self.scalar)
-        divisor_points[0] = C::XyPoint::from(generator.mul(-self.scalar));
-        let mut generator = C::XyPoint::from(generator);
+        divisor_points[0] = generator * (-self.scalar);
+        let mut generator_point: Projective<C> = generator;
 
         // Write the decomposition
         let mut write_above: u64 = 0;
         for (j, coefficient) in self.decomposition.iter().enumerate() {
             for i in 1..=num_bits {
-                // if i > write_above {
-                //     divisor_points[i] = generator;
-                // }
-                divisor_points[i as usize]
-                    .conditional_assign(&generator, u64::from(i).ct_gt(&write_above));
+                if i > write_above {
+                    divisor_points[i as usize] = generator_point;
+                }
             }
 
             write_above += coefficient;
             if j < (self.decomposition.len() - 1) {
-                generator = C::XyPoint::from(generator_iter.next().unwrap());
+                generator_point = generator_iter.next().unwrap();
             }
         }
 
@@ -242,36 +242,44 @@ impl<F: PrimeField> ScalarDecomposition<F> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ark_std::UniformRand;
-    use std::time::{Duration, Instant};
-    // use dock_crypto_utils::ff::powers;
     use crate::scalar_decomposition::ScalarDecomposition;
     use crate::util::{DirectGenerator, DiscreteLogParameter, GeneratorTable};
+    use ark_ec::short_weierstrass::Projective;
+    use ark_ec::{AffineRepr, CurveGroup};
+    use ark_std::UniformRand;
     use rand::prelude::StdRng;
     use rand_core::SeedableRng;
+    use std::time::{Duration, Instant};
 
-    use crate::curves::pallas::{PallasParams, Point as PallasPoint};
-    use ark_pallas::{Fq, Fr};
-
-    use crate::curves::vesta::{Point as VestaPoint, VestaParams};
-
+    use crate::curves::pallas::PallasParams;
+    use ark_pallas::{Fq, Fr, PallasConfig};
     type PallasBase = Fq;
     type PallasScalar = Fr;
 
+    use crate::curves::vesta::VestaParams;
+    use ark_vesta::VestaConfig;
     type VestaBase = Fr;
     type VestaScalar = Fq;
 
-    use crate::curves::helios::{HeliosParams, Point as HeliosPoint};
+    use crate::curves::helios::HeliosParams;
+    use ark_helios::HeliosConfig;
     type HeliosBase = ark_helios::Fq;
     type HeliosScalar = ark_helios::Fr;
 
-    use crate::curves::selene::{Point as SelenePoint, SeleneParams};
+    use crate::curves::selene::SeleneParams;
+    use ark_selene::SeleneConfig;
     type SeleneBase = ark_selene::Fq;
     type SeleneScalar = ark_selene::Fr;
 
-    use crate::curves::wei25519::{Point as Wei25519Point, Wei25519Params};
+    use crate::curves::wei25519::Wei25519Params;
+    use ark_wei25519::Wei25519Config;
     type Wei25519Base = ark_wei25519::Fq;
     type Wei25519Scalar = ark_wei25519::Fr;
+
+    fn to_xy_helper<C: DivisorCurve>(p: Projective<C>) -> Option<(C::BaseField, C::BaseField)> {
+        let a = p.into_affine();
+        if a.is_zero() { None } else { Some((a.x, a.y)) }
+    }
 
     #[test]
     fn generator_source_equivalence() {
@@ -279,10 +287,10 @@ mod tests {
             count: usize,
         ) {
             let mut rng = StdRng::seed_from_u64(0);
-            let generator = C::random(&mut rng);
+            let generator = Projective::<C>::rand(&mut rng);
 
             // Create generator table
-            let table = GeneratorTable::<B, Params>::new(generator);
+            let table = GeneratorTable::<B, Params>::new::<C>(generator);
 
             let mut time_direct = Duration::default();
             let mut time_table = Duration::default();
@@ -313,19 +321,19 @@ mod tests {
         let count = 10;
 
         println!("Testing Pallas");
-        check::<PallasPoint, PallasParams, PallasBase>(count);
+        check::<PallasConfig, PallasParams, PallasBase>(count);
 
         println!("Testing Vesta");
-        check::<VestaPoint, VestaParams, VestaBase>(count);
+        check::<VestaConfig, VestaParams, VestaBase>(count);
 
         println!("Testing Helios");
-        check::<HeliosPoint, HeliosParams, HeliosBase>(count);
+        check::<HeliosConfig, HeliosParams, HeliosBase>(count);
 
         println!("Testing Selene");
-        check::<SelenePoint, SeleneParams, SeleneBase>(count);
+        check::<SeleneConfig, SeleneParams, SeleneBase>(count);
 
         println!("Testing Wei25519");
-        check::<Wei25519Point, Wei25519Params, Wei25519Base>(count);
+        check::<Wei25519Config, Wei25519Params, Wei25519Base>(count);
     }
 
     #[test]
@@ -340,8 +348,6 @@ mod tests {
 
             assert!(ScalarDecomposition::new(S::ZERO).is_err());
 
-            // let two = S::from(2_u64);
-            // let powers_of_2 = powers::<S>(&two, S::MODULUS_BIT_SIZE);
             let mut powers_of_2 = vec![S::ONE];
             for i in 1..S::MODULUS_BIT_SIZE as usize {
                 powers_of_2.push(powers_of_2[i - 1].double());
@@ -376,7 +382,7 @@ mod tests {
                 }
                 assert_eq!(reconstructed, scalar);
 
-                let generator = C::random(&mut rng);
+                let generator = Projective::<C>::rand(&mut rng);
 
                 let mul_start = Instant::now();
                 let poly = decomposition
@@ -385,15 +391,15 @@ mod tests {
                 scalar_mul_times.push(mul_start.elapsed());
 
                 // Vanishes at -(s * G)
-                let neg_s_g = generator.mul(-scalar);
-                let (x, y) = C::to_xy(neg_s_g).unwrap();
+                let neg_s_g = generator * (-scalar);
+                let (x, y) = to_xy_helper::<C>(neg_s_g).unwrap();
                 assert_eq!(poly.eval(x, y), B::ZERO);
 
                 // Vanishes at 2^i * G for each coefficient count
                 let mut p = generator;
                 for &coeff in coeffs {
                     if coeff > 0 {
-                        let (x, y) = C::to_xy(p).unwrap();
+                        let (x, y) = to_xy_helper::<C>(p).unwrap();
                         assert_eq!(poly.eval(x, y), B::ZERO);
                     }
                     p = p.double();
@@ -417,18 +423,18 @@ mod tests {
         let count = 30;
 
         println!("Testing Pallas");
-        check::<PallasPoint, PallasBase, PallasScalar>(count);
+        check::<PallasConfig, PallasBase, PallasScalar>(count);
 
         println!("Testing Vesta");
-        check::<VestaPoint, VestaBase, VestaScalar>(count);
+        check::<VestaConfig, VestaBase, VestaScalar>(count);
 
         println!("Testing Helios");
-        check::<HeliosPoint, HeliosBase, HeliosScalar>(count);
+        check::<HeliosConfig, HeliosBase, HeliosScalar>(count);
 
         println!("Testing Selene");
-        check::<SelenePoint, SeleneBase, SeleneScalar>(count);
+        check::<SeleneConfig, SeleneBase, SeleneScalar>(count);
 
         println!("Testing Wei25519");
-        check::<Wei25519Point, Wei25519Base, Wei25519Scalar>(count);
+        check::<Wei25519Config, Wei25519Base, Wei25519Scalar>(count);
     }
 }

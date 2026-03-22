@@ -1,16 +1,13 @@
 extern crate bulletproofs;
 extern crate relations;
 use ark_dlog_gadget::dlog::DiscreteLogParameters;
-use ark_ec::short_weierstrass::Projective;
 use ark_ec::{
     short_weierstrass::{Affine, SWCurveConfig},
     AffineRepr, CurveGroup,
 };
 use ark_ec_divisors::{
     curves::{
-        helios::HeliosParams, helios::Point as HeliosPoint, pallas::PallasParams,
-        pallas::Point as PallasPoint, selene::Point as SelenePoint, selene::SeleneParams,
-        vesta::Point as VestaPoint, vesta::VestaParams,
+        helios::HeliosParams, pallas::PallasParams, selene::SeleneParams, vesta::VestaParams,
     },
     DivisorCurve,
 };
@@ -1022,8 +1019,6 @@ pub fn test_curve_tree_odd_depth_divisor() {
         VestaConfig,
         PallasParams,
         VestaParams,
-        PallasPoint,
-        VestaPoint,
     >(Some(3), 11, 8, 3);
     test_curve_tree_with_parameters_newer::<
         32,
@@ -1032,8 +1027,6 @@ pub fn test_curve_tree_odd_depth_divisor() {
         VestaConfig,
         PallasParams,
         VestaParams,
-        PallasPoint,
-        VestaPoint,
     >(Some(3), 11, 4, 3);
     test_curve_tree_with_parameters_newer::<
         32,
@@ -1042,8 +1035,6 @@ pub fn test_curve_tree_odd_depth_divisor() {
         VestaConfig,
         PallasParams,
         VestaParams,
-        PallasPoint,
-        VestaPoint,
     >(Some(3), 11, 16, 5);
 
     test_curve_tree_with_parameters_newer::<
@@ -1053,8 +1044,6 @@ pub fn test_curve_tree_odd_depth_divisor() {
         SeleneConfig,
         HeliosParams,
         SeleneParams,
-        HeliosPoint,
-        SelenePoint,
     >(Some(3), 11, 8, 3);
     test_curve_tree_with_parameters_newer::<
         32,
@@ -1063,8 +1052,6 @@ pub fn test_curve_tree_odd_depth_divisor() {
         SeleneConfig,
         HeliosParams,
         SeleneParams,
-        HeliosPoint,
-        SelenePoint,
     >(Some(3), 11, 4, 3);
     test_curve_tree_with_parameters_newer::<
         32,
@@ -1073,8 +1060,6 @@ pub fn test_curve_tree_odd_depth_divisor() {
         SeleneConfig,
         HeliosParams,
         SeleneParams,
-        HeliosPoint,
-        SelenePoint,
     >(Some(3), 11, 16, 5);
 }
 
@@ -1087,8 +1072,6 @@ pub fn test_curve_tree_even_depth_divisor() {
         VestaConfig,
         PallasParams,
         VestaParams,
-        PallasPoint,
-        VestaPoint,
     >(Some(4), 11, 4, 3);
     test_curve_tree_with_parameters_newer::<
         32,
@@ -1097,8 +1080,6 @@ pub fn test_curve_tree_even_depth_divisor() {
         VestaConfig,
         PallasParams,
         VestaParams,
-        PallasPoint,
-        VestaPoint,
     >(Some(6), 11, 8, 3);
     test_curve_tree_with_parameters_newer::<
         32,
@@ -1107,8 +1088,6 @@ pub fn test_curve_tree_even_depth_divisor() {
         VestaConfig,
         PallasParams,
         VestaParams,
-        PallasPoint,
-        VestaPoint,
     >(Some(4), 11, 16, 5);
 
     test_curve_tree_with_parameters_newer::<
@@ -1118,8 +1097,6 @@ pub fn test_curve_tree_even_depth_divisor() {
         SeleneConfig,
         HeliosParams,
         SeleneParams,
-        HeliosPoint,
-        SelenePoint,
     >(Some(4), 11, 4, 3);
     test_curve_tree_with_parameters_newer::<
         32,
@@ -1128,8 +1105,6 @@ pub fn test_curve_tree_even_depth_divisor() {
         SeleneConfig,
         HeliosParams,
         SeleneParams,
-        HeliosPoint,
-        SelenePoint,
     >(Some(6), 11, 8, 3);
     test_curve_tree_with_parameters_newer::<
         32,
@@ -1138,8 +1113,6 @@ pub fn test_curve_tree_even_depth_divisor() {
         SeleneConfig,
         HeliosParams,
         SeleneParams,
-        HeliosPoint,
-        SelenePoint,
     >(Some(4), 11, 16, 5);
 }
 
@@ -1152,8 +1125,6 @@ pub fn test_curve_tree_even_depth_large_divisor() {
         VestaConfig,
         PallasParams,
         VestaParams,
-        PallasPoint,
-        VestaPoint,
     >(Some(4), 13, 64, 15);
     test_curve_tree_with_parameters_newer::<
         64,
@@ -1162,8 +1133,6 @@ pub fn test_curve_tree_even_depth_large_divisor() {
         VestaConfig,
         PallasParams,
         VestaParams,
-        PallasPoint,
-        VestaPoint,
     >(Some(4), 13, 128, 15);
     test_curve_tree_with_parameters_newer::<
         64,
@@ -1172,8 +1141,6 @@ pub fn test_curve_tree_even_depth_large_divisor() {
         VestaConfig,
         PallasParams,
         VestaParams,
-        PallasPoint,
-        VestaPoint,
     >(Some(4), 13, 256, 15);
 
     test_curve_tree_with_parameters_newer::<
@@ -1183,8 +1150,6 @@ pub fn test_curve_tree_even_depth_large_divisor() {
         VestaConfig,
         PallasParams,
         VestaParams,
-        PallasPoint,
-        VestaPoint,
     >(None, 13, 64, 15);
     test_curve_tree_with_parameters_newer::<
         256,
@@ -1193,8 +1158,6 @@ pub fn test_curve_tree_even_depth_large_divisor() {
         VestaConfig,
         PallasParams,
         VestaParams,
-        PallasPoint,
-        VestaPoint,
     >(None, 13, 128, 15);
     test_curve_tree_with_parameters_newer::<
         256,
@@ -1203,8 +1166,6 @@ pub fn test_curve_tree_even_depth_large_divisor() {
         VestaConfig,
         PallasParams,
         VestaParams,
-        PallasPoint,
-        VestaPoint,
     >(None, 13, 256, 15);
 
     test_curve_tree_with_parameters_newer::<
@@ -1214,8 +1175,6 @@ pub fn test_curve_tree_even_depth_large_divisor() {
         SeleneConfig,
         HeliosParams,
         SeleneParams,
-        HeliosPoint,
-        SelenePoint,
     >(Some(4), 13, 64, 15);
     test_curve_tree_with_parameters_newer::<
         64,
@@ -1224,8 +1183,6 @@ pub fn test_curve_tree_even_depth_large_divisor() {
         SeleneConfig,
         HeliosParams,
         SeleneParams,
-        HeliosPoint,
-        SelenePoint,
     >(Some(4), 13, 128, 15);
     test_curve_tree_with_parameters_newer::<
         64,
@@ -1234,8 +1191,6 @@ pub fn test_curve_tree_even_depth_large_divisor() {
         SeleneConfig,
         HeliosParams,
         SeleneParams,
-        HeliosPoint,
-        SelenePoint,
     >(Some(4), 13, 256, 15);
 
     test_curve_tree_with_parameters_newer::<
@@ -1245,8 +1200,6 @@ pub fn test_curve_tree_even_depth_large_divisor() {
         SeleneConfig,
         HeliosParams,
         SeleneParams,
-        HeliosPoint,
-        SelenePoint,
     >(None, 13, 64, 15);
     test_curve_tree_with_parameters_newer::<
         256,
@@ -1255,8 +1208,6 @@ pub fn test_curve_tree_even_depth_large_divisor() {
         SeleneConfig,
         HeliosParams,
         SeleneParams,
-        HeliosPoint,
-        SelenePoint,
     >(None, 13, 128, 15);
     test_curve_tree_with_parameters_newer::<
         256,
@@ -1265,8 +1216,6 @@ pub fn test_curve_tree_even_depth_large_divisor() {
         SeleneConfig,
         HeliosParams,
         SeleneParams,
-        HeliosPoint,
-        SelenePoint,
     >(None, 13, 256, 15);
 }
 
@@ -1279,8 +1228,6 @@ pub fn test_curve_tree_odd_depth_large_divisor() {
         VestaConfig,
         PallasParams,
         VestaParams,
-        PallasPoint,
-        VestaPoint,
     >(Some(3), 11, 64, 10);
 
     test_curve_tree_with_parameters_newer::<
@@ -1290,20 +1237,16 @@ pub fn test_curve_tree_odd_depth_large_divisor() {
         SeleneConfig,
         HeliosParams,
         SeleneParams,
-        HeliosPoint,
-        SelenePoint,
     >(Some(3), 11, 64, 10);
 }
 
 pub fn test_curve_tree_with_parameters_newer<
     const L: usize,
     F: PrimeField,
-    P0: SWCurveConfig<BaseField = F> + Copy,
-    P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = P0::BaseField> + Copy,
+    P0: DivisorCurve<BaseField = F> + Copy,
+    P1: DivisorCurve<BaseField = P0::ScalarField, ScalarField = P0::BaseField> + Copy,
     Params0: DiscreteLogParameters,
     Params1: DiscreteLogParameters,
-    D0: DivisorCurve<BaseField = P0::BaseField, ScalarField = P0::ScalarField> + From<Projective<P0>>,
-    D1: DivisorCurve<BaseField = P1::BaseField, ScalarField = P1::ScalarField> + From<Projective<P1>>,
 >(
     depth: Option<usize>,
     generators_length_log_2: usize,
@@ -1313,7 +1256,7 @@ pub fn test_curve_tree_with_parameters_newer<
     let mut rng = thread_rng();
     let generators_length = 1 << generators_length_log_2;
 
-    let sr_proof_params = SelRerandProofParametersNew::<P0, P1, Params0, Params1>::new::<D0, D1>(
+    let sr_proof_params = SelRerandProofParametersNew::<P0, P1, Params0, Params1>::new(
         generators_length,
         generators_length,
     )
@@ -1357,7 +1300,7 @@ pub fn test_curve_tree_with_parameters_newer<
             .get_path_to_leaf_for_proof(*leaf_index, 0)
             .unwrap();
         let (path_commitments, re_randomization_of_leaf) = path
-            .select_and_rerandomize_prover_gadget_new::<_, D0, D1, Params0, Params1>(
+            .select_and_rerandomize_prover_gadget_new::<_, Params0, Params1>(
                 &mut pallas_prover,
                 &mut vesta_prover,
                 &sr_proof_params,
@@ -1444,8 +1387,6 @@ pub fn test_combined_vs_common_root_path_proofs_divisor() {
         VestaConfig,
         PallasParams,
         VestaParams,
-        PallasPoint,
-        VestaPoint,
     >(4, 12, 2);
     check_combined_vs_common_root_proofs_with_parameters_divisor::<
         32,
@@ -1454,8 +1395,6 @@ pub fn test_combined_vs_common_root_path_proofs_divisor() {
         VestaConfig,
         PallasParams,
         VestaParams,
-        PallasPoint,
-        VestaPoint,
     >(4, 13, 3);
     check_combined_vs_common_root_proofs_with_parameters_divisor::<
         32,
@@ -1464,8 +1403,6 @@ pub fn test_combined_vs_common_root_path_proofs_divisor() {
         VestaConfig,
         PallasParams,
         VestaParams,
-        PallasPoint,
-        VestaPoint,
     >(4, 13, 4);
     check_combined_vs_common_root_proofs_with_parameters_divisor::<
         32,
@@ -1474,8 +1411,6 @@ pub fn test_combined_vs_common_root_path_proofs_divisor() {
         VestaConfig,
         PallasParams,
         VestaParams,
-        PallasPoint,
-        VestaPoint,
     >(3, 13, 2);
     check_combined_vs_common_root_proofs_with_parameters_divisor::<
         32,
@@ -1484,8 +1419,6 @@ pub fn test_combined_vs_common_root_path_proofs_divisor() {
         VestaConfig,
         PallasParams,
         VestaParams,
-        PallasPoint,
-        VestaPoint,
     >(3, 13, 3);
     check_combined_vs_common_root_proofs_with_parameters_divisor::<
         32,
@@ -1494,8 +1427,6 @@ pub fn test_combined_vs_common_root_path_proofs_divisor() {
         VestaConfig,
         PallasParams,
         VestaParams,
-        PallasPoint,
-        VestaPoint,
     >(3, 13, 4);
 
     check_combined_vs_common_root_proofs_with_parameters_divisor::<
@@ -1505,8 +1436,6 @@ pub fn test_combined_vs_common_root_path_proofs_divisor() {
         SeleneConfig,
         HeliosParams,
         SeleneParams,
-        HeliosPoint,
-        SelenePoint,
     >(4, 12, 2);
     check_combined_vs_common_root_proofs_with_parameters_divisor::<
         32,
@@ -1515,8 +1444,6 @@ pub fn test_combined_vs_common_root_path_proofs_divisor() {
         SeleneConfig,
         HeliosParams,
         SeleneParams,
-        HeliosPoint,
-        SelenePoint,
     >(4, 13, 3);
     check_combined_vs_common_root_proofs_with_parameters_divisor::<
         32,
@@ -1525,8 +1452,6 @@ pub fn test_combined_vs_common_root_path_proofs_divisor() {
         SeleneConfig,
         HeliosParams,
         SeleneParams,
-        HeliosPoint,
-        SelenePoint,
     >(4, 13, 4);
     check_combined_vs_common_root_proofs_with_parameters_divisor::<
         32,
@@ -1535,8 +1460,6 @@ pub fn test_combined_vs_common_root_path_proofs_divisor() {
         SeleneConfig,
         HeliosParams,
         SeleneParams,
-        HeliosPoint,
-        SelenePoint,
     >(3, 13, 2);
     check_combined_vs_common_root_proofs_with_parameters_divisor::<
         32,
@@ -1545,8 +1468,6 @@ pub fn test_combined_vs_common_root_path_proofs_divisor() {
         SeleneConfig,
         HeliosParams,
         SeleneParams,
-        HeliosPoint,
-        SelenePoint,
     >(3, 13, 3);
     check_combined_vs_common_root_proofs_with_parameters_divisor::<
         32,
@@ -1555,20 +1476,16 @@ pub fn test_combined_vs_common_root_path_proofs_divisor() {
         SeleneConfig,
         HeliosParams,
         SeleneParams,
-        HeliosPoint,
-        SelenePoint,
     >(3, 13, 4);
 }
 
 pub fn check_combined_vs_common_root_proofs_with_parameters_divisor<
     const L: usize,
     F: PrimeField,
-    P0: SWCurveConfig<BaseField = F> + Copy,
-    P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = P0::BaseField> + Copy,
+    P0: DivisorCurve<BaseField = F> + Copy,
+    P1: DivisorCurve<BaseField = P0::ScalarField, ScalarField = P0::BaseField> + Copy,
     Params0: DiscreteLogParameters,
     Params1: DiscreteLogParameters,
-    D0: DivisorCurve<BaseField = P0::BaseField, ScalarField = P0::ScalarField> + From<Projective<P0>>,
-    D1: DivisorCurve<BaseField = P1::BaseField, ScalarField = P1::ScalarField> + From<Projective<P1>>,
 >(
     depth: usize,
     generators_length_log_2: usize,
@@ -1577,7 +1494,7 @@ pub fn check_combined_vs_common_root_proofs_with_parameters_divisor<
     let mut rng = thread_rng();
     let generators_length = 1 << generators_length_log_2;
 
-    let sr_proof_params = SelRerandProofParametersNew::<P0, P1, Params0, Params1>::new::<D0, D1>(
+    let sr_proof_params = SelRerandProofParametersNew::<P0, P1, Params0, Params1>::new(
         generators_length,
         generators_length,
     )
@@ -1616,7 +1533,7 @@ pub fn check_combined_vs_common_root_proofs_with_parameters_divisor<
     for i in 0..num_paths {
         let path = curve_tree.get_path_to_leaf_for_proof(i, 0).unwrap();
         let (path_commitments, rl) = path
-            .select_and_rerandomize_prover_gadget_new::<_, D0, D1, Params0, Params1>(
+            .select_and_rerandomize_prover_gadget_new::<_, Params0, Params1>(
                 &mut pallas_prover,
                 &mut vesta_prover,
                 &sr_proof_params,
@@ -1700,7 +1617,7 @@ pub fn check_combined_vs_common_root_proofs_with_parameters_divisor<
         .unwrap();
 
     let (all_path_commitments, all_leaf_rerandomizations) = witness_paths_with_same_root
-        .select_and_rerandomize_prover_gadget_new::<_, D0, D1, Params0, Params1>(
+        .select_and_rerandomize_prover_gadget_new::<_, Params0, Params1>(
             &mut pallas_prover,
             &mut vesta_prover,
             &sr_proof_params,

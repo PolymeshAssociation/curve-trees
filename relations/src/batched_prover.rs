@@ -28,16 +28,14 @@ impl<
         const M: usize,
         F0: PrimeField,
         F1: PrimeField,
-        P0: SWCurveConfig<BaseField = F1, ScalarField = F0> + Copy,
-        P1: SWCurveConfig<BaseField = F0, ScalarField = F1> + Copy,
+        P0: DivisorCurve<BaseField = F1, ScalarField = F0> + Copy,
+        P1: DivisorCurve<BaseField = F0, ScalarField = F1> + Copy,
     > CurveTreeWitnessMultiPath<L, M, P0, P1>
 {
     /// Divisor-based batched select and rerandomize prover gadget.
     /// Returns path commitments, leaf rerandomizations, and divisor commitments for root, non-root levels, and leaves.
     pub fn batched_select_and_rerandomize_prover_gadget_new<
         R: CryptoRngCore,
-        D0: DivisorCurve<BaseField = F1, ScalarField = F0> + From<Projective<P0>>,
-        D1: DivisorCurve<BaseField = F0, ScalarField = F1> + From<Projective<P1>>,
         Parameters0: DiscreteLogParameters,
         Parameters1: DiscreteLogParameters,
     >(
@@ -76,7 +74,7 @@ impl<
 
         if root_is_even {
             let (sum_x_var, sum_y_var, x, y, divisor_comms, p) =
-                Self::select_and_commit_divisor_for_root::<_, D1, Parameters0>(
+                Self::select_and_commit_divisor_for_root::<_, Parameters0>(
                     rng,
                     even_prover,
                     num_indices,
@@ -92,7 +90,6 @@ impl<
             let (sum_x_var, sum_y_var, x, y, divisor_comms, p) =
                 CurveTreeWitnessMultiPath::<L, M, P1, P0>::select_and_commit_divisor_for_root::<
                     _,
-                    D0,
                     Parameters1,
                 >(
                     rng,
@@ -116,7 +113,7 @@ impl<
             }
 
             let (sum_x_var, sum_y_var, x, y, divisor_comms, p) =
-                Self::select_and_commit_divisor_for_non_root::<_, D1, Parameters0>(
+                Self::select_and_commit_divisor_for_non_root::<_, Parameters0>(
                     rng,
                     even_prover,
                     num_indices,
@@ -140,7 +137,7 @@ impl<
             }
 
             if index < (self.odd_internal_nodes.len() - 1) {
-                let (sum_x_var, sum_y_var, x, y, divisor_comms, p) = CurveTreeWitnessMultiPath::<L, M, P1, P0>::select_and_commit_divisor_for_non_root::<_, D0, Parameters1>(
+                let (sum_x_var, sum_y_var, x, y, divisor_comms, p) = CurveTreeWitnessMultiPath::<L, M, P1, P0>::select_and_commit_divisor_for_non_root::<_, Parameters1>(
                     rng,
                     odd_prover,
                     num_indices,
@@ -218,14 +215,13 @@ impl<
                     .into_affine();
                 let (x, y) = rerandomized_plus_delta.xy().unwrap();
 
-                let (divisor_comms, p) =
-                    create_and_commit_divisor::<_, F1, F0, P1, P0, D0, Parameters1>(
-                        rng,
-                        odd_prover,
-                        rerandomization_scalars_of_selected[i],
-                        &parameters.even_parameters.table_b_blinding,
-                        &parameters.odd_parameters.sl_params.bp_gens,
-                    )?;
+                let (divisor_comms, p) = create_and_commit_divisor::<_, F1, F0, P1, P0, Parameters1>(
+                    rng,
+                    odd_prover,
+                    rerandomization_scalars_of_selected[i],
+                    &parameters.even_parameters.table_b_blinding,
+                    &parameters.odd_parameters.sl_params.bp_gens,
+                )?;
 
                 odd_node_comms.push(divisor_comms);
                 odd_node_divisors.push((x_var.into(), y_var.into(), x, y, p));
@@ -258,11 +254,7 @@ impl<
         ))
     }
 
-    fn select_and_commit_divisor_for_root<
-        R: CryptoRngCore,
-        D1: DivisorCurve<BaseField = F0, ScalarField = F1> + From<Projective<P1>>,
-        Parameters0: DiscreteLogParameters,
-    >(
+    fn select_and_commit_divisor_for_root<R: CryptoRngCore, Parameters0: DiscreteLogParameters>(
         rng: &mut R,
         prover: &mut Prover<MerlinTranscript, Affine<P0>>,
         num_indices: u32,
@@ -306,7 +298,7 @@ impl<
         let (x, y) = shifted_rerandomized.xy().unwrap();
 
         // Create single divisor proof for the sum
-        let (divisor_comms, p) = create_and_commit_divisor::<_, F0, F1, P0, P1, D1, Parameters0>(
+        let (divisor_comms, p) = create_and_commit_divisor::<_, F0, F1, P0, P1, Parameters0>(
             rng,
             prover,
             child_re_randomization,
@@ -318,7 +310,6 @@ impl<
 
     fn select_and_commit_divisor_for_non_root<
         R: CryptoRngCore,
-        D1: DivisorCurve<BaseField = F0, ScalarField = F1> + From<Projective<P1>>,
         Parameters0: DiscreteLogParameters,
     >(
         rng: &mut R,
@@ -366,7 +357,7 @@ impl<
         .into_affine();
         let (x, y) = shifted_rerandomized.xy().unwrap();
 
-        let (divisor_comms, p) = create_and_commit_divisor::<_, F0, F1, P0, P1, D1, Parameters0>(
+        let (divisor_comms, p) = create_and_commit_divisor::<_, F0, F1, P0, P1, Parameters0>(
             rng,
             prover,
             child_re_randomization,

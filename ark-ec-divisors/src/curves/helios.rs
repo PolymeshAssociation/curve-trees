@@ -1,5 +1,5 @@
 use crate::Interpolator;
-use crate::curves::sw::{HasInterpolator, SwCurvePoint};
+use crate::curves::DivisorCurve;
 use crate::util::DiscreteLogParameter;
 use ark_ff::PrimeField;
 use ark_helios::{Fq, Fr, HeliosConfig};
@@ -8,13 +8,12 @@ use spin::Once;
 
 static HELIOS_INTERPOLATOR: Once<Interpolator<Fq>> = Once::new();
 
-impl HasInterpolator for HeliosConfig {
-    fn get_interpolator() -> &'static Interpolator<Fq> {
+impl DivisorCurve for HeliosConfig {
+    type BorrowedInterpolator = &'static Interpolator<Fq>;
+    fn interpolator_for_scalar_mul() -> Self::BorrowedInterpolator {
         HELIOS_INTERPOLATOR.call_once(|| Interpolator::new(130))
     }
 }
-
-pub type Point = SwCurvePoint<HeliosConfig>;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct HeliosParams;

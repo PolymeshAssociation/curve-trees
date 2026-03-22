@@ -9,12 +9,13 @@ use zeroize::Zeroize;
 /// are univariate polynomials in x, reduced modulo the curve equation y^2 = x^3 + Ax + B.
 #[derive(Clone, Debug, Zeroize, Eq)]
 pub struct DivisorPoly<F: PrimeField> {
-    /// `c[i] * y^(i + 1)`
-    // TODO: This should not be a vec. It only degree 1 y-term.
-    pub y_coefficients: Vec<F>,
-    /// `c[i][j] * y^(i + 1) x^(j + 1)`
-    // TODO: This should not be a vec of vecs. It only 1 yx-term.
-    pub yx_coefficients: Vec<Vec<F>>,
+    /// The coefficient for the `y^1` term.
+    /// After reduction modulo `y^2 = x^3 + Ax + B`, only a single y-degree-1 term remains.
+    pub y_coefficient: F,
+    /// `c[j] * y^1 * x^(j + 1)`
+    /// After reduction there is only one y-degree, so this is a flat vec of x-coefficients
+    /// for the mixed `y x^j` terms.
+    pub yx_coefficients: Vec<F>,
     /// `c[i] * x^(i + 1)`
     pub x_coefficients: Vec<F>,
     /// Coefficient for `x^0`, `y^0`, and `x^0 y^0` (the coefficient for 1)
@@ -24,55 +25,31 @@ pub struct DivisorPoly<F: PrimeField> {
 impl<F: PrimeField> PartialEq for DivisorPoly<F> {
     // This is not constant time and is not meant to be
     fn eq(&self, b: &DivisorPoly<F>) -> bool {
+        if self.y_coefficient != b.y_coefficient {
+            return false;
+        }
+
+        // `yx_coefficients` should be same of both except one of `yx_coefficients` could be padded with 0s.
         {
-            let mutual_y_coefficients = self.y_coefficients.len().min(b.y_coefficients.len());
-            if self.y_coefficients[..mutual_y_coefficients]
-                != b.y_coefficients[..mutual_y_coefficients]
+            let mutual_yx_coefficients = self.yx_coefficients.len().min(b.yx_coefficients.len());
+            if self.yx_coefficients[..mutual_yx_coefficients]
+                != b.yx_coefficients[..mutual_yx_coefficients]
             {
                 return false;
             }
-            for coeff in &self.y_coefficients[mutual_y_coefficients..] {
+            for coeff in &self.yx_coefficients[mutual_yx_coefficients..] {
                 if *coeff != F::zero() {
                     return false;
                 }
             }
-            for coeff in &b.y_coefficients[mutual_y_coefficients..] {
+            for coeff in &b.yx_coefficients[mutual_yx_coefficients..] {
                 if *coeff != F::zero() {
                     return false;
                 }
             }
         }
 
-        {
-            for (i, yx_coeffs) in self.yx_coefficients.iter().enumerate() {
-                for (j, coeff) in yx_coeffs.iter().enumerate() {
-                    if coeff
-                        != b.yx_coefficients
-                            .get(i)
-                            .unwrap_or(&vec![])
-                            .get(j)
-                            .unwrap_or(&F::zero())
-                    {
-                        return false;
-                    }
-                }
-            }
-            for (i, yx_coeffs) in b.yx_coefficients.iter().enumerate() {
-                for (j, coeff) in yx_coeffs.iter().enumerate() {
-                    if coeff
-                        != self
-                            .yx_coefficients
-                            .get(i)
-                            .unwrap_or(&vec![])
-                            .get(j)
-                            .unwrap_or(&F::zero())
-                    {
-                        return false;
-                    }
-                }
-            }
-        }
-
+        // `x_coefficients` should be same of both except one of `x_coefficients` could be padded with 0s.
         {
             let mutual_x_coefficients = self.x_coefficients.len().min(b.x_coefficients.len());
             if self.x_coefficients[..mutual_x_coefficients]
@@ -102,7 +79,7 @@ impl<F: PrimeField> DivisorPoly<F> {
     /// Returns a polynomial with all coefficients set to zero.
     pub fn zero() -> Self {
         DivisorPoly {
-            y_coefficients: vec![],
+            y_coefficient: F::zero(),
             yx_coefficients: vec![],
             x_coefficients: vec![],
             zero_coefficient: F::zero(),
@@ -112,7 +89,7 @@ impl<F: PrimeField> DivisorPoly<F> {
     /// Create a polynomial representing a constant
     pub fn constant(c: F) -> Self {
         DivisorPoly {
-            y_coefficients: vec![],
+            y_coefficient: F::zero(),
             yx_coefficients: vec![],
             x_coefficients: vec![],
             zero_coefficient: c,
@@ -122,7 +99,7 @@ impl<F: PrimeField> DivisorPoly<F> {
     /// Create a polynomial representing x
     pub fn x() -> Self {
         DivisorPoly {
-            y_coefficients: vec![],
+            y_coefficient: F::zero(),
             yx_coefficients: vec![],
             x_coefficients: vec![F::ONE],
             zero_coefficient: F::zero(),
@@ -132,7 +109,7 @@ impl<F: PrimeField> DivisorPoly<F> {
     /// Create a polynomial representing y
     pub fn y() -> Self {
         DivisorPoly {
-            y_coefficients: vec![F::ONE],
+            y_coefficient: F::ONE,
             yx_coefficients: vec![],
             x_coefficients: vec![],
             zero_coefficient: F::zero(),
@@ -145,29 +122,17 @@ impl<F: PrimeField> Add<&Self> for DivisorPoly<F> {
 
     fn add(mut self, other: &Self) -> Self {
         // Expand to the needed size
-        while self.y_coefficients.len() < other.y_coefficients.len() {
-            self.y_coefficients.push(F::zero());
-        }
         while self.yx_coefficients.len() < other.yx_coefficients.len() {
-            self.yx_coefficients.push(vec![]);
-        }
-        for i in 0..other.yx_coefficients.len() {
-            while self.yx_coefficients[i].len() < other.yx_coefficients[i].len() {
-                self.yx_coefficients[i].push(F::zero());
-            }
+            self.yx_coefficients.push(F::zero());
         }
         while self.x_coefficients.len() < other.x_coefficients.len() {
             self.x_coefficients.push(F::zero());
         }
 
         // Perform the addition
-        for (i, coeff) in other.y_coefficients.iter().enumerate() {
-            self.y_coefficients[i] += coeff;
-        }
-        for (i, coeffs) in other.yx_coefficients.iter().enumerate() {
-            for (j, coeff) in coeffs.iter().enumerate() {
-                self.yx_coefficients[i][j] += coeff;
-            }
+        self.y_coefficient += other.y_coefficient;
+        for (i, coeff) in other.yx_coefficients.iter().enumerate() {
+            self.yx_coefficients[i] += coeff;
         }
         for (i, coeff) in other.x_coefficients.iter().enumerate() {
             self.x_coefficients[i] += coeff;
@@ -182,13 +147,9 @@ impl<F: PrimeField> Neg for DivisorPoly<F> {
     type Output = Self;
 
     fn neg(mut self) -> Self {
-        for y_coeff in &mut self.y_coefficients {
-            *y_coeff = -*y_coeff;
-        }
-        for yx_coeffs in &mut self.yx_coefficients {
-            for yx_coeff in yx_coeffs {
-                *yx_coeff = -*yx_coeff;
-            }
+        self.y_coefficient = -self.y_coefficient;
+        for yx_coeff in &mut self.yx_coefficients {
+            *yx_coeff = -*yx_coeff;
         }
         for x_coeff in &mut self.x_coefficients {
             *x_coeff = -*x_coeff;
@@ -211,13 +172,9 @@ impl<F: PrimeField> Mul<F> for DivisorPoly<F> {
     type Output = Self;
 
     fn mul(mut self, scalar: F) -> Self {
-        for y_coeff in &mut self.y_coefficients {
-            *y_coeff *= scalar;
-        }
-        for coeffs in &mut self.yx_coefficients {
-            for coeff in coeffs {
-                *coeff *= scalar;
-            }
+        self.y_coefficient *= scalar;
+        for coeff in &mut self.yx_coefficients {
+            *coeff *= scalar;
         }
         for x_coeff in &mut self.x_coefficients {
             *x_coeff *= scalar;
@@ -321,28 +278,14 @@ impl<F: PrimeField> DivisorPoly<F> {
     #[must_use]
     pub fn eval(&self, x: F, y: F) -> F {
         let mut res = self.zero_coefficient;
-        for (pow, coeff) in self
-            .y_coefficients
-            .iter()
-            .enumerate()
-            .map(|(i, v)| (u64::try_from(i + 1).unwrap(), v))
-        {
-            res += y.pow([pow]) * coeff;
-        }
-        for (y_pow, coeffs) in self
+        res += y * self.y_coefficient;
+        for (x_pow, coeff) in self
             .yx_coefficients
             .iter()
             .enumerate()
             .map(|(i, v)| (u64::try_from(i + 1).unwrap(), v))
         {
-            let y_pow = y.pow([y_pow]);
-            for (x_pow, coeff) in coeffs
-                .iter()
-                .enumerate()
-                .map(|(i, v)| (u64::try_from(i + 1).unwrap(), v))
-            {
-                res += y_pow * x.pow([x_pow]) * coeff;
-            }
+            res += y * x.pow([x_pow]) * coeff;
         }
         for (pow, coeff) in self
             .x_coefficients
@@ -367,7 +310,7 @@ impl<F: PrimeField> DivisorPoly<F> {
         // - Multiplying the new coefficient by the power it prior was used with
         let diff_x = {
             let mut diff_x = DivisorPoly {
-                y_coefficients: vec![],
+                y_coefficient: F::zero(),
                 yx_coefficients: vec![],
                 x_coefficients: vec![],
                 zero_coefficient: F::zero(),
@@ -389,16 +332,14 @@ impl<F: PrimeField> DivisorPoly<F> {
 
             if !self.yx_coefficients.is_empty() {
                 // Differentiate keeping y constant
-                let mut yx_coeffs = self.yx_coefficients[0].clone();
-                if !yx_coeffs.is_empty() {
-                    diff_x.y_coefficients = vec![yx_coeffs.remove(0)];
-                    diff_x.yx_coefficients = vec![yx_coeffs];
+                let mut yx_coeffs = self.yx_coefficients.clone();
+                diff_x.y_coefficient = yx_coeffs.remove(0);
+                diff_x.yx_coefficients = yx_coeffs;
 
-                    let mut prior_x_power = F::from(2u64);
-                    for yx_coeff in &mut diff_x.yx_coefficients[0] {
-                        *yx_coeff *= prior_x_power;
-                        prior_x_power += F::ONE;
-                    }
+                let mut prior_x_power = F::from(2u64);
+                for yx_coeff in &mut diff_x.yx_coefficients {
+                    *yx_coeff *= prior_x_power;
+                    prior_x_power += F::ONE;
                 }
             }
 
@@ -410,10 +351,10 @@ impl<F: PrimeField> DivisorPoly<F> {
         // coefficients
         // This is thanks to any y term over y^2 being reduced out
         let diff_y = DivisorPoly {
-            y_coefficients: vec![],
+            y_coefficient: F::zero(),
             yx_coefficients: vec![],
-            x_coefficients: self.yx_coefficients.first().cloned().unwrap_or(vec![]),
-            zero_coefficient: self.y_coefficients.first().copied().unwrap_or(F::zero()),
+            x_coefficients: self.yx_coefficients.clone(),
+            zero_coefficient: self.y_coefficient,
         };
 
         (diff_x, diff_y)
@@ -495,8 +436,8 @@ mod tests {
 
         {
             let input = DivisorPoly {
-                y_coefficients: vec![random()],
-                yx_coefficients: vec![vec![random()]],
+                y_coefficient: random(),
+                yx_coefficients: vec![random()],
                 x_coefficients: vec![random(), random(), random()],
                 zero_coefficient: random(),
             };
@@ -504,7 +445,7 @@ mod tests {
             assert_eq!(
                 diff_x,
                 DivisorPoly {
-                    y_coefficients: vec![input.yx_coefficients[0][0]],
+                    y_coefficient: input.yx_coefficients[0],
                     yx_coefficients: vec![],
                     x_coefficients: vec![
                         F::from(2u64) * input.x_coefficients[1],
@@ -516,18 +457,18 @@ mod tests {
             assert_eq!(
                 diff_y,
                 DivisorPoly {
-                    y_coefficients: vec![],
+                    y_coefficient: F::zero(),
                     yx_coefficients: vec![],
-                    x_coefficients: vec![input.yx_coefficients[0][0]],
-                    zero_coefficient: input.y_coefficients[0],
+                    x_coefficients: vec![input.yx_coefficients[0]],
+                    zero_coefficient: input.y_coefficient,
                 }
             );
         }
 
         {
             let input = DivisorPoly {
-                y_coefficients: vec![random()],
-                yx_coefficients: vec![vec![random(), random()]],
+                y_coefficient: random(),
+                yx_coefficients: vec![random(), random()],
                 x_coefficients: vec![random(), random(), random(), random()],
                 zero_coefficient: random(),
             };
@@ -535,8 +476,8 @@ mod tests {
             assert_eq!(
                 diff_x,
                 DivisorPoly {
-                    y_coefficients: vec![input.yx_coefficients[0][0]],
-                    yx_coefficients: vec![vec![F::from(2u64) * input.yx_coefficients[0][1]]],
+                    y_coefficient: input.yx_coefficients[0],
+                    yx_coefficients: vec![F::from(2u64) * input.yx_coefficients[1]],
                     x_coefficients: vec![
                         F::from(2u64) * input.x_coefficients[1],
                         F::from(3u64) * input.x_coefficients[2],
@@ -548,10 +489,10 @@ mod tests {
             assert_eq!(
                 diff_y,
                 DivisorPoly {
-                    y_coefficients: vec![],
+                    y_coefficient: F::zero(),
                     yx_coefficients: vec![],
-                    x_coefficients: vec![input.yx_coefficients[0][0], input.yx_coefficients[0][1]],
-                    zero_coefficient: input.y_coefficients[0],
+                    x_coefficients: vec![input.yx_coefficients[0], input.yx_coefficients[1]],
+                    zero_coefficient: input.y_coefficient,
                 }
             );
         }

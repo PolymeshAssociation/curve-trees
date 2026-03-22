@@ -1,13 +1,10 @@
 mod common;
 
 use ark_dlog_gadget::dlog::DiscreteLogParameters;
-use ark_ec::short_weierstrass::{Affine, Projective, SWCurveConfig};
+use ark_ec::short_weierstrass::{Affine, SWCurveConfig};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ec_divisors::{
-    curves::{
-        selene::Point as SelenePoint, selene::SeleneParams, vesta::Point as VestaPoint,
-        vesta::VestaParams,
-    },
+    curves::{selene::SeleneParams, vesta::VestaParams},
     DivisorCurve,
 };
 use ark_ff::{PrimeField, Zero};
@@ -53,7 +50,7 @@ pub fn commitment() {
         let shared_indices: BTreeSet<usize> = indices.into_iter().collect();
         println!("Testing: {desc}");
 
-        check::<2, VestaBase, PallasBase, PallasConfig, VestaConfig, VestaParams, VestaPoint>(
+        check::<2, VestaBase, PallasBase, PallasConfig, VestaConfig, VestaParams>(
             Some(4),
             13,
             16,
@@ -62,7 +59,7 @@ pub fn commitment() {
             shared_indices.clone(),
         );
 
-        check::<2, SeleneBase, HeliosBase, HeliosConfig, SeleneConfig, SeleneParams, SelenePoint>(
+        check::<2, SeleneBase, HeliosBase, HeliosConfig, SeleneConfig, SeleneParams>(
             Some(4),
             13,
             16,
@@ -250,12 +247,8 @@ pub fn check<
     F0: PrimeField,
     F1: PrimeField,
     P0: SWCurveConfig<BaseField = F1, ScalarField = F0> + Copy,
-    P1: SWCurveConfig<BaseField = F0, ScalarField = F1> + Copy,
+    P1: DivisorCurve<BaseField = F0, ScalarField = F1> + Copy + Send + Sync,
     Params: DiscreteLogParameters,
-    D: DivisorCurve<BaseField = P1::BaseField, ScalarField = P1::ScalarField>
-        + From<Projective<P1>>
-        + Send
-        + Sync,
 >(
     depth: Option<usize>,
     generators_length_log_2: usize,
@@ -272,7 +265,7 @@ pub fn check<
 
     let sr_proof_params = SelRerandProofParameters::try_from(sr_params.clone()).unwrap();
 
-    let odd_proof_params = SingleLayerProofParametersNew::<P1, Params>::from_single_layer_params::<D>(
+    let odd_proof_params = SingleLayerProofParametersNew::<P1, Params>::from_single_layer_params(
         sr_params.odd_parameters.clone(),
     );
 
@@ -345,7 +338,7 @@ pub fn check<
         let blindings_for_points = (0..nested.len())
             .map(|_| <P1::ScalarField>::rand(&mut rng))
             .collect::<Vec<_>>();
-        let (re_randomized_nested, comms) = prove_new::<_, _, _, P0, P1, D, Params>(
+        let (re_randomized_nested, comms) = prove_new::<_, _, _, P0, P1, Params>(
             &mut rng,
             &mut pallas_prover,
             nested.clone(),

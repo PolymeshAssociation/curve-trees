@@ -13,10 +13,7 @@ use relations::curve_tree::*;
 use relations::utils::{prove, verify};
 
 use ark_ec::short_weierstrass::Affine;
-use ark_ec_divisors::curves::{
-    pallas::PallasParams, pallas::Point as PallasPoint, vesta::Point as VestaPoint,
-    vesta::VestaParams,
-};
+use ark_ec_divisors::curves::{pallas::PallasParams, vesta::VestaParams};
 use ark_pallas::PallasConfig;
 use ark_serialize::CanonicalSerialize;
 use ark_std::UniformRand;
@@ -39,7 +36,7 @@ lazy_static! {
         .expect("Failed to create SelRerandParameters")
     };
     static ref SRProofParamsNewPallasLeaf: SelRerandProofParametersNew<PallasParameters, VestaParameters, PallasParams, VestaParams> = {
-        SelRerandProofParametersNew::<PallasParameters, VestaParameters, PallasParams, VestaParams>::from_sr_params::<PallasPoint, VestaPoint>((*SRParamsPallasLeaf).clone())
+        SelRerandProofParametersNew::<PallasParameters, VestaParameters, PallasParams, VestaParams>::from_sr_params((*SRParamsPallasLeaf).clone())
     };
 }
 
@@ -95,8 +92,6 @@ fn bench_batched_curve_tree_with_varying_batch_size_new<const L: usize, const M:
                     let (path_commitments, _) = paths
                     .batched_select_and_rerandomize_prover_gadget_new::<
                         _,
-                        PallasPoint,
-                        VestaPoint,
                         PallasParams,
                         VestaParams,
                     >(
@@ -136,13 +131,7 @@ fn bench_batched_curve_tree_with_varying_batch_size_new<const L: usize, const M:
             let paths = curve_tree.get_paths_to_leaves(indices.as_slice()).unwrap();
 
             let (path_commitments, _) = paths
-                .batched_select_and_rerandomize_prover_gadget_new::<
-                    _,
-                    PallasPoint,
-                    VestaPoint,
-                    PallasParams,
-                    VestaParams,
-                >(
+                .batched_select_and_rerandomize_prover_gadget_new::<_, PallasParams, VestaParams>(
                     &mut pallas_prover,
                     &mut vesta_prover,
                     &SRProofParamsNewPallasLeaf,

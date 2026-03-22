@@ -1,5 +1,7 @@
 use crate::util::DirectGenerator;
 use crate::{DivisorCurve, DivisorPoly, ScalarDecomposition, new_divisor};
+use ark_ec::short_weierstrass::Projective;
+use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{AdditiveGroup, Field, PrimeField, Zero};
 use ark_std::UniformRand;
 use core::borrow::Borrow;
@@ -7,41 +9,31 @@ use rand::rngs::StdRng;
 use rand_core::{CryptoRngCore, SeedableRng};
 use std::time::Instant;
 
-// Helper function to convert points to XyPoint format
-fn points_xy<C: DivisorCurve>(points: &[C]) -> Vec<C::XyPoint> {
-    points.iter().copied().map(C::XyPoint::from).collect()
+/// Convert a projective point to (x, y), returning None for the identity.
+fn to_xy<C: DivisorCurve>(p: Projective<C>) -> Option<(C::BaseField, C::BaseField)> {
+    let aff = p.into_affine();
+    aff.xy()
 }
 
-/// y^2 - x^3 - A x - B
+/// y^2 - x^3 - A x - B evaluated at a point (checks that the point is on the curve).
 ///
 /// Section 2 of Eagen's security proofs define this modulus.
-fn divisor_modulus<C: DivisorCurve>() -> DivisorPoly<C::BaseField> {
-    DivisorPoly {
-        // 0 y**1, 1 y*2
-        y_coefficients: vec![C::BaseField::zero(), C::BaseField::ONE],
-        yx_coefficients: vec![],
-        x_coefficients: vec![
-            // - A x
-            -C::a(),
-            // 0 x^2
-            C::BaseField::zero(),
-            // - x^3
-            -C::BaseField::ONE,
-        ],
-        // - B
-        zero_coefficient: -C::b(),
-    }
+fn on_curve<C: DivisorCurve>(x: C::BaseField, y: C::BaseField) -> C::BaseField {
+    y * y - x * x * x - C::COEFF_A * x - C::COEFF_B
 }
 
 /// Calculate the slope and intercept between two points.
 ///
 /// This function panics when `a @ infinity`, `b @ infinity`, `a == b`, or when `a == -b`.
-pub(crate) fn slope_intercept<C: DivisorCurve>(a: C, b: C) -> (C::BaseField, C::BaseField) {
+pub(crate) fn slope_intercept<C: DivisorCurve>(
+    a: Projective<C>,
+    b: Projective<C>,
+) -> (C::BaseField, C::BaseField) {
     // slope = (by - ay) / (bx - ax)
-    let (ax, ay) = C::to_xy(a).unwrap();
-    debug_assert_eq!(divisor_modulus::<C>().eval(ax, ay), C::BaseField::zero());
-    let (bx, by) = C::to_xy(b).unwrap();
-    debug_assert_eq!(divisor_modulus::<C>().eval(bx, by), C::BaseField::zero());
+    let (ax, ay) = to_xy::<C>(a).unwrap();
+    debug_assert_eq!(on_curve::<C>(ax, ay), C::BaseField::zero());
+    let (bx, by) = to_xy::<C>(b).unwrap();
+    debug_assert_eq!(on_curve::<C>(bx, by), C::BaseField::zero());
     let slope = (by - ay) * Option::<C::BaseField>::from((bx - ax).inverse()).unwrap();
 
     // y = slope.x + intercept => intercept = y - slope.x
@@ -53,30 +45,28 @@ pub(crate) fn slope_intercept<C: DivisorCurve>(a: C, b: C) -> (C::BaseField, C::
 }
 
 // Equation 4 in the security proofs
-fn check_divisor<C: DivisorCurve, R: CryptoRngCore>(rng: &mut R, points: Vec<C>) {
+fn check_divisor<C: DivisorCurve, R: CryptoRngCore>(rng: &mut R, points: Vec<Projective<C>>) {
     let precomputation = C::interpolator_for_scalar_mul();
 
-    let points_xy = points_xy(&points);
-
     // Create the divisor
-    let divisor = new_divisor::<C>(&points_xy, precomputation.borrow()).unwrap();
-    let eval = |c| {
-        let (x, y) = C::to_xy(c).unwrap();
+    let divisor = new_divisor::<C>(&points, precomputation.borrow()).unwrap();
+    let eval = |c: Projective<C>| {
+        let (x, y) = to_xy::<C>(c).unwrap();
         divisor.eval(x, y)
     };
 
     // Decide challenges
-    let c0 = C::random(rng);
-    let mut c1 = C::random(rng); // Different point
+    let c0 = Projective::<C>::rand(rng);
+    let mut c1 = Projective::<C>::rand(rng); // Different point
     while c1 == c0 {
-        c1 = C::random(rng);
+        c1 = Projective::<C>::rand(rng);
     }
-    let c2 = C::neg(C::add(c0, c1));
+    let c2 = -(c0 + c1);
     let (slope, intercept) = slope_intercept::<C>(c0, c1);
 
-    let mut rhs = <C as DivisorCurve>::BaseField::ONE;
+    let mut rhs = C::BaseField::ONE;
     for point in points {
-        let (x, y) = C::to_xy(point).unwrap();
+        let (x, y) = to_xy::<C>(point).unwrap();
         rhs *= intercept - (y - (slope * x));
     }
     assert_eq!(eval(c0) * eval(c1) * eval(c2), rhs);
@@ -97,16 +87,15 @@ fn test_divisor<C: DivisorCurve>() {
         // Select points
         let mut points = vec![];
         for _ in 0..i {
-            points.push(C::random(&mut rng));
+            points.push(Projective::<C>::rand(&mut rng));
         }
         // Make sure points sum to identity
-        let sum = points.iter().copied().reduce(C::add).unwrap();
-        points.push(C::neg(sum));
+        let sum = points.iter().copied().reduce(|a, b| a + b).unwrap();
+        points.push(-sum);
 
         let start_new_divisor = Instant::now();
-        let points_xy = points_xy(&points);
         // Create the divisor
-        let divisor = new_divisor::<C>(&points_xy, precomputation.borrow()).unwrap();
+        let divisor = new_divisor::<C>(&points, precomputation.borrow()).unwrap();
         new_divisor_times.push(start_new_divisor.elapsed());
 
         // Perform the original check
@@ -116,45 +105,32 @@ fn test_divisor<C: DivisorCurve>() {
 
         total_times.push(start_total.elapsed());
 
-        // For a divisor interpolating 256 points, as one does when interpreting a 255-bit discrete log
-        // with the result of its scalar multiplication against a fixed generator, the lengths of the
-        // yx/x coefficients shouldn't supersede the following bounds
         assert!(C::ScalarField::MODULUS_BIT_SIZE < 256);
-        // TODO: Uncomment.
-        // let yx_len = divisor.yx_coefficients.first().unwrap_or(&vec![]).len();
         let x_len = divisor.x_coefficients.len().saturating_sub(1);
-        // TODO: Uncomment.
-        // assert!(yx_len <= 126, "yx-len={yx_len}");
         assert!(x_len <= 127, "x-len={x_len}");
-        // TODO: Uncomment.
-        // assert!(
-        //     (1 + yx_len +
-        //         x_len +
-        //         1) <= 255
-        // );
 
         // Decide challenges
-        let c0 = C::random(&mut rng);
-        let mut c1 = C::random(&mut rng); // Different point
+        let c0 = Projective::<C>::rand(&mut rng);
+        let mut c1 = Projective::<C>::rand(&mut rng); // Different point
         while c1 == c0 {
-            c1 = C::random(&mut rng);
+            c1 = Projective::<C>::rand(&mut rng);
         }
         // c2 = -(c0 + c1)
-        let c2 = C::neg(C::add(c0, c1));
+        let c2 = -(c0 + c1);
         let (slope, intercept) = slope_intercept::<C>(c0, c1);
 
         // Logarithmic derivative check
         {
             let dx_over_dz = {
                 let dx = DivisorPoly {
-                    y_coefficients: vec![],
+                    y_coefficient: C::BaseField::zero(),
                     yx_coefficients: vec![],
                     x_coefficients: vec![C::BaseField::zero(), C::BaseField::from(3u64)],
-                    zero_coefficient: C::a(),
+                    zero_coefficient: C::COEFF_A,
                 };
 
                 let dy = DivisorPoly {
-                    y_coefficients: vec![C::BaseField::from(2u64)],
+                    y_coefficient: C::BaseField::from(2u64),
                     yx_coefficients: vec![],
                     x_coefficients: vec![],
                     zero_coefficient: C::BaseField::zero(),
@@ -168,8 +144,8 @@ fn test_divisor<C: DivisorCurve>() {
             };
 
             {
-                let sanity_eval = |c| {
-                    let (x, y) = C::to_xy(c).unwrap();
+                let sanity_eval = |c: Projective<C>| {
+                    let (x, y) = to_xy::<C>(c).unwrap();
                     dx_over_dz.0.eval(x, y) * dx_over_dz.1.eval(x, y).inverse().unwrap()
                 };
                 let sanity = sanity_eval(c0) + sanity_eval(c1) + sanity_eval(c2);
@@ -181,10 +157,10 @@ fn test_divisor<C: DivisorCurve>() {
             let test = |divisor: DivisorPoly<_>| {
                 let (dx, dy) = divisor.differentiate();
 
-                let lhs = |c| {
-                    let (x, y) = C::to_xy(c).unwrap();
+                let lhs = |c: Projective<C>| {
+                    let (x, y) = to_xy::<C>(c).unwrap();
 
-                    let n_0 = (C::BaseField::from(3u64) * (x * x)) + C::a();
+                    let n_0 = (C::BaseField::from(3u64) * (x * x)) + C::COEFF_A;
                     let d_0 = (C::BaseField::from(2u64) * y).inverse().unwrap();
                     let p_0_n_0 = n_0 * d_0;
 
@@ -207,7 +183,7 @@ fn test_divisor<C: DivisorCurve>() {
 
                 let mut rhs = C::BaseField::zero();
                 for point in &points {
-                    let (x, y) = <C as DivisorCurve>::to_xy(*point).unwrap();
+                    let (x, y) = to_xy::<C>(*point).unwrap();
                     rhs += (intercept - (y - (slope * x))).inverse().unwrap();
                 }
 
@@ -240,14 +216,14 @@ fn test_divisor<C: DivisorCurve>() {
 
 fn test_same_point<C: DivisorCurve>() {
     let mut rng = StdRng::seed_from_u64(0);
-    let mut points = vec![C::random(&mut rng)];
-    points.push(points[0]);
+    let p = Projective::<C>::rand(&mut rng);
+    let mut points = vec![p, p];
     let sum = points
         .iter()
         .copied()
-        .reduce(C::add)
-        .unwrap_or(C::generator());
-    points.push(C::neg(sum));
+        .reduce(|a, b| a + b)
+        .unwrap_or_else(|| C::GENERATOR.into());
+    points.push(-sum);
     check_divisor(&mut rng, points);
 }
 
@@ -258,12 +234,12 @@ fn test_subset_sum_to_infinity<C: DivisorCurve>() {
     // Internally, a binary tree algorithm is used
     // This executes the first pass to end up with [0, 0] for further reductions
     {
-        let mut points = vec![C::random(&mut rng)];
-        points.push(C::neg(points[0]));
+        let p = Projective::<C>::rand(&mut rng);
+        let mut points = vec![p, -p];
 
-        let next = C::random(&mut rng);
+        let next = Projective::<C>::rand(&mut rng);
         points.push(next);
-        points.push(C::neg(next));
+        points.push(-next);
 
         let start = Instant::now();
         check_divisor(&mut rng, points);
@@ -272,20 +248,20 @@ fn test_subset_sum_to_infinity<C: DivisorCurve>() {
 
     // This executes the first pass to end up with [0, X, -X, 0]
     {
-        let mut points = vec![C::random(&mut rng)];
-        points.push(C::neg(points[0]));
+        let p = Projective::<C>::rand(&mut rng);
+        let mut points = vec![p, -p];
 
-        let x_1 = C::random(&mut rng);
-        let x_2 = C::random(&mut rng);
+        let x_1 = Projective::<C>::rand(&mut rng);
+        let x_2 = Projective::<C>::rand(&mut rng);
         points.push(x_1);
         points.push(x_2);
 
-        points.push(C::neg(x_1));
-        points.push(C::neg(x_2));
+        points.push(-x_1);
+        points.push(-x_2);
 
-        let next = C::random(&mut rng);
+        let next = Projective::<C>::rand(&mut rng);
         points.push(next);
-        points.push(C::neg(next));
+        points.push(-next);
 
         let start = Instant::now();
         check_divisor(&mut rng, points);
@@ -370,7 +346,7 @@ fn scalar_mul_divisor_correctness<C: DivisorCurve>() {
         let decomposition = ScalarDecomposition::<C::ScalarField>::new(scalar).unwrap();
         decomposition_times.push(decomposition_start.elapsed());
 
-        let generator = C::random(&mut rng);
+        let generator = Projective::<C>::rand(&mut rng);
 
         let mul_start = Instant::now();
         let poly = decomposition
@@ -379,18 +355,18 @@ fn scalar_mul_divisor_correctness<C: DivisorCurve>() {
         scalar_mul_times.push(mul_start.elapsed());
 
         // 1. Verify it vanishes at -(s * G)
-        let neg_s_g = C::neg(C::mul(generator, scalar));
-        let (x, y) = C::to_xy(neg_s_g).unwrap();
+        let neg_s_g = -(generator * scalar);
+        let (x, y) = to_xy::<C>(neg_s_g).unwrap();
         assert!(poly.eval(x, y).is_zero());
 
         // 2. Verify it vanishes at 2^i * G for each coefficient count
         let mut p = generator;
         for &coeff in decomposition.decomposition() {
             if coeff > 0 {
-                let (x, y) = C::to_xy(p).unwrap();
+                let (x, y) = to_xy::<C>(p).unwrap();
                 assert!(poly.eval(x, y).is_zero());
             }
-            p = C::add(p, p);
+            p = p.double();
         }
     }
 
@@ -458,38 +434,36 @@ fn test_divisor_ed25519() {
 }*/
 
 macro_rules! divisor_tests {
-    ($curve_name:ident) => {
-        use crate::curves::$curve_name::Point;
-
-        test_same_point::<Point>();
-        test_subset_sum_to_infinity::<Point>();
-        test_divisor::<Point>();
-        decomposition_correctness::<Point>();
-        scalar_mul_divisor_correctness::<Point>();
+    ($config:ty) => {
+        test_same_point::<$config>();
+        test_subset_sum_to_infinity::<$config>();
+        test_divisor::<$config>();
+        decomposition_correctness::<$config>();
+        scalar_mul_divisor_correctness::<$config>();
     };
 }
 
 #[test]
 fn test_divisor_pallas() {
-    divisor_tests!(pallas);
+    divisor_tests!(ark_pallas::PallasConfig);
 }
 
 #[test]
 fn test_divisor_vesta() {
-    divisor_tests!(vesta);
+    divisor_tests!(ark_vesta::VestaConfig);
 }
 
 #[test]
 fn test_divisor_helios() {
-    divisor_tests!(helios);
+    divisor_tests!(ark_helios::HeliosConfig);
 }
 
 #[test]
 fn test_divisor_selene() {
-    divisor_tests!(selene);
+    divisor_tests!(ark_selene::SeleneConfig);
 }
 
 #[test]
 fn test_divisor_wei25519() {
-    divisor_tests!(wei25519);
+    divisor_tests!(ark_wei25519::Wei25519Config);
 }

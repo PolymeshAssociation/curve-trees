@@ -12,7 +12,7 @@ use ark_dlog_gadget::dlog::{
     DiscreteLogChallenge, DiscreteLogParameters, DivisorComms, PointWithDlog,
 };
 use ark_dlog_gadget::utils::CurveSpec;
-use ark_ec::short_weierstrass::{Affine, Projective, SWCurveConfig};
+use ark_ec::short_weierstrass::{Affine, SWCurveConfig};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ec_divisors::util::GeneratorTable;
 use ark_ec_divisors::DivisorCurve;
@@ -38,14 +38,12 @@ impl<
         const L: usize,
         F0: PrimeField,
         F1: PrimeField,
-        P0: SWCurveConfig<BaseField = F1, ScalarField = F0> + Copy,
-        P1: SWCurveConfig<BaseField = F0, ScalarField = F1> + Copy,
+        P0: DivisorCurve<BaseField = F1, ScalarField = F0> + Copy,
+        P1: DivisorCurve<BaseField = F0, ScalarField = F1> + Copy,
     > CurveTreeWitnessPath<L, P0, P1>
 {
     pub fn select_and_rerandomize_prover_gadget_new<
         R: CryptoRngCore,
-        D0: DivisorCurve<BaseField = F1, ScalarField = F0> + From<Projective<P0>>,
-        D1: DivisorCurve<BaseField = F0, ScalarField = F1> + From<Projective<P1>>,
         Parameters0: DiscreteLogParameters,
         Parameters1: DiscreteLogParameters,
     >(
@@ -71,7 +69,7 @@ impl<
 
         if root_is_even {
             let (x_var, y_var, x_rerand, y_rerand, divisor_comms, p) =
-                Self::create_and_commit_divisor_for_root::<_, D1, Parameters0>(
+                Self::create_and_commit_divisor_for_root::<_, Parameters0>(
                     rng,
                     even_prover,
                     &self.even_internal_nodes[0],
@@ -87,7 +85,6 @@ impl<
             let (x_var, y_var, x_rerand, y_rerand, divisor_comms, p) =
                 CurveTreeWitnessPath::<L, P1, P0>::create_and_commit_divisor_for_root::<
                     _,
-                    D0,
                     Parameters1,
                 >(
                     rng,
@@ -114,7 +111,7 @@ impl<
                     continue;
                 }
                 let (x_var, y_var, x_rerand, y_rerand, divisor_comms, p) =
-                    Self::create_and_commit_divisor_for_non_root::<_, D1, Parameters0>(
+                    Self::create_and_commit_divisor_for_non_root::<_, Parameters0>(
                         rng,
                         even_prover,
                         &self.even_internal_nodes[index],
@@ -142,7 +139,6 @@ impl<
                 let (x_var, y_var, x_rerand, y_rerand, divisor_comms, p) =
                     CurveTreeWitnessPath::<L, P1, P0>::create_and_commit_divisor_for_non_root::<
                         _,
-                        D0,
                         Parameters1,
                     >(
                         rng,
@@ -203,11 +199,7 @@ impl<
         ))
     }
 
-    fn create_and_commit_divisor_for_root<
-        R: CryptoRngCore,
-        D: DivisorCurve<BaseField = F0, ScalarField = F1> + From<Projective<P1>>,
-        Parameters: DiscreteLogParameters,
-    >(
+    fn create_and_commit_divisor_for_root<R: CryptoRngCore, Parameters: DiscreteLogParameters>(
         rng: &mut R,
         prover: &mut Prover<MerlinTranscript, Affine<P0>>,
         witness_node: &WitnessNode<L, P0, P1>,
@@ -233,7 +225,7 @@ impl<
             all_x_coords,
             Some(child_node),
         );
-        let (divisor_comms, p) = create_and_commit_divisor::<R, F0, F1, P0, P1, D, Parameters>(
+        let (divisor_comms, p) = create_and_commit_divisor::<R, F0, F1, P0, P1, Parameters>(
             rng,
             prover,
             randomization,
@@ -245,7 +237,6 @@ impl<
 
     fn create_and_commit_divisor_for_non_root<
         R: CryptoRngCore,
-        D: DivisorCurve<BaseField = F0, ScalarField = F1> + From<Projective<P1>>,
         Parameters: DiscreteLogParameters,
     >(
         rng: &mut R,
@@ -273,7 +264,7 @@ impl<
             self_randomization,
             rerandomized_child,
         );
-        let (divisor_comms, p) = create_and_commit_divisor::<_, F0, F1, P0, P1, D, Parameters>(
+        let (divisor_comms, p) = create_and_commit_divisor::<_, F0, F1, P0, P1, Parameters>(
             rng,
             prover,
             child_randomization,
@@ -326,14 +317,12 @@ impl<
         const L: usize,
         F0: PrimeField,
         F1: PrimeField,
-        P0: SWCurveConfig<BaseField = F1, ScalarField = F0> + Copy,
-        P1: SWCurveConfig<BaseField = F0, ScalarField = F1> + Copy,
+        P0: DivisorCurve<BaseField = F1, ScalarField = F0> + Copy,
+        P1: DivisorCurve<BaseField = F0, ScalarField = F1> + Copy,
     > WitnessPathsWithSameRoot<L, P0, P1>
 {
     pub fn select_and_rerandomize_prover_gadget_new<
         R: CryptoRngCore,
-        D0: DivisorCurve<BaseField = F1, ScalarField = F0> + From<Projective<P0>>,
-        D1: DivisorCurve<BaseField = F0, ScalarField = F1> + From<Projective<P1>>,
         Parameters0: DiscreteLogParameters,
         Parameters1: DiscreteLogParameters,
     >(
@@ -390,7 +379,7 @@ impl<
                 let delta = parameters.odd_parameters.sl_params.delta;
                 let bp_gens = &parameters.even_parameters.sl_params.bp_gens;
 
-                Self::create_and_commit_divisor_for_root::<_, D1, Parameters0>(
+                Self::create_and_commit_divisor_for_root::<_, Parameters0>(
                     rng,
                     even_prover,
                     x_coords,
@@ -413,7 +402,6 @@ impl<
 
                 WitnessPathsWithSameRoot::<L, P1, P0>::create_and_commit_divisor_for_root::<
                     _,
-                    D0,
                     Parameters1,
                 >(
                     rng,
@@ -460,7 +448,6 @@ impl<
                 let (x_var, y_var, x, y, divisor_comms, p) =
                     CurveTreeWitnessPath::<L, P0, P1>::create_and_commit_divisor_for_non_root::<
                         _,
-                        D1,
                         Parameters0,
                     >(
                         rng,
@@ -487,7 +474,6 @@ impl<
                 let (x_var, y_var, x, y, divisor_comms, p) =
                     CurveTreeWitnessPath::<L, P1, P0>::create_and_commit_divisor_for_non_root::<
                         _,
-                        D0,
                         Parameters1,
                     >(
                         rng,
@@ -533,11 +519,7 @@ impl<
         Ok((result_paths, all_leaf_rerandomizations))
     }
 
-    fn create_and_commit_divisor_for_root<
-        R: CryptoRngCore,
-        D: DivisorCurve<BaseField = F0, ScalarField = F1> + From<Projective<P1>>,
-        Parameters: DiscreteLogParameters,
-    >(
+    fn create_and_commit_divisor_for_root<R: CryptoRngCore, Parameters: DiscreteLogParameters>(
         rng: &mut R,
         prover: &mut Prover<MerlinTranscript, Affine<P0>>,
         x_coords: &[F0],
@@ -594,7 +576,7 @@ impl<
             let (x, y) = (*rerandomized_child + delta).into_affine().xy().unwrap();
 
             // Create divisor and commit
-            let (divisor_comms, p) = create_and_commit_divisor::<_, F0, F1, P0, P1, D, Parameters>(
+            let (divisor_comms, p) = create_and_commit_divisor::<_, F0, F1, P0, P1, Parameters>(
                 rng,
                 prover,
                 randomization,
@@ -771,8 +753,7 @@ pub fn create_and_commit_divisor<
     F0: PrimeField,
     F1: PrimeField,
     C0: SWCurveConfig<BaseField = F1, ScalarField = F0> + Copy,
-    C1: SWCurveConfig<BaseField = F0, ScalarField = F1> + Copy,
-    D: DivisorCurve<BaseField = F0, ScalarField = F1> + From<Projective<C1>>,
+    C1: DivisorCurve<BaseField = F0, ScalarField = F1> + Copy,
     Params: DiscreteLogParameters,
 >(
     rng: &mut R,
@@ -783,8 +764,10 @@ pub fn create_and_commit_divisor<
 ) -> Result<(DivisorComms<Affine<C0>>, PointWithDlog<F0, Params>)> {
     let (divisor_commitments, o_blind_claim) = {
         // Optimz: All divisors could be computed in parallel. And creating multiple divisors at once is faster
-        let witness =
-            create_divisor_and_decomposition::<F0, D, Params>(blinding_base_table, -randomization)?;
+        let witness = create_divisor_and_decomposition::<F0, C1, Params>(
+            blinding_base_table,
+            -randomization,
+        )?;
         let (divisor_commitments, _, vars_divisor) =
             commit_witness_chunks_prover(rng, prover, &witness, VC_LEN as usize, bp_gens)?;
 

@@ -2,13 +2,10 @@ extern crate bulletproofs;
 extern crate relations;
 
 use ark_dlog_gadget::dlog::DiscreteLogParameters;
-use ark_ec::short_weierstrass::Projective;
 use ark_ec::AffineRepr;
 use ark_ec_divisors::{
     curves::{
-        helios::HeliosParams, helios::Point as HeliosPoint, pallas::PallasParams,
-        pallas::Point as PallasPoint, selene::Point as SelenePoint, selene::SeleneParams,
-        vesta::Point as VestaPoint, vesta::VestaParams,
+        helios::HeliosParams, pallas::PallasParams, selene::SeleneParams, vesta::VestaParams,
     },
     DivisorCurve,
 };
@@ -934,8 +931,6 @@ pub fn test_batched_curve_tree_even_depth_divisor() {
         VestaConfig,
         PallasParams,
         VestaParams,
-        PallasPoint,
-        VestaPoint,
     >(4, 12, 2);
 
     test_batched_curve_tree_with_parameters_new::<
@@ -947,8 +942,6 @@ pub fn test_batched_curve_tree_even_depth_divisor() {
         VestaConfig,
         PallasParams,
         VestaParams,
-        PallasPoint,
-        VestaPoint,
     >(6, 13, 2);
 
     test_batched_curve_tree_with_parameters_new::<
@@ -960,8 +953,6 @@ pub fn test_batched_curve_tree_even_depth_divisor() {
         SeleneConfig,
         HeliosParams,
         SeleneParams,
-        HeliosPoint,
-        SelenePoint,
     >(4, 12, 2);
 
     test_batched_curve_tree_with_parameters_new::<
@@ -973,8 +964,6 @@ pub fn test_batched_curve_tree_even_depth_divisor() {
         SeleneConfig,
         HeliosParams,
         SeleneParams,
-        HeliosPoint,
-        SelenePoint,
     >(6, 13, 2);
 }
 
@@ -989,8 +978,6 @@ pub fn test_batched_curve_tree_odd_depth_divisor() {
         VestaConfig,
         PallasParams,
         VestaParams,
-        PallasPoint,
-        VestaPoint,
     >(3, 12, 2);
 
     test_batched_curve_tree_with_parameters_new::<
@@ -1002,8 +989,6 @@ pub fn test_batched_curve_tree_odd_depth_divisor() {
         VestaConfig,
         PallasParams,
         VestaParams,
-        PallasPoint,
-        VestaPoint,
     >(5, 12, 2);
 
     test_batched_curve_tree_with_parameters_new::<
@@ -1015,8 +1000,6 @@ pub fn test_batched_curve_tree_odd_depth_divisor() {
         SeleneConfig,
         HeliosParams,
         SeleneParams,
-        HeliosPoint,
-        SelenePoint,
     >(3, 12, 2);
 
     test_batched_curve_tree_with_parameters_new::<
@@ -1028,8 +1011,6 @@ pub fn test_batched_curve_tree_odd_depth_divisor() {
         SeleneConfig,
         HeliosParams,
         SeleneParams,
-        HeliosPoint,
-        SelenePoint,
     >(5, 12, 2);
 }
 
@@ -1038,12 +1019,10 @@ pub fn test_batched_curve_tree_with_parameters_new<
     const M: usize,
     F0: PrimeField,
     F1: PrimeField,
-    P0: SWCurveConfig<BaseField = F1, ScalarField = F0> + Copy,
-    P1: SWCurveConfig<BaseField = F0, ScalarField = F1> + Copy,
+    P0: DivisorCurve<BaseField = F1, ScalarField = F0> + Copy,
+    P1: DivisorCurve<BaseField = F0, ScalarField = F1> + Copy,
     Params0: DiscreteLogParameters,
     Params1: DiscreteLogParameters,
-    D0: DivisorCurve<BaseField = F1, ScalarField = F0> + From<Projective<P0>>,
-    D1: DivisorCurve<BaseField = F0, ScalarField = F1> + From<Projective<P1>>,
 >(
     depth: usize,
     generators_length_log_2: usize,
@@ -1057,10 +1036,8 @@ pub fn test_batched_curve_tree_with_parameters_new<
     let sr_params = SelRerandParameters::<P0, P1>::new(generators_length, generators_length)
         .expect("Failed to create SelRerandParameters");
 
-    let sr_proof_params = SelRerandProofParametersNew::<P0, P1, Params0, Params1>::from_sr_params::<
-        D0,
-        D1,
-    >(sr_params.clone());
+    let sr_proof_params =
+        SelRerandProofParametersNew::<P0, P1, Params0, Params1>::from_sr_params(sr_params.clone());
 
     let mut set = Vec::<Affine<P0>>::new();
     let mut indices = vec![0u32; num_indices_to_prove as usize];
@@ -1087,7 +1064,7 @@ pub fn test_batched_curve_tree_with_parameters_new<
         Prover::new(&sr_params.odd_parameters.pc_gens, vesta_transcript);
 
     let (path_commitments, leaf_randomizations) = paths
-        .batched_select_and_rerandomize_prover_gadget_new::<_, D0, D1, Params0, Params1>(
+        .batched_select_and_rerandomize_prover_gadget_new::<_, Params0, Params1>(
             &mut pallas_prover,
             &mut vesta_prover,
             &sr_proof_params,

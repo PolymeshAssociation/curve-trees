@@ -1,5 +1,6 @@
-use crate::DivisorCurve;
-use ark_ff::PrimeField;
+use ark_ec::CurveGroup;
+use ark_ec::short_weierstrass::{Affine, Projective, SWCurveConfig};
+use ark_ff::{AdditiveGroup, PrimeField};
 use ark_serialize::{
     CanonicalDeserialize, CanonicalSerialize, Compress, Read, SerializationError, Valid, Validate,
     Write,
@@ -10,20 +11,20 @@ use generic_array::typenum::{U1, Unsigned};
 use generic_array::{ArrayLength, GenericArray};
 
 /// Trait for providing generator multiples (powers of 2).
-pub trait GeneratorMultiplesSource<C: DivisorCurve> {
-    type Iter: Iterator<Item = C>;
+pub trait GeneratorMultiplesSource<C: SWCurveConfig> {
+    type Iter: Iterator<Item = Projective<C>>;
 
     /// Get an iterator over generator multiples: G, 2G, 4G, 8G, ...
     fn iter(&self) -> Self::Iter;
 }
 
 /// Iterator that doubles a point on each iteration.
-pub struct DoublingIterator<C: DivisorCurve> {
-    current: C,
+pub struct DoublingIterator<C: SWCurveConfig> {
+    current: Projective<C>,
 }
 
-impl<C: DivisorCurve> Iterator for DoublingIterator<C> {
-    type Item = C;
+impl<C: SWCurveConfig> Iterator for DoublingIterator<C> {
+    type Item = Projective<C>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let result = self.current;
@@ -33,27 +34,27 @@ impl<C: DivisorCurve> Iterator for DoublingIterator<C> {
 }
 
 /// Implementation for direct computation from a generator point.
-pub struct DirectGenerator<C: DivisorCurve> {
-    generator: C,
+pub struct DirectGenerator<C: SWCurveConfig> {
+    generator: Projective<C>,
 }
 
-impl<C: DivisorCurve> DirectGenerator<C> {
-    pub fn new(generator: C) -> Self {
+impl<C: SWCurveConfig> DirectGenerator<C> {
+    pub fn new(generator: Projective<C>) -> Self {
         Self { generator }
     }
 }
 
-impl<C: DivisorCurve> GeneratorMultiplesSource<C> for DirectGenerator<C> {
+impl<C: SWCurveConfig> GeneratorMultiplesSource<C> for DirectGenerator<C> {
     type Iter = DoublingIterator<C>;
 
     fn iter(&self) -> Self::Iter {
         DoublingIterator {
-            current: C::from(self.generator),
+            current: self.generator,
         }
     }
 }
 
-impl<'a, F: PrimeField, Parameters: DiscreteLogParameter, C: DivisorCurve<BaseField = F>>
+impl<'a, F: PrimeField, Parameters: DiscreteLogParameter, C: SWCurveConfig<BaseField = F>>
     GeneratorMultiplesSource<C> for &'a GeneratorTable<F, Parameters>
 where
     Parameters: 'a,
@@ -69,17 +70,17 @@ where
     }
 }
 
-pub struct GeneratorTableIter<'a, F: PrimeField, Parameters: DiscreteLogParameter, C: DivisorCurve>
+pub struct GeneratorTableIter<'a, F: PrimeField, Parameters: DiscreteLogParameter, C: SWCurveConfig>
 {
     table: &'a GeneratorTable<F, Parameters>,
     index: usize,
     _phantom: PhantomData<C>,
 }
 
-impl<'a, F: PrimeField, Parameters: DiscreteLogParameter, C: DivisorCurve<BaseField = F>> Iterator
+impl<'a, F: PrimeField, Parameters: DiscreteLogParameter, C: SWCurveConfig<BaseField = F>> Iterator
     for GeneratorTableIter<'a, F, Parameters, C>
 {
-    type Item = C;
+    type Item = Projective<C>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.index >= self.table.0.len() {
@@ -87,12 +88,12 @@ impl<'a, F: PrimeField, Parameters: DiscreteLogParameter, C: DivisorCurve<BaseFi
         }
         let (x, y) = self.table.0[self.index];
         self.index += 1;
-        Some(C::from_xy_unchecked(x, y))
+        Some(Affine::<C>::new_unchecked(x, y).into())
     }
 }
 
-impl<C: DivisorCurve> From<C> for DirectGenerator<C> {
-    fn from(generator: C) -> Self {
+impl<C: SWCurveConfig> From<Projective<C>> for DirectGenerator<C> {
+    fn from(generator: Projective<C>) -> Self {
         DirectGenerator::new(generator)
     }
 }
@@ -157,7 +158,7 @@ impl<F: PrimeField, Parameters: DiscreteLogParameter> CanonicalDeserialize
 
 impl<F: PrimeField, Parameters: DiscreteLogParameter> GeneratorTable<F, Parameters> {
     /// Create a new table for this generator.
-    pub fn new<C: DivisorCurve<BaseField = F>>(generator: C) -> Self {
+    pub fn new<C: SWCurveConfig<BaseField = F>>(generator: Projective<C>) -> Self {
         let mut points = Vec::with_capacity(Parameters::ScalarBits::USIZE);
         points.push(generator);
         for i in 1..Parameters::ScalarBits::USIZE {
@@ -165,14 +166,15 @@ impl<F: PrimeField, Parameters: DiscreteLogParameter> GeneratorTable<F, Paramete
         }
 
         let mut res = Self(GenericArray::default());
-        for (i, (x, y)) in C::batch_to_xy(&points).into_iter().enumerate() {
-            res.0[i] = (x, y);
+        let affines = Projective::<C>::normalize_batch(&points);
+        for (i, aff) in affines.into_iter().enumerate() {
+            res.0[i] = (aff.x, aff.y);
         }
         res
     }
 
-    pub fn generator<C: DivisorCurve<BaseField = F>>(&self) -> C {
-        C::from_xy_unchecked(self.0[0].0, self.0[0].1)
+    pub fn generator<C: SWCurveConfig<BaseField = F>>(&self) -> Projective<C> {
+        Affine::<C>::new_unchecked(self.0[0].0, self.0[0].1).into()
     }
 }
 
@@ -180,37 +182,47 @@ impl<F: PrimeField, Parameters: DiscreteLogParameter> GeneratorTable<F, Paramete
 mod tests {
     use super::*;
     use crate::util::{DiscreteLogParameter, GeneratorTable};
+    use ark_ec::short_weierstrass::Projective;
+    use ark_ec::{AffineRepr, CurveConfig, CurveGroup};
     use ark_ff::Field;
+    use ark_std::UniformRand;
     use rand::prelude::StdRng;
     use rand_core::SeedableRng;
 
-    use crate::curves::pallas::{PallasParams, Point as PallasPoint};
-    use ark_pallas::{Fq, Fr};
-
-    use crate::curves::vesta::{Point as VestaPoint, VestaParams};
-
+    use crate::curves::pallas::PallasParams;
+    use ark_pallas::{Fq, Fr, PallasConfig};
     type PallasBase = Fq;
 
+    use crate::curves::vesta::VestaParams;
+    use ark_vesta::VestaConfig;
     type VestaBase = Fr;
 
-    use crate::curves::helios::{HeliosParams, Point as HeliosPoint};
+    use crate::curves::helios::HeliosParams;
+    use ark_helios::HeliosConfig;
     type HeliosBase = ark_helios::Fq;
 
-    use crate::curves::selene::{Point as SelenePoint, SeleneParams};
+    use crate::curves::selene::SeleneParams;
+    use ark_selene::SeleneConfig;
     type SeleneBase = ark_selene::Fq;
 
-    use crate::curves::wei25519::{Point as Wei25519Point, Wei25519Params};
+    use crate::curves::wei25519::Wei25519Params;
+    use ark_wei25519::Wei25519Config;
     type Wei25519Base = ark_wei25519::Fq;
+
+    fn to_xy_helper<C: SWCurveConfig>(p: Projective<C>) -> Option<(C::BaseField, C::BaseField)> {
+        let a = p.into_affine();
+        if a.is_zero() { None } else { Some((a.x, a.y)) }
+    }
 
     #[test]
     fn generator_table_creation() {
-        fn check<C: DivisorCurve<BaseField = B>, Params: DiscreteLogParameter, B: PrimeField>() {
+        fn check<C: SWCurveConfig<BaseField = B>, Params: DiscreteLogParameter, B: PrimeField>() {
             let mut rng = StdRng::seed_from_u64(0);
-            let generator = C::random(&mut rng);
-            let (gx, gy) = C::to_xy(generator).unwrap();
+            let generator = Projective::<C>::rand(&mut rng);
+            let (gx, gy) = to_xy_helper::<C>(generator).unwrap();
 
             // Create generator table
-            let table = GeneratorTable::<B, Params>::new(generator);
+            let table = GeneratorTable::<B, Params>::new::<C>(generator);
 
             // Verify the table has the right size
             let expected_size = Params::ScalarBits::USIZE;
@@ -219,36 +231,36 @@ mod tests {
             // Verify first entry is the generator
             assert_eq!(table.0[0], (gx, gy));
             for i in 1..expected_size {
-                let g_i = C::mul(generator, C::ScalarField::from(2).pow(&[i as u64]));
-                let (gx_i, gy_i) = C::to_xy(g_i).unwrap();
+                let g_i = generator * <C as CurveConfig>::ScalarField::from(2u64).pow(&[i as u64]);
+                let (gx_i, gy_i) = to_xy_helper::<C>(g_i).unwrap();
                 assert_eq!(table.0[i], (gx_i, gy_i));
             }
         }
 
         println!("Testing Pallas");
-        check::<PallasPoint, PallasParams, PallasBase>();
+        check::<PallasConfig, PallasParams, PallasBase>();
 
         println!("Testing Vesta");
-        check::<VestaPoint, VestaParams, VestaBase>();
+        check::<VestaConfig, VestaParams, VestaBase>();
 
         println!("Testing Helios");
-        check::<HeliosPoint, HeliosParams, HeliosBase>();
+        check::<HeliosConfig, HeliosParams, HeliosBase>();
 
         println!("Testing Selene");
-        check::<SelenePoint, SeleneParams, SeleneBase>();
+        check::<SeleneConfig, SeleneParams, SeleneBase>();
 
         println!("Testing Wei25519");
-        check::<Wei25519Point, Wei25519Params, Wei25519Base>();
+        check::<Wei25519Config, Wei25519Params, Wei25519Base>();
     }
 
     #[test]
     fn generator_table_serialization() {
-        fn check<C: DivisorCurve<BaseField = B>, Params: DiscreteLogParameter, B: PrimeField>() {
+        fn check<C: SWCurveConfig<BaseField = B>, Params: DiscreteLogParameter, B: PrimeField>() {
             let mut rng = StdRng::seed_from_u64(42);
 
             for _ in 0..10 {
-                let generator = C::random(&mut rng);
-                let table = GeneratorTable::<B, Params>::new(generator);
+                let generator = Projective::<C>::rand(&mut rng);
+                let table = GeneratorTable::<B, Params>::new::<C>(generator);
 
                 let mut serialized = Vec::new();
                 table.serialize_compressed(&mut serialized).unwrap();
@@ -258,8 +270,8 @@ mod tests {
 
                 let gen1 = table.generator::<C>();
                 let gen2 = deserialized.generator::<C>();
-                let (gen1_x, gen1_y) = C::to_xy(gen1).unwrap();
-                let (gen2_x, gen2_y) = C::to_xy(gen2).unwrap();
+                let (gen1_x, gen1_y) = to_xy_helper::<C>(gen1).unwrap();
+                let (gen2_x, gen2_y) = to_xy_helper::<C>(gen2).unwrap();
                 assert_eq!(gen1_x, gen2_x);
                 assert_eq!(gen1_y, gen2_y);
 
@@ -273,18 +285,18 @@ mod tests {
         }
 
         println!("Testing Pallas");
-        check::<PallasPoint, PallasParams, PallasBase>();
+        check::<PallasConfig, PallasParams, PallasBase>();
 
         println!("Testing Vesta");
-        check::<VestaPoint, VestaParams, VestaBase>();
+        check::<VestaConfig, VestaParams, VestaBase>();
 
         println!("Testing Helios");
-        check::<HeliosPoint, HeliosParams, HeliosBase>();
+        check::<HeliosConfig, HeliosParams, HeliosBase>();
 
         println!("Testing Selene");
-        check::<SelenePoint, SeleneParams, SeleneBase>();
+        check::<SeleneConfig, SeleneParams, SeleneBase>();
 
         println!("Testing Wei25519");
-        check::<Wei25519Point, Wei25519Params, Wei25519Base>();
+        check::<Wei25519Config, Wei25519Params, Wei25519Base>();
     }
 }

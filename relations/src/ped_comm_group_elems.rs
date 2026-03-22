@@ -236,8 +236,7 @@ pub fn prove<
     Fb: PrimeField,
     Fs: PrimeField,
     P0: SWCurveConfig<BaseField = Fb, ScalarField = Fs> + Copy,
-    P1: SWCurveConfig<BaseField = Fs, ScalarField = Fb> + Copy,
-    D: DivisorCurve<BaseField = Fs, ScalarField = Fb> + From<Projective<P1>>,
+    P1: DivisorCurve<BaseField = Fs, ScalarField = Fb> + Copy,
     Parameters: DiscreteLogParameters,
 >(
     rng: &mut R,
@@ -310,7 +309,7 @@ pub fn prove<
 
     for i in 0..size {
         if shared_dlog_indices.contains(&i) {
-            let witness = create_divisor_and_decomposition_multi_gen::<_, D, Parameters>(
+            let witness = create_divisor_and_decomposition_multi_gen::<_, P1, Parameters>(
                 &gen_table_refs,
                 -blindings_for_points[i],
             )?;
@@ -325,7 +324,7 @@ pub fn prove<
             all_comms.push(comm_divisor);
             blinds_multi.insert(i, blinds);
         } else {
-            let witness = create_divisor_and_decomposition::<_, D, Parameters>(
+            let witness = create_divisor_and_decomposition::<_, P1, Parameters>(
                 &parameters.table_b_blinding,
                 -blindings_for_points[i],
             )?;

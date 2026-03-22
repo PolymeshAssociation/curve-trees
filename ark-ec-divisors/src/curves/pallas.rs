@@ -1,5 +1,5 @@
 use crate::Interpolator;
-use crate::curves::sw::{HasInterpolator, SwCurvePoint};
+use crate::curves::DivisorCurve;
 use crate::util::DiscreteLogParameter;
 use ark_ff::PrimeField;
 use ark_pallas::{Fq, Fr, PallasConfig};
@@ -8,13 +8,12 @@ use spin::Once;
 
 static PALLAS_INTERPOLATOR: Once<Interpolator<Fq>> = Once::new();
 
-impl HasInterpolator for PallasConfig {
-    fn get_interpolator() -> &'static Interpolator<Fq> {
+impl DivisorCurve for PallasConfig {
+    type BorrowedInterpolator = &'static Interpolator<Fq>;
+    fn interpolator_for_scalar_mul() -> Self::BorrowedInterpolator {
         PALLAS_INTERPOLATOR.call_once(|| Interpolator::new(130))
     }
 }
-
-pub type Point = SwCurvePoint<PallasConfig>;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct PallasParams;

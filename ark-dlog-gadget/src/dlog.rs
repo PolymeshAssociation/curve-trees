@@ -1356,18 +1356,16 @@ fn get_divisor_array<F: PrimeField, Parameters: DiscreteLogParameters>(
     }
 
     let mut divisor_witness = [F::ZERO; DECOMPOSITION_SIZE];
-    divisor_witness[0] = *divisor.y_coefficients.first().unwrap_or(&F::ZERO);
+    divisor_witness[0] = divisor.y_coefficient;
 
-    if divisor.yx_coefficients.is_empty() || divisor.yx_coefficients[0].len() > yx_expected_len {
-        let yx_len = if divisor.yx_coefficients.is_empty() {
-            0
-        } else {
-            divisor.yx_coefficients[0].len()
-        };
-        return Err(Error::IncorrectDivisorWitness(yx_len, yx_expected_len));
+    if divisor.yx_coefficients.len() > yx_expected_len {
+        return Err(Error::IncorrectDivisorWitness(
+            divisor.yx_coefficients.len(),
+            yx_expected_len,
+        ));
     }
 
-    let yx = &divisor.yx_coefficients[0];
+    let yx = &divisor.yx_coefficients;
     for i in 0..yx_expected_len {
         divisor_witness[1 + i] = *yx.get(i).unwrap_or(&F::ZERO);
     }
@@ -1390,8 +1388,10 @@ mod tests {
     use super::*;
     use crate::utils::CurveSpec;
     use ark_ec::AffineRepr;
-    use ark_ec::short_weierstrass::SWCurveConfig;
+    use ark_ec::CurveGroup;
+    use ark_ec::short_weierstrass::Projective;
     use ark_serialize::CanonicalSerialize;
+    use ark_std::UniformRand;
     use bulletproofs::r1cs::{Prover, Verifier};
     use bulletproofs::{BulletproofGens, PedersenGens};
     use rand;
@@ -1399,20 +1399,20 @@ mod tests {
     use rand_core::SeedableRng;
     use std::time::{Duration, Instant};
 
-    use ark_ec_divisors::curves::pallas::{PallasParams, Point as PallasPoint};
-    use ark_pallas::{Affine as PallasAffine, Fq, Fr};
+    use ark_ec_divisors::curves::pallas::PallasParams;
+    use ark_pallas::{Affine as PallasAffine, Fq, Fr, PallasConfig};
 
-    use ark_ec_divisors::curves::vesta::{Point as VestaPoint, VestaParams};
-    use ark_vesta::Affine as VestaAffine;
+    use ark_ec_divisors::curves::vesta::VestaParams;
+    use ark_vesta::{Affine as VestaAffine, VestaConfig};
 
-    use ark_ec_divisors::curves::helios::{HeliosParams, Point as HeliosPoint};
-    use ark_helios::{Affine as HeliosAffine, Fq as HeliosBase, Fr as HeliosScalar};
+    use ark_ec_divisors::curves::helios::HeliosParams;
+    use ark_helios::{Affine as HeliosAffine, Fq as HeliosBase, Fr as HeliosScalar, HeliosConfig};
 
-    use ark_ec_divisors::curves::selene::{Point as SelenePoint, SeleneParams};
-    use ark_selene::{Affine as SeleneAffine, Fq as SeleneBase, Fr as SeleneScalar};
+    use ark_ec_divisors::curves::selene::SeleneParams;
+    use ark_selene::{Affine as SeleneAffine, Fq as SeleneBase, Fr as SeleneScalar, SeleneConfig};
 
-    use ark_ec_divisors::curves::wei25519::{Point as Wei25519Point, Wei25519Params};
-    use ark_wei25519::{Fq as Wei25519Fq, Fr as Wei25519Fr};
+    use ark_ec_divisors::curves::wei25519::Wei25519Params;
+    use ark_wei25519::{Fq as Wei25519Fq, Fr as Wei25519Fr, Wei25519Config};
 
     type PallasBase = Fq;
     type PallasScalar = Fr;
@@ -1422,6 +1422,11 @@ mod tests {
 
     type Wei25519Base = Wei25519Fq;
     type Wei25519Scalar = Wei25519Fr;
+
+    fn to_xy<C: DivisorCurve>(p: Projective<C>) -> Option<(C::BaseField, C::BaseField)> {
+        let aff = p.into_affine();
+        aff.xy()
+    }
 
     #[test]
     fn test_blinding_with_discrete_log() {
@@ -1434,21 +1439,19 @@ mod tests {
         >(
             count: usize,
             vc_len: usize,
-        ) where
-            C::Config: SWCurveConfig,
-        {
+        ) {
             let mut rng = StdRng::seed_from_u64(0);
 
             let curve = CurveSpec::<B> {
-                a: C::Config::COEFF_A,
-                b: C::Config::COEFF_B,
+                a: C::COEFF_A,
+                b: C::COEFF_B,
             };
 
             let pc_gens = PedersenGens::<BP>::default();
             let bp_gens = BulletproofGens::<BP>::new(512, 1);
 
-            let generator = C::random(&mut rng);
-            let generator_table = GeneratorTable::<B, Params>::new(generator);
+            let generator = Projective::<C>::rand(&mut rng);
+            let generator_table = GeneratorTable::<B, Params>::new::<C>(generator);
 
             let mut proving_times = Vec::with_capacity(count);
             let mut proving_times_0 = Vec::with_capacity(count);
@@ -1460,16 +1463,16 @@ mod tests {
             for _ in 0..count {
                 // Create scalar o and compute o_blind = o.generator
                 let o = S::rand(&mut rng);
-                let o_blind_point = generator.mul(o);
-                let (minus_o_blind_x, minus_o_blind_y) = C::to_xy(C::neg(o_blind_point)).unwrap();
+                let o_blind_point = generator * o;
+                let (minus_o_blind_x, minus_o_blind_y) = to_xy::<C>(-o_blind_point).unwrap();
 
                 // Create O (the original point)
-                let O = C::generator().mul(S::rand(&mut rng));
+                let O = Projective::<C>::from(C::GENERATOR) * S::rand(&mut rng);
 
                 // Create O_tilde = O + o_blind
-                let o_tilde_point = O.add(o_blind_point);
-                let (o_tilde_x, o_tilde_y) = C::to_xy(o_tilde_point).unwrap();
-                let (o_x, o_y) = C::to_xy(O).unwrap();
+                let o_tilde_point = O + o_blind_point;
+                let (o_tilde_x, o_tilde_y) = to_xy::<C>(o_tilde_point).unwrap();
+                let (o_x, o_y) = to_xy::<C>(O).unwrap();
 
                 let start = Instant::now();
 
@@ -1595,20 +1598,20 @@ mod tests {
         let vc_len = 32;
 
         println!("Testing Pallas");
-        check::<PallasPoint, PallasParams, PallasBase, PallasScalar, VestaAffine>(count, vc_len);
+        check::<PallasConfig, PallasParams, PallasBase, PallasScalar, VestaAffine>(count, vc_len);
 
         println!("Testing Vesta");
-        check::<VestaPoint, VestaParams, VestaBase, VestaScalar, PallasAffine>(count, vc_len);
+        check::<VestaConfig, VestaParams, VestaBase, VestaScalar, PallasAffine>(count, vc_len);
 
         println!("Testing Helios");
-        check::<HeliosPoint, HeliosParams, HeliosBase, HeliosScalar, SeleneAffine>(count, vc_len);
+        check::<HeliosConfig, HeliosParams, HeliosBase, HeliosScalar, SeleneAffine>(count, vc_len);
 
         println!("Testing Selene");
-        check::<SelenePoint, SeleneParams, SeleneBase, SeleneScalar, HeliosAffine>(count, vc_len);
+        check::<SeleneConfig, SeleneParams, SeleneBase, SeleneScalar, HeliosAffine>(count, vc_len);
 
         // wei25519 curve's base field is same as scalar field of Selene curve but not other way, so its not a cycle
         println!("Testing wei25519");
-        check::<Wei25519Point, Wei25519Params, Wei25519Base, Wei25519Scalar, SeleneAffine>(
+        check::<Wei25519Config, Wei25519Params, Wei25519Base, Wei25519Scalar, SeleneAffine>(
             count, vc_len,
         );
     }
@@ -1624,22 +1627,20 @@ mod tests {
         >(
             count: usize,
             vc_len: usize,
-        ) where
-            C::Config: SWCurveConfig,
-        {
+        ) {
             let mut rng = StdRng::seed_from_u64(0);
 
             let curve = CurveSpec::<B> {
-                a: C::Config::COEFF_A,
-                b: C::Config::COEFF_B,
+                a: C::COEFF_A,
+                b: C::COEFF_B,
             };
 
             let pc_gens = PedersenGens::<BP>::default();
             let bp_gens = BulletproofGens::<BP>::new(512, 1);
 
-            let generator = C::random(&mut rng);
+            let generator = Projective::<C>::rand(&mut rng);
 
-            let generator_table = GeneratorTable::<B, Params>::new(generator);
+            let generator_table = GeneratorTable::<B, Params>::new::<C>(generator);
 
             // Collect all the data for all iterations
             let mut all_o_blind_claims = Vec::new();
@@ -1650,9 +1651,9 @@ mod tests {
             let mut all_o_coords = Vec::new();
             for _ in 0..count {
                 // Create O (the original point)
-                let O = C::generator().mul(S::rand(&mut rng));
+                let O = Projective::<C>::from(C::GENERATOR) * S::rand(&mut rng);
                 all_o.push(O);
-                let (O_x, O_y) = C::to_xy(O).unwrap();
+                let (O_x, O_y) = to_xy::<C>(O).unwrap();
                 all_o_coords.push(O_x);
                 all_o_coords.push(O_y);
             }
@@ -1668,14 +1669,14 @@ mod tests {
             for i in 0..count {
                 // Create scalar o and compute o_blind = o.generator
                 let o = S::rand(&mut rng);
-                let o_blind_point = generator.mul(o);
-                let (o_blind_x, o_blind_y) = C::to_xy(o_blind_point).unwrap();
+                let o_blind_point = generator * o;
+                let (o_blind_x, o_blind_y) = to_xy::<C>(o_blind_point).unwrap();
 
                 let O = &all_o[i];
 
                 // Create O_tilde = O - o_blind
-                let O_tilde_point = O.add(o_blind_point.neg());
-                let (O_tilde_x, O_tilde_y) = C::to_xy(O_tilde_point).unwrap();
+                let O_tilde_point = (*O) - o_blind_point;
+                let (O_tilde_x, O_tilde_y) = to_xy::<C>(O_tilde_point).unwrap();
 
                 all_o_tilde_points.push((O_tilde_x, O_tilde_y));
 
@@ -1784,20 +1785,20 @@ mod tests {
         let vc_len = 64;
 
         println!("Testing Pallas");
-        check::<PallasPoint, PallasParams, PallasBase, PallasScalar, VestaAffine>(count, vc_len);
+        check::<PallasConfig, PallasParams, PallasBase, PallasScalar, VestaAffine>(count, vc_len);
 
         println!("Testing Vesta");
-        check::<VestaPoint, VestaParams, VestaBase, VestaScalar, PallasAffine>(count, vc_len);
+        check::<VestaConfig, VestaParams, VestaBase, VestaScalar, PallasAffine>(count, vc_len);
 
         println!("Testing Helios");
-        check::<HeliosPoint, HeliosParams, HeliosBase, HeliosScalar, SeleneAffine>(count, vc_len);
+        check::<HeliosConfig, HeliosParams, HeliosBase, HeliosScalar, SeleneAffine>(count, vc_len);
 
         println!("Testing Selene");
-        check::<SelenePoint, SeleneParams, SeleneBase, SeleneScalar, HeliosAffine>(count, vc_len);
+        check::<SeleneConfig, SeleneParams, SeleneBase, SeleneScalar, HeliosAffine>(count, vc_len);
 
         // wei25519 curve's base field is same as scalar field of Selene curve but not other way, so its not a cycle
         println!("Testing wei25519");
-        check::<Wei25519Point, Wei25519Params, Wei25519Base, Wei25519Scalar, SeleneAffine>(
+        check::<Wei25519Config, Wei25519Params, Wei25519Base, Wei25519Scalar, SeleneAffine>(
             count, vc_len,
         );
     }
@@ -1813,22 +1814,20 @@ mod tests {
         >(
             count: usize,
             vc_len: usize,
-        ) where
-            C::Config: SWCurveConfig,
-        {
+        ) {
             let mut rng = StdRng::seed_from_u64(0);
 
             // Create curve spec: y^2 = x^3 + 5
             let curve = CurveSpec::<B> {
-                a: C::Config::COEFF_A,
-                b: C::Config::COEFF_B,
+                a: C::COEFF_A,
+                b: C::COEFF_B,
             };
 
             let pc_gens = PedersenGens::<BP>::default();
             let bp_gens = BulletproofGens::<BP>::new(512, 1);
 
-            let generator = C::random(&mut rng);
-            let generator_table = GeneratorTable::<B, Params>::new(generator);
+            let generator = Projective::<C>::rand(&mut rng);
+            let generator_table = GeneratorTable::<B, Params>::new::<C>(generator);
 
             // Collect all the data for all iterations
             let mut all_o_blind_claims = Vec::new();
@@ -1839,9 +1838,9 @@ mod tests {
             let mut all_o_coords = Vec::new();
             for _ in 0..count {
                 // Create O (the original point)
-                let O = C::generator().mul(S::rand(&mut rng));
+                let O = Projective::<C>::from(C::GENERATOR) * S::rand(&mut rng);
                 all_o.push(O);
-                let (O_x, O_y) = C::to_xy(O).unwrap();
+                let (O_x, O_y) = to_xy::<C>(O).unwrap();
                 all_o_coords.push(O_x);
                 all_o_coords.push(O_y);
             }
@@ -1857,14 +1856,14 @@ mod tests {
             for i in 0..count {
                 // Create scalar o and compute o_blind = o.generator
                 let o = S::rand(&mut rng);
-                let o_blind_point = generator.mul(o);
-                let (o_blind_x, o_blind_y) = C::to_xy(o_blind_point).unwrap();
+                let o_blind_point = generator * o;
+                let (o_blind_x, o_blind_y) = to_xy::<C>(o_blind_point).unwrap();
 
                 let O = &all_o[i];
 
                 // Create O_tilde = O - o_blind
-                let O_tilde_point = O.add(o_blind_point.neg());
-                let (O_tilde_x, O_tilde_y) = C::to_xy(O_tilde_point).unwrap();
+                let O_tilde_point = (*O) - o_blind_point;
+                let (O_tilde_x, O_tilde_y) = to_xy::<C>(O_tilde_point).unwrap();
 
                 all_o_tilde_points.push((O_tilde_x, O_tilde_y));
 
@@ -1983,16 +1982,16 @@ mod tests {
         let vc_len = 256;
 
         println!("Testing Pallas");
-        check::<PallasPoint, PallasParams, PallasBase, PallasScalar, VestaAffine>(count, vc_len);
+        check::<PallasConfig, PallasParams, PallasBase, PallasScalar, VestaAffine>(count, vc_len);
 
         println!("Testing Vesta");
-        check::<VestaPoint, VestaParams, VestaBase, VestaScalar, PallasAffine>(count, vc_len);
+        check::<VestaConfig, VestaParams, VestaBase, VestaScalar, PallasAffine>(count, vc_len);
 
         println!("Testing Helios");
-        check::<HeliosPoint, HeliosParams, HeliosBase, HeliosScalar, SeleneAffine>(count, vc_len);
+        check::<HeliosConfig, HeliosParams, HeliosBase, HeliosScalar, SeleneAffine>(count, vc_len);
 
         println!("Testing Selene");
-        check::<SelenePoint, SeleneParams, SeleneBase, SeleneScalar, HeliosAffine>(count, vc_len);
+        check::<SeleneConfig, SeleneParams, SeleneBase, SeleneScalar, HeliosAffine>(count, vc_len);
     }
 
     #[test]
@@ -2006,14 +2005,12 @@ mod tests {
         >(
             n: usize,
             vc_len: usize,
-        ) where
-            C::Config: SWCurveConfig,
-        {
+        ) {
             let mut rng = StdRng::seed_from_u64(42);
 
             let curve = CurveSpec::<B> {
-                a: C::Config::COEFF_A,
-                b: C::Config::COEFF_B,
+                a: C::COEFF_A,
+                b: C::COEFF_B,
             };
             let pc_gens = PedersenGens::<BP>::default();
             let bp_gens = BulletproofGens::<BP>::new(512, 1);
@@ -2021,8 +2018,8 @@ mod tests {
             let mut all_o = Vec::with_capacity(n);
             let mut all_o_coords = Vec::with_capacity(2 * n);
             for _ in 0..n {
-                let O = C::generator().mul(S::rand(&mut rng));
-                let (O_x, O_y) = C::to_xy(O).unwrap();
+                let O = Projective::<C>::from(C::GENERATOR) * S::rand(&mut rng);
+                let (O_x, O_y) = to_xy::<C>(O).unwrap();
                 all_o_coords.push(O_x);
                 all_o_coords.push(O_y);
                 all_o.push(O);
@@ -2031,9 +2028,9 @@ mod tests {
             let mut generators = Vec::with_capacity(n);
             let mut gen_tables = Vec::with_capacity(n);
             for _ in 0..n {
-                let generator = C::random(&mut rng);
+                let generator = Projective::<C>::rand(&mut rng);
                 generators.push(generator);
-                gen_tables.push(GeneratorTable::<B, Params>::new(generator));
+                gen_tables.push(GeneratorTable::<B, Params>::new::<C>(generator));
             }
             let gen_table_refs: Vec<&GeneratorTable<B, Params>> = gen_tables.iter().collect();
 
@@ -2041,9 +2038,9 @@ mod tests {
 
             let mut all_o_tilde = Vec::with_capacity(n);
             for i in 0..n {
-                let blind_point = generators[i].mul(d);
-                let O_tilde = all_o[i].add(blind_point.neg());
-                let (O_tilde_x, O_tilde_y) = C::to_xy(O_tilde).unwrap();
+                let blind_point = generators[i] * d;
+                let O_tilde = all_o[i] - blind_point;
+                let (O_tilde_x, O_tilde_y) = to_xy::<C>(O_tilde).unwrap();
                 all_o_tilde.push((O_tilde_x, O_tilde_y));
             }
 
@@ -2136,20 +2133,20 @@ mod tests {
         let vc_len = 64;
 
         println!("Testing Pallas");
-        check::<PallasPoint, PallasParams, PallasBase, PallasScalar, VestaAffine>(count, vc_len);
+        check::<PallasConfig, PallasParams, PallasBase, PallasScalar, VestaAffine>(count, vc_len);
 
         println!("Testing Vesta");
-        check::<VestaPoint, VestaParams, VestaBase, VestaScalar, PallasAffine>(count, vc_len);
+        check::<VestaConfig, VestaParams, VestaBase, VestaScalar, PallasAffine>(count, vc_len);
 
         println!("Testing Helios");
-        check::<HeliosPoint, HeliosParams, HeliosBase, HeliosScalar, SeleneAffine>(count, vc_len);
+        check::<HeliosConfig, HeliosParams, HeliosBase, HeliosScalar, SeleneAffine>(count, vc_len);
 
         println!("Testing Selene");
-        check::<SelenePoint, SeleneParams, SeleneBase, SeleneScalar, HeliosAffine>(count, vc_len);
+        check::<SeleneConfig, SeleneParams, SeleneBase, SeleneScalar, HeliosAffine>(count, vc_len);
 
         // wei25519 curve's base field is same as scalar field of Selene curve but not other way, so its not a cycle
         println!("Testing wei25519");
-        check::<Wei25519Point, Wei25519Params, Wei25519Base, Wei25519Scalar, SeleneAffine>(
+        check::<Wei25519Config, Wei25519Params, Wei25519Base, Wei25519Scalar, SeleneAffine>(
             count, vc_len,
         );
     }
@@ -2165,24 +2162,22 @@ mod tests {
         >(
             count: usize,
             vc_len: usize,
-        ) where
-            C::Config: SWCurveConfig,
-        {
+        ) {
             let mut rng = StdRng::seed_from_u64(0);
 
             let curve = CurveSpec::<B> {
-                a: C::Config::COEFF_A,
-                b: C::Config::COEFF_B,
+                a: C::COEFF_A,
+                b: C::COEFF_B,
             };
 
             let pc_gens = PedersenGens::<BP>::default();
             let bp_gens = BulletproofGens::<BP>::new(512, 1);
 
-            let generator1 = C::random(&mut rng);
-            let generator_table1 = GeneratorTable::<B, Params>::new(generator1);
+            let generator1 = Projective::<C>::rand(&mut rng);
+            let generator_table1 = GeneratorTable::<B, Params>::new::<C>(generator1);
 
-            let generator2 = C::random(&mut rng);
-            let generator_table2 = GeneratorTable::<B, Params>::new(generator2);
+            let generator2 = Projective::<C>::rand(&mut rng);
+            let generator_table2 = GeneratorTable::<B, Params>::new::<C>(generator2);
 
             let mut proving_times = Vec::with_capacity(count);
             let mut verifying_times = Vec::with_capacity(count);
@@ -2193,17 +2188,17 @@ mod tests {
                 let b = S::rand(&mut rng);
 
                 // original point P which is hidden
-                let P = C::random(&mut rng);
-                let (p_x, p_y) = C::to_xy(P).unwrap();
+                let P = Projective::<C>::rand(&mut rng);
+                let (p_x, p_y) = to_xy::<C>(P).unwrap();
 
                 // R = P + gen_1 * b, R is revealed
-                let gen1_b = generator1.mul(b);
-                let R = P.add(gen1_b);
-                let (r_x, r_y) = C::to_xy(R).unwrap();
+                let gen1_b = generator1 * b;
+                let R = P + gen1_b;
+                let (r_x, r_y) = to_xy::<C>(R).unwrap();
 
                 // S = gen_2 * b, which is revealed
-                let S = generator2.mul(b);
-                let (minus_s_x, minus_s_y) = C::to_xy(C::neg(S)).unwrap();
+                let S = generator2 * b;
+                let (minus_s_x, minus_s_y) = to_xy::<C>(-(S)).unwrap();
 
                 let start = Instant::now();
 
@@ -2299,20 +2294,20 @@ mod tests {
         let vc_len = 32;
 
         println!("Testing Pallas");
-        check::<PallasPoint, PallasParams, PallasBase, PallasScalar, VestaAffine>(count, vc_len);
+        check::<PallasConfig, PallasParams, PallasBase, PallasScalar, VestaAffine>(count, vc_len);
 
         println!("Testing Vesta");
-        check::<VestaPoint, VestaParams, VestaBase, VestaScalar, PallasAffine>(count, vc_len);
+        check::<VestaConfig, VestaParams, VestaBase, VestaScalar, PallasAffine>(count, vc_len);
 
         println!("Testing Helios");
-        check::<HeliosPoint, HeliosParams, HeliosBase, HeliosScalar, SeleneAffine>(count, vc_len);
+        check::<HeliosConfig, HeliosParams, HeliosBase, HeliosScalar, SeleneAffine>(count, vc_len);
 
         println!("Testing Selene");
-        check::<SelenePoint, SeleneParams, SeleneBase, SeleneScalar, HeliosAffine>(count, vc_len);
+        check::<SeleneConfig, SeleneParams, SeleneBase, SeleneScalar, HeliosAffine>(count, vc_len);
 
         // wei25519 curve's base field is same as scalar field of Selene curve but not other way, so its not a cycle
         println!("Testing wei25519");
-        check::<Wei25519Point, Wei25519Params, Wei25519Base, Wei25519Scalar, SeleneAffine>(
+        check::<Wei25519Config, Wei25519Params, Wei25519Base, Wei25519Scalar, SeleneAffine>(
             count, vc_len,
         );
     }

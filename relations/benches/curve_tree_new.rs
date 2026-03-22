@@ -1,8 +1,5 @@
 use ark_ec::short_weierstrass::Affine;
-use ark_ec_divisors::curves::{
-    pallas::PallasParams, pallas::Point as PallasPoint, vesta::Point as VestaPoint,
-    vesta::VestaParams,
-};
+use ark_ec_divisors::curves::{pallas::PallasParams, vesta::VestaParams};
 use ark_serialize::CanonicalSerialize;
 use ark_std::UniformRand;
 use bulletproofs::r1cs::*;
@@ -27,7 +24,7 @@ lazy_static! {
         .expect("Failed to create SelRerandParameters")
     };
     static ref SRProofParamsNewPallasLeaf: SelRerandProofParametersNew<PallasParameters, VestaParameters, PallasParams, VestaParams> = {
-        SelRerandProofParametersNew::<PallasParameters, VestaParameters, PallasParams, VestaParams>::from_sr_params::<PallasPoint, VestaPoint>((*SRParamsPallasLeaf).clone())
+        SelRerandProofParametersNew::<PallasParameters, VestaParameters, PallasParams, VestaParams>::from_sr_params((*SRParamsPallasLeaf).clone())
     };
 }
 
@@ -95,21 +92,14 @@ fn setup_curve_tree_data_new<const L: usize>(height: usize) -> NewSetupData<L> {
         Prover::new(&SRParamsPallasLeaf.odd_parameters.pc_gens, vesta_transcript);
 
     let path = curve_tree.get_path_to_leaf_for_proof(0, 0).unwrap();
-    let (
-        path_commitments,
-        _,
-    ) = path.select_and_rerandomize_prover_gadget_new::<
-        _,
-        PallasPoint,
-        VestaPoint,
-        PallasParams,
-        VestaParams,
-    >(
-        &mut pallas_prover,
-        &mut vesta_prover,
-        &SRProofParamsNewPallasLeaf,
-        &mut rng,
-    ).unwrap();
+    let (path_commitments, _) = path
+        .select_and_rerandomize_prover_gadget_new::<_, PallasParams, VestaParams>(
+            &mut pallas_prover,
+            &mut vesta_prover,
+            &SRProofParamsNewPallasLeaf,
+            &mut rng,
+        )
+        .unwrap();
 
     let (pallas_proof, vesta_proof) = prove(pallas_prover, vesta_prover).unwrap();
 
@@ -211,18 +201,13 @@ fn curve_tree_prove_new<const L: usize>(c: &mut Criterion, height: usize) {
                 Prover::new(&SRParamsPallasLeaf.odd_parameters.pc_gens, vesta_transcript);
 
             let path = curve_tree.get_path_to_leaf_for_proof(0, 0).unwrap();
-            let result_gadget = path.select_and_rerandomize_prover_gadget_new::<
-                _,
-                PallasPoint,
-                VestaPoint,
-                PallasParams,
-                VestaParams,
-            >(
-                &mut pallas_prover,
-                &mut vesta_prover,
-                &SRProofParamsNewPallasLeaf,
-                &mut rng,
-            );
+            let result_gadget = path
+                .select_and_rerandomize_prover_gadget_new::<_, PallasParams, VestaParams>(
+                    &mut pallas_prover,
+                    &mut vesta_prover,
+                    &SRProofParamsNewPallasLeaf,
+                    &mut rng,
+                );
 
             let result_proof = prove(pallas_prover, vesta_prover);
             black_box((result_gadget, result_proof))

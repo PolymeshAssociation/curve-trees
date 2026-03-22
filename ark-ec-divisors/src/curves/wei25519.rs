@@ -1,5 +1,5 @@
 use crate::Interpolator;
-use crate::curves::sw::{HasInterpolator, SwCurvePoint};
+use crate::curves::DivisorCurve;
 use crate::util::DiscreteLogParameter;
 use ark_ff::{Field, MontFp, PrimeField};
 use ark_wei25519::{Affine, Fq, Fr, Wei25519Config};
@@ -15,13 +15,12 @@ use ark_ed25519::{EdwardsAffine as Ed25519Affine, EdwardsProjective as Ed25519Pr
 
 static WEI25519_INTERPOLATOR: Once<Interpolator<Fq>> = Once::new();
 
-impl HasInterpolator for Wei25519Config {
-    fn get_interpolator() -> &'static Interpolator<Fq> {
+impl DivisorCurve for Wei25519Config {
+    type BorrowedInterpolator = &'static Interpolator<Fq>;
+    fn interpolator_for_scalar_mul() -> Self::BorrowedInterpolator {
         WEI25519_INTERPOLATOR.call_once(|| Interpolator::new(128))
     }
 }
-
-pub type Point = SwCurvePoint<Wei25519Config>;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Wei25519Params;

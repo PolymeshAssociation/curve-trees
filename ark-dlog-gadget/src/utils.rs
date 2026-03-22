@@ -1,4 +1,6 @@
 use crate::error::Error;
+use ark_ec::short_weierstrass::Projective;
+use ark_ec::{AffineRepr, CurveGroup};
 use ark_ec_divisors::util::GeneratorMultiplesSource;
 use ark_ec_divisors::{DivisorCurve, DivisorPoly, ScalarDecomposition};
 use ark_ff::{Field, PrimeField};
@@ -11,7 +13,7 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 #[derive(Clone, Zeroize, ZeroizeOnDrop)]
 pub struct ScalarMulAndDivisor<C: DivisorCurve> {
     /// The point resulting from this scalar multiplication.
-    pub point: C,
+    pub point: Projective<C>,
     /// The `x` coordinate of the result of this scalar multiplication.
     pub x: C::BaseField,
     /// The `y` coordinate of the result of this scalar multiplication.
@@ -31,13 +33,14 @@ impl<C: DivisorCurve> ScalarMulAndDivisor<C> {
         G: Clone,
     {
         // Get the first generator to compute the result point
-        let generator = {
+        let generator: Projective<C> = {
             let mut iter = generator_source.clone().iter();
             iter.next().ok_or(Error::NoGenerators)?
         };
 
-        let point = generator.mul(*scalar.scalar());
-        let (x, y) = C::to_xy(point).ok_or(Error::PointAtInfinity)?;
+        let point = generator * (*scalar.scalar());
+        let aff = point.into_affine();
+        let (x, y) = aff.xy().ok_or(Error::PointAtInfinity)?;
         let divisor = scalar
             .scalar_mul_divisor(generator_source)?
             .normalize_x_coefficient();
