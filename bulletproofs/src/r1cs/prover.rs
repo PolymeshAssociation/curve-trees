@@ -705,10 +705,9 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
         let (A_I1, A_O1, S1) = {
             // A_I = <a_L, G> + <a_R, H> + i_blinding * B_blinding
             let A_I1 = C::Group::msm_unchecked(
-                iter::once(&self.pc_gens.B_blinding)
+                iter::once(self.pc_gens.B_blinding)
                     .chain(gens.G(n1))
                     .chain(gens.H(n1))
-                    .copied()
                     .collect::<Vec<C>>()
                     .as_slice(),
                 iter::once(&i_blinding1)
@@ -722,9 +721,8 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
 
             // A_O = <a_O, G> + o_blinding * B_blinding
             let A_O1 = C::Group::msm_unchecked(
-                iter::once(&self.pc_gens.B_blinding)
+                iter::once(self.pc_gens.B_blinding)
                     .chain(gens.G(n1))
-                    .copied()
                     .collect::<Vec<C>>()
                     .as_slice(),
                 iter::once(&o_blinding1)
@@ -740,10 +738,9 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
 
             // S = <s_L, G> + <s_R, H> + s_blinding * B_blinding
             let S1 = C::Group::msm_unchecked(
-                iter::once(&self.pc_gens.B_blinding)
+                iter::once(self.pc_gens.B_blinding)
                     .chain(gens.G(n1))
                     .chain(gens.H(n1))
-                    .copied()
                     .collect::<Vec<C>>()
                     .as_slice(),
                 iter::once(&s_blinding1)
