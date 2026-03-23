@@ -48,7 +48,7 @@ test-log = "0.2"
 criterion = "0.7"
 
 [features]
-default = ["std", "parallel", "asm", "low_memory"]
+default = ["std", "parallel", "asm"]
 
 no_std = []
 std = ["rand/std", "thiserror/std", "sha2/std", "ark-pallas/std", "ark-vesta/std", "dock_crypto_utils/std", "ahash/std"]

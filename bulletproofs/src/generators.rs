@@ -270,7 +270,7 @@ impl<C: AffineRepr> BulletproofGens<C> {
 
     /// Return an iterator over the aggregation of the parties' G generators with given size `n`.
     #[cfg(not(feature = "low_memory"))]
-    pub fn G(&self, n: u32, m: u32) -> impl Iterator<Item = &C> {
+    pub fn G(&self, n: u32, m: u32) -> impl Iterator<Item = C> + use<'_, C> {
         AggregatedGensIter {
             n,
             m,
@@ -282,7 +282,7 @@ impl<C: AffineRepr> BulletproofGens<C> {
 
     /// Return an iterator over the aggregation of the parties' H generators with given size `n`.
     #[cfg(not(feature = "low_memory"))]
-    pub fn H(&self, n: u32, m: u32) -> impl Iterator<Item = &C> {
+    pub fn H(&self, n: u32, m: u32) -> impl Iterator<Item = C> + use<'_, C> {
         AggregatedGensIter {
             n,
             m,
@@ -389,7 +389,7 @@ struct AggregatedGensIter<'a, C: AffineRepr> {
 
 #[cfg(not(feature = "low_memory"))]
 impl<'a, C: AffineRepr> Iterator for AggregatedGensIter<'a, C> {
-    type Item = &'a C;
+    type Item = C;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.gen_idx >= self.n {
@@ -402,7 +402,7 @@ impl<'a, C: AffineRepr> Iterator for AggregatedGensIter<'a, C> {
         } else {
             let cur_gen = self.gen_idx;
             self.gen_idx += 1;
-            Some(&self.array[self.party_idx as usize][cur_gen as usize])
+            Some(self.array[self.party_idx as usize][cur_gen as usize].clone())
         }
     }
 
@@ -472,13 +472,13 @@ pub struct BulletproofGensShare<'a, C: AffineRepr> {
 #[cfg(not(feature = "low_memory"))]
 impl<'a, C: AffineRepr> BulletproofGensShare<'a, C> {
     /// Return an iterator over this party's G generators with given size `n`.
-    pub fn G(&self, n: u32) -> impl Iterator<Item = &'a C> {
-        self.gens.G_vec[self.share as usize].iter().take(n as usize)
+    pub fn G(&self, n: u32) -> impl Iterator<Item = C> + use<'a, C> {
+        self.gens.G_vec[self.share as usize].iter().take(n as usize).copied()
     }
 
     /// Return an iterator over this party's H generators with given size `n`.
-    pub(crate) fn H(&self, n: u32) -> impl Iterator<Item = &'a C> {
-        self.gens.H_vec[self.share as usize].iter().take(n as usize)
+    pub(crate) fn H(&self, n: u32) -> impl Iterator<Item = C> + use<'a, C> {
+        self.gens.H_vec[self.share as usize].iter().take(n as usize).copied()
     }
 }
 
