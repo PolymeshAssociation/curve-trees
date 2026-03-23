@@ -35,7 +35,7 @@ ark-selene = { workspace = true, default-features = false }
 ark-wei25519 = { workspace = true, default-features = false }
 hashbrown = { version = "0.15.0", default-features = false }
 
-ledger_device_sdk = {version = "1.34.0", features = ["debug", "log_debug"], optional = true }
+ledger_device_sdk = { version = "1.34.0", default-features = false, optional = true }
 
 [target.'cfg(all(target_has_atomic = "8", target_has_atomic = "16", target_has_atomic = "32", target_has_atomic = "64", target_has_atomic = "ptr"))'.dependencies]
 ahash = { version = "0.8", default-features = false }
