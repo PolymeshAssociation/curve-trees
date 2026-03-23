@@ -195,7 +195,6 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> ConstraintSystem<C::Scal
     }
 
     fn constrain(&mut self, lc: LinearCombination<C::ScalarField>) {
-        eprintln!("Adding constraint: terms={:?}", lc.terms.len());
         // TODO: check that the linear combinations are valid
         // (e.g. that variables are valid, that the linear combination evals to 0 for prover, etc).
         self.constraints.push(lc);
