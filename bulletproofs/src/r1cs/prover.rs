@@ -25,6 +25,9 @@ use crate::transcript::TranscriptProtocol;
 
 use super::op_splits;
 
+#[cfg(feature = "ledger_device_sdk")]
+use ledger_device_sdk::log;
+
 /// A [`ConstraintSystem`] implementation for use by the prover.
 ///
 /// The prover commits high-level variables and their blinding factors `(v, v_blinding)`,
@@ -99,6 +102,16 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> ConstraintSystem<C::Scal
         Variable<C::ScalarField>,
         Variable<C::ScalarField>,
     ) {
+        log::debug!(
+            "Size of secrets before multiply: a_L={}, a_R={}, a_O={}",
+            self.secrets.a_L.len(),
+            self.secrets.a_R.len(),
+            self.secrets.a_O.len()
+        );
+        log::debug!(
+            "Number of constraints before multiply: {}",
+            self.constraints.len()
+        );
         // Synthesize the assignments for l,r,o
         let l = self.eval(&left);
         let r = self.eval(&right);
@@ -182,6 +195,7 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> ConstraintSystem<C::Scal
     }
 
     fn constrain(&mut self, lc: LinearCombination<C::ScalarField>) {
+        eprintln!("Adding constraint: terms={:?}", lc.terms.len());
         // TODO: check that the linear combinations are valid
         // (e.g. that variables are valid, that the linear combination evals to 0 for prover, etc).
         self.constraints.push(lc);
@@ -365,9 +379,17 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
 
         assert_eq!(generators.len(), scalars.len());
 
+        log::debug!(
+            "Committing to vector of length {} with blinding factor",
+            v.len()
+        );
         let comm = C::Group::msm_unchecked(generators.as_slice(), scalars.as_slice()).into_affine();
 
+        log::debug!(
+            "Commitment computed, now creating variables and adding commitment to transcript"
+        );
         let vars = self.vars_for_committed_vec(&comm, v, v_blinding);
+        log::debug!("Variables created and commitment added to transcript");
 
         (comm, vars)
     }
