@@ -2,6 +2,7 @@
 #![allow(non_snake_case)]
 
 // This code is ported from [Monero's codebase](https://github.com/monero-oxide/monero-oxide/tree/fcmp%2B%2B/crypto/divisors)
+// Read the audit. Consider SlverBullet paper
 
 use ark_ec::short_weierstrass::Projective;
 use ark_ec::{AdditiveGroup, CurveConfig, CurveGroup};

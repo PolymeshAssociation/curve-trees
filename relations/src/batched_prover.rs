@@ -269,7 +269,7 @@ impl<
         F0,
         F0,
         DivisorComms<Affine<P0>>,
-        PointWithDlog<F0, Parameters0>,
+        Box<PointWithDlog<F0, Parameters0>>,
     )> {
         let mut all_children_x: Vec<F0> = Vec::with_capacity(L * num_indices as usize);
         let mut selected_children_plus_delta: Vec<Affine<P1>> =
@@ -328,7 +328,7 @@ impl<
         F0,
         F0,
         DivisorComms<Affine<P0>>,
-        PointWithDlog<F0, Parameters0>,
+        Box<PointWithDlog<F0, Parameters0>>,
     )> {
         let children_vars = WitnessNode::allocate_multi_node_variables(
             witness_nodes,

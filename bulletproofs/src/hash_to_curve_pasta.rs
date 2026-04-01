@@ -1,6 +1,8 @@
 use crate::errors::ProofError as Error;
+use crate::generators::HashToCurveExt;
 use ark_ec::hashing::curve_maps::parity;
-use ark_ec::short_weierstrass::{Projective as SWProjective, SWCurveConfig};
+use ark_ec::short_weierstrass::{Affine as SWAffine, Projective as SWProjective, SWCurveConfig};
+use ark_ec::CurveGroup;
 use ark_ff::field_hashers::{DefaultFieldHasher, HashToField};
 use ark_ff::{Field, MontFp, One};
 use ark_pallas::{Fq as PallasBase, PallasConfig, Projective as PallasProjective};
@@ -124,6 +126,18 @@ pub fn hash_to_vesta(dst: &[u8], message: &[u8]) -> VestaProjective {
         p
     } else {
         hash_to_vesta_slow(dst, message)
+    }
+}
+
+impl HashToCurveExt for PallasConfig {
+    fn hash_to_curve(dst: &[u8], message: &[u8]) -> SWAffine<Self> {
+        hash_to_pallas(dst, message).into_affine()
+    }
+}
+
+impl HashToCurveExt for VestaConfig {
+    fn hash_to_curve(dst: &[u8], message: &[u8]) -> SWAffine<Self> {
+        hash_to_vesta(dst, message).into_affine()
     }
 }
 

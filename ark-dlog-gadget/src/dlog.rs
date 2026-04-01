@@ -204,9 +204,9 @@ impl<F: PrimeField, Parameters: DiscreteLogParameters> ChallengePoint<F, Paramet
 /// is reusable across various divisors.
 // #[derive(Debug)]
 pub struct DiscreteLogChallenge<F: PrimeField, Parameters: DiscreteLogParameters> {
-    c0: ChallengePoint<F, Parameters>,
-    c1: ChallengePoint<F, Parameters>,
-    c2: ChallengePoint<F, Parameters>,
+    c0: Box<ChallengePoint<F, Parameters>>,
+    c1: Box<ChallengePoint<F, Parameters>>,
+    c2: Box<ChallengePoint<F, Parameters>>,
     slope: F,
     intercept: F,
 }
@@ -219,7 +219,10 @@ pub struct ChallengedGenerator<F: PrimeField, Parameters: DiscreteLogParameters>
 );
 
 impl<F: PrimeField, Parameters: DiscreteLogParameters> PointWithDlog<F, Parameters> {
-    pub fn from_vars(mut decomposition: Vec<Variable<F>>, mut divisor: Vec<Variable<F>>) -> Self {
+    pub fn from_vars(
+        mut decomposition: Vec<Variable<F>>,
+        mut divisor: Vec<Variable<F>>,
+    ) -> Box<Self> {
         let blind_x_var = decomposition.pop().unwrap();
         let blind_y_var = divisor.pop().unwrap();
         let dlog = GenericArray::<_, Parameters::ScalarBits>::from_slice(&decomposition).clone();
@@ -242,11 +245,11 @@ impl<F: PrimeField, Parameters: DiscreteLogParameters> PointWithDlog<F, Paramete
             x_from_power_of_2,
             zero: divisor[cursor_end],
         };
-        PointWithDlog {
+        Box::new(PointWithDlog {
             divisor,
             dlog,
             point: (blind_x_var, blind_y_var),
-        }
+        })
     }
 }
 
@@ -475,9 +478,9 @@ pub fn discrete_log_challenge<
     let inv_c1_two_y = inversions.next().unwrap();
     let inv_c2_two_y = inversions.next().unwrap();
 
-    let c0 = ChallengePoint::new(curve, slope, c0_x, c0_y, inv_c0_two_y);
-    let c1 = ChallengePoint::new(curve, slope, c1_x, c1_y, inv_c1_two_y);
-    let c2 = ChallengePoint::new(curve, slope, c2_x, c2_y, inv_c2_two_y);
+    let c0 = Box::new(ChallengePoint::new(curve, slope, c0_x, c0_y, inv_c0_two_y));
+    let c1 = Box::new(ChallengePoint::new(curve, slope, c1_x, c1_y, inv_c1_two_y));
+    let c2 = Box::new(ChallengePoint::new(curve, slope, c2_x, c2_y, inv_c2_two_y));
 
     // Fill in the inverted values
     let mut challenged_generators = Vec::with_capacity(generators.len());
@@ -731,7 +734,7 @@ pub fn create_divisor_and_decomposition<
 >(
     generator_source: impl GeneratorMultiplesSource<C> + Clone,
     blinding: C::ScalarField,
-) -> Result<DivisorWitness<F, Parameters>, Error> {
+) -> Result<Box<DivisorWitness<F, Parameters>>, Error> {
     let (scalar, mut decomposition_vec) =
         decompose_scalar::<C::ScalarField, C::BaseField, Parameters>(blinding)?;
 
@@ -743,13 +746,16 @@ pub fn create_divisor_and_decomposition<
 
     let decomposition = GenericArray::from_slice(&decomposition_vec).clone();
     let divisor = get_divisor_array::<F, Parameters>(&scalar_mul_and_divisor.divisor, result_y)?;
-    Ok(DivisorWitness::<F, Parameters>::new(decomposition, divisor))
+    Ok(Box::new(DivisorWitness::<F, Parameters>::new(
+        decomposition,
+        divisor,
+    )))
 }
 
 fn dlog_and_divisor_vars<F: PrimeField, Parameters: DiscreteLogParameters>(
     mut vars_dlog: Vec<Variable<F>>,
     mut vars_divisor: Vec<Variable<F>>,
-) -> PointWithDlog<F, Parameters> {
+) -> Box<PointWithDlog<F, Parameters>> {
     // x and y coordinates of the scalar multiplication result. By convention these are kept at the end
     let blind_x_var = vars_dlog.pop().unwrap();
     let blind_y_var = vars_divisor.pop().unwrap();
@@ -779,11 +785,11 @@ fn dlog_and_divisor_vars<F: PrimeField, Parameters: DiscreteLogParameters>(
         zero: vars_divisor[cursor_end],
     };
 
-    PointWithDlog {
+    Box::new(PointWithDlog {
         divisor,
         dlog,
         point: (blind_x_var, blind_y_var),
-    }
+    })
 }
 
 pub fn commit_witness_chunks_prover<
@@ -801,7 +807,7 @@ pub fn commit_witness_chunks_prover<
     (
         DivisorComms<C>,
         DivisorCommsBlindings<F>,
-        PointWithDlog<F, Parameters>,
+        Box<PointWithDlog<F, Parameters>>,
     ),
     Error,
 > {
@@ -868,7 +874,7 @@ pub fn commit_witness_chunks_verifier<
     cs: &mut Verifier<MerlinTranscript, C>,
     comms: &DivisorComms<C>,
     chunk_len: usize,
-) -> PointWithDlog<F, Parameters> {
+) -> Box<PointWithDlog<F, Parameters>> {
     let mut vars = Vec::with_capacity(DECOMPOSITION_SIZE * 2);
 
     for comm in &comms.0 {
@@ -890,7 +896,7 @@ pub fn create_divisor_and_decomposition_multi_gen<
 >(
     generator_sources: &[&GeneratorTable<F, Parameters>],
     blinding: C::ScalarField,
-) -> Result<DivisorWitnessMulti<F, Parameters>, Error> {
+) -> Result<Box<DivisorWitnessMulti<F, Parameters>>, Error> {
     let (scalar, decomposition_vec) =
         decompose_scalar::<C::ScalarField, C::BaseField, Parameters>(blinding)?;
 
@@ -908,11 +914,11 @@ pub fn create_divisor_and_decomposition_multi_gen<
     }
 
     let decomposition = GenericArray::from_slice(&decomposition_vec).clone();
-    Ok(DivisorWitnessMulti::<F, Parameters>::new(
+    Ok(Box::new(DivisorWitnessMulti::<F, Parameters>::new(
         decomposition,
         result_xs,
         divisors,
-    ))
+    )))
 }
 
 /// Takes variables for resulting points and divisors and create the struct [`PointsWithDlog`].
@@ -1509,7 +1515,7 @@ mod tests {
                 discrete_log_blinding(
                     &mut prover,
                     (o_x_var, o_y_var),
-                    o_blind_claim,
+                    *o_blind_claim,
                     (o_tilde_x, o_tilde_y),
                     &curve,
                     &[&generator_table],
@@ -1544,7 +1550,7 @@ mod tests {
                 discrete_log_blinding(
                     &mut verifier,
                     (o_x_var, o_y_var),
-                    o_blind_claim,
+                    *o_blind_claim,
                     (o_tilde_x, o_tilde_y),
                     &curve,
                     &[&generator_table],
@@ -1712,7 +1718,7 @@ mod tests {
                 discrete_log_blinding(
                     &mut prover,
                     (O_x_var, O_y_var),
-                    o_blind_claim,
+                    *o_blind_claim,
                     (O_tilde_x, O_tilde_y),
                     &curve,
                     &[&generator_table],
@@ -1756,7 +1762,7 @@ mod tests {
                 discrete_log_blinding(
                     &mut verifier,
                     (o_x_var, o_y_var),
-                    o_blind_claim,
+                    *o_blind_claim,
                     (o_tilde_x, o_tilde_y),
                     &curve,
                     &[&generator_table],
@@ -1904,7 +1910,7 @@ mod tests {
                 discrete_log_blinding_given_challenge(
                     &mut prover,
                     (O_x_var, O_y_var),
-                    o_blind_claim,
+                    *o_blind_claim,
                     (O_tilde_x, O_tilde_y),
                     &curve,
                     &challenge,
@@ -1953,7 +1959,7 @@ mod tests {
                 discrete_log_blinding_given_challenge(
                     &mut verifier,
                     (o_x_var, o_y_var),
-                    o_blind_claim,
+                    *o_blind_claim,
                     (o_tilde_x, o_tilde_y),
                     &curve,
                     &challenge,

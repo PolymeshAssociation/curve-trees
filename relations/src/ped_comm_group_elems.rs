@@ -368,7 +368,7 @@ pub fn prove<
             discrete_log_blinding_given_challenge(
                 prover,
                 (x_var, y_var),
-                blinds_single.remove(&i).unwrap(),
+                *blinds_single.remove(&i).unwrap(),
                 (re_rand_x_var, re_rand_y_var),
                 &cs,
                 &challenge,
@@ -463,7 +463,7 @@ pub fn verify<
             discrete_log_blinding_given_challenge(
                 verifier,
                 (x_var, y_var),
-                blinds_single.remove(&i).unwrap(),
+                *blinds_single.remove(&i).unwrap(),
                 (re_rand_x_var, re_rand_y_var),
                 &cs,
                 &challenge,

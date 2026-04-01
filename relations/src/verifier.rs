@@ -307,7 +307,7 @@ impl<
                 LinearCombination<F0>,
                 F0,
                 F0,
-                PointWithDlog<F0, Parameters>,
+                Box<PointWithDlog<F0, Parameters>>,
             )>,
         >,
         node_comms: &[Vec<DivisorComms<Affine<P0>>>],
@@ -355,6 +355,6 @@ pub fn commit_dlog_and_divisor<
 >(
     verifier: &mut Verifier<MerlinTranscript, C>,
     divisor_commitments: &DivisorComms<C>,
-) -> PointWithDlog<F, Parameters> {
+) -> Box<PointWithDlog<F, Parameters>> {
     commit_witness_chunks_verifier(verifier, divisor_commitments, VC_LEN as usize)
 }

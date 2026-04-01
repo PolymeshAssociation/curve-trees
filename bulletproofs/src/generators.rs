@@ -6,20 +6,17 @@
 
 extern crate alloc;
 
-use crate::hash_to_curve_pasta::{hash_to_pallas, hash_to_vesta};
 use crate::util;
 use alloc::vec::Vec;
-use ark_ec::hashing::curve_maps::swu::{SWUConfig, SWUMap};
+use ark_ec::hashing::curve_maps::swu::SWUMap;
 use ark_ec::hashing::map_to_curve_hasher::MapToCurveBasedHasher;
 use ark_ec::hashing::HashToCurve;
-use ark_ec::short_weierstrass::{Affine as SWAffine, Projective as SWProjective};
-use ark_ec::{AffineRepr, CurveGroup, VariableBaseMSM};
+use ark_ec::short_weierstrass::{Affine as SWAffine, Projective as SWProjective, SWCurveConfig};
+use ark_ec::{AffineRepr, VariableBaseMSM};
 use ark_ff::field_hashers::DefaultFieldHasher;
 use ark_helios::HeliosConfig;
-use ark_pallas::{Affine as PallasAffine, Projective as PallasProjective};
 use ark_selene::SeleneConfig;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use ark_vesta::{Affine as VestaAffine, Projective as VestaProjective};
 use ark_wei25519::Wei25519Config;
 use core::marker::PhantomData;
 use digest::{ExtendableOutputDirty, Update, XofReader};
@@ -38,7 +35,7 @@ use sha3::{Sha3XofReader, Shake256};
 /// * `B_blinding`: the result of `ristretto255` SHA3-512 // todo
 ///
 /// hash-to-group on input `B_bytes`.
-#[derive(Clone, CanonicalSerialize, CanonicalDeserialize)]
+#[derive(Clone, Debug, CanonicalSerialize, CanonicalDeserialize)]
 pub struct PedersenGens<C: AffineRepr> {
     /// Bases for the committed values.
     pub B: C,
@@ -64,33 +61,44 @@ impl<C: AffineRepr> PedersenGens<C> {
     }
 }
 
-/// Marker trait for curves that should use the generic SWU-based `new_using_label`.
-pub trait PedersenGensSWU: SWUConfig {}
+/// Extension trait providing a unified hash-to-curve interface for all supported curves.
+/// Pallas and Vesta have specific impls, SWU curves use a helper macro.
+pub trait HashToCurveExt: SWCurveConfig {
+    /// Hash `message` to an affine curve point, using `dst` as the domain separation tag.
+    fn hash_to_curve(dst: &[u8], message: &[u8]) -> SWAffine<Self>;
+}
 
-impl PedersenGensSWU for HeliosConfig {}
+// Implement for each SWU curve via a macro to avoid blanket-impl coherence conflicts.
+macro_rules! impl_hash_to_curve_ext_swu {
+    ($config:ty) => {
+        impl HashToCurveExt for $config {
+            fn hash_to_curve(dst: &[u8], message: &[u8]) -> SWAffine<Self> {
+                MapToCurveBasedHasher::<
+                    SWProjective<$config>,
+                    DefaultFieldHasher<Sha256, 128>,
+                    SWUMap<$config>,
+                >::new(dst)
+                .unwrap()
+                .hash(message)
+                .unwrap()
+            }
+        }
+    };
+}
 
-impl PedersenGensSWU for SeleneConfig {}
+impl_hash_to_curve_ext_swu!(HeliosConfig);
+impl_hash_to_curve_ext_swu!(SeleneConfig);
+impl_hash_to_curve_ext_swu!(Wei25519Config);
 
-impl PedersenGensSWU for Wei25519Config {}
-
-impl<C: PedersenGensSWU> PedersenGens<SWAffine<C>> {
-    /// Creates by hashing the label using SWU algorithm from IETF draft on hash to curve
+impl<C: HashToCurveExt> PedersenGens<SWAffine<C>> {
+    /// Creates by hashing the label
     pub fn new_using_label(label: &[u8]) -> Self {
-        let hasher = MapToCurveBasedHasher::<
-            SWProjective<C>,
-            DefaultFieldHasher<Sha256, 128>,
-            SWUMap<C>,
-        >::new(b"PedersenGens")
-        .unwrap();
-
-        let mut input = [label, b"-B"].concat();
-        let B = hasher.hash(&input).unwrap();
-
-        input.pop();
-        input.pop();
-        input.extend_from_slice(b"-B_blinding");
-        let B_blinding = hasher.hash(&input).unwrap();
-        Self { B, B_blinding }
+        let b_input = [label, b"-B"].concat();
+        let b_blinding_input = [label, b"-B_blinding"].concat();
+        Self {
+            B: C::hash_to_curve(b"PedersenGens", &b_input),
+            B_blinding: C::hash_to_curve(b"PedersenGens", &b_blinding_input),
+        }
     }
 }
 
@@ -179,7 +187,7 @@ impl<C: AffineRepr> Iterator for GeneratorsChain<C> {
 /// chain, and even forward-compatible to multiparty aggregation of
 /// constraint system proofs, since the generators are namespaced by
 /// their party index.
-#[derive(Clone, CanonicalSerialize, CanonicalDeserialize)]
+#[derive(Clone, Debug, CanonicalSerialize, CanonicalDeserialize)]
 pub struct BulletproofGens<C: AffineRepr> {
     /// The maximum number of usable generators for each party.
     pub gens_capacity: u32,
@@ -277,55 +285,24 @@ impl<C: AffineRepr> BulletproofGens<C> {
     }
 }
 
-/// Marker trait for curves that should use the generic SWU-based `new_using_label`.
-pub trait BulletproofGensSWU: SWUConfig {}
-
-impl BulletproofGensSWU for HeliosConfig {}
-
-impl BulletproofGensSWU for SeleneConfig {}
-
-impl BulletproofGensSWU for Wei25519Config {}
-
-impl<C: BulletproofGensSWU> BulletproofGens<SWAffine<C>> {
-    /// Creates by hashing the label using SWU algorithm from IETF draft on hash to curve
+impl<C: HashToCurveExt> BulletproofGens<SWAffine<C>> {
+    /// Creates by hashing the label
     pub fn new_using_label(label: &[u8], gens_capacity: u32, party_capacity: u32) -> Self {
-        let hasher_g = MapToCurveBasedHasher::<
-            SWProjective<C>,
-            DefaultFieldHasher<Sha256, 128>,
-            SWUMap<C>,
-        >::new(b"BulletproofGens-G")
-        .unwrap();
-
-        let hasher_h = MapToCurveBasedHasher::<
-            SWProjective<C>,
-            DefaultFieldHasher<Sha256, 128>,
-            SWUMap<C>,
-        >::new(b"BulletproofGens-H")
-        .unwrap();
-
         let mut G_vec = Vec::with_capacity(party_capacity as usize);
         let mut H_vec = Vec::with_capacity(party_capacity as usize);
-
         for i in 0..party_capacity {
+            let dst_g = [b"BulletproofGens-G", i.to_le_bytes().as_slice()].concat();
+            let dst_h = [b"BulletproofGens-H", i.to_le_bytes().as_slice()].concat();
             let mut G = Vec::with_capacity(gens_capacity as usize);
             let mut H = Vec::with_capacity(gens_capacity as usize);
-
             for j in 0..gens_capacity {
-                let input = [
-                    label,
-                    i.to_le_bytes().as_slice(),
-                    j.to_le_bytes().as_slice(),
-                ]
-                .concat();
-
-                G.push(hasher_g.hash(&input).unwrap());
-                H.push(hasher_h.hash(&input).unwrap());
+                let msg = [label, j.to_le_bytes().as_slice()].concat();
+                G.push(C::hash_to_curve(&dst_g, &msg));
+                H.push(C::hash_to_curve(&dst_h, &msg));
             }
-
             G_vec.push(G);
             H_vec.push(H);
         }
-
         Self {
             gens_capacity,
             party_capacity,
@@ -396,95 +373,19 @@ impl<'a, C: AffineRepr> BulletproofGensShare<'a, C> {
     }
 }
 
-macro_rules! impl_pedersen_gens_new_using_label {
-    ($affine_type:ty, $hash_fn:ident, $dst:expr) => {
-        impl PedersenGens<$affine_type> {
-            /// Creates by hashing the label
-            pub fn new_using_label(label: &[u8]) -> Self {
-                let dst = $dst;
-
-                let mut input = [label, b"-B"].concat();
-                let B = $hash_fn(dst, input.as_ref());
-                input.pop();
-                input.pop();
-                input.extend_from_slice(b"-B_blinding");
-                let B_blinding = $hash_fn(dst, input.as_ref());
-                Self {
-                    B: B.into_affine(),
-                    B_blinding: B_blinding.into_affine(),
-                }
-            }
-        }
-    };
-}
-
-macro_rules! impl_bulletproof_gens_new_using_label {
-    ($affine_type:ty, $projective_type:ty, $hash_fn:ident, $dst_g:expr, $dst_h:expr) => {
-        impl BulletproofGens<$affine_type> {
-            /// Creates by hashing the label. Do not call `increase_capacity` as it doesn't call standard hash to curve
-            pub fn new_using_label(label: &[u8], gens_capacity: u32, party_capacity: u32) -> Self {
-                let dst_g = $dst_g;
-                let dst_h = $dst_h;
-                let mut G_vec = Vec::with_capacity(party_capacity as usize);
-                let mut H_vec = Vec::with_capacity(party_capacity as usize);
-                for i in 0..party_capacity as u32 {
-                    let mut G = Vec::with_capacity(gens_capacity as usize);
-                    let mut H = Vec::with_capacity(gens_capacity as usize);
-                    let dst_g = [dst_g, i.to_le_bytes().as_slice()].concat();
-                    for j in 0..gens_capacity as u32 {
-                        G.push($hash_fn(
-                            dst_g.as_slice(),
-                            &[label, j.to_le_bytes().as_slice()].concat(),
-                        ));
-                        H.push($hash_fn(
-                            dst_h.as_slice(),
-                            &[label, j.to_le_bytes().as_slice()].concat(),
-                        ));
-                    }
-                    G_vec.push(<$projective_type>::normalize_batch(&G));
-                    H_vec.push(<$projective_type>::normalize_batch(&H));
-                }
-                Self {
-                    gens_capacity,
-                    party_capacity,
-                    G_vec,
-                    H_vec,
-                }
-            }
-        }
-    };
-}
-
-impl_pedersen_gens_new_using_label!(PallasAffine, hash_to_pallas, b"PedersenGens-Pallas");
-impl_pedersen_gens_new_using_label!(VestaAffine, hash_to_vesta, b"PedersenGens-Vesta");
-
-impl_bulletproof_gens_new_using_label!(
-    PallasAffine,
-    PallasProjective,
-    hash_to_pallas,
-    b"BulletproofGens-Pallas-G",
-    b"BulletproofGens-Pallas-H"
-);
-impl_bulletproof_gens_new_using_label!(
-    VestaAffine,
-    VestaProjective,
-    hash_to_vesta,
-    b"BulletproofGens-Vesta-G",
-    b"BulletproofGens-Vesta-H"
-);
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use ark_ec::AffineRepr;
-    use ark_helios::Affine as HeliosAffine;
-    use ark_pallas::*;
-    use ark_selene::Affine as SeleneAffine;
-    use ark_wei25519::Affine as Wei25519Affine;
+    use ark_helios::{Affine as HeliosAffine, HeliosConfig};
+    use ark_pallas::{Affine as PallasAffine, PallasConfig};
+    use ark_selene::{Affine as SeleneAffine, SeleneConfig};
+    use ark_vesta::{Affine as VestaAffine, VestaConfig};
+    use ark_wei25519::{Affine as Wei25519Affine, Wei25519Config};
 
     #[test]
     fn ped_gens_label() {
-        fn check<C: PedersenGensSWU>(label: &[u8]) {
+        fn check<C: HashToCurveExt>(label: &[u8]) {
             let gens = PedersenGens::<SWAffine<C>>::new_using_label(label);
             assert!(!gens.B.is_zero());
             assert!(gens.B.is_on_curve());
@@ -498,15 +399,17 @@ mod tests {
         check::<HeliosConfig>(label);
         check::<SeleneConfig>(label);
         check::<Wei25519Config>(label);
+        check::<PallasConfig>(label);
+        check::<VestaConfig>(label);
     }
 
     #[test]
     fn aggregated_gens_iter_matches_flat_map() {
-        let gens = BulletproofGens::<Affine>::new(64, 8);
+        let gens = BulletproofGens::<PallasAffine>::new(64, 8);
 
         let helper = |n: u32, m: u32| {
-            let agg_G: Vec<Affine> = gens.G(n, m).copied().collect();
-            let flat_G: Vec<Affine> = gens
+            let agg_G: Vec<PallasAffine> = gens.G(n, m).copied().collect();
+            let flat_G: Vec<PallasAffine> = gens
                 .G_vec
                 .iter()
                 .take(m as usize)
@@ -514,8 +417,8 @@ mod tests {
                 .copied()
                 .collect();
 
-            let agg_H: Vec<Affine> = gens.H(n, m).copied().collect();
-            let flat_H: Vec<Affine> = gens
+            let agg_H: Vec<PallasAffine> = gens.H(n, m).copied().collect();
+            let flat_H: Vec<PallasAffine> = gens
                 .H_vec
                 .iter()
                 .take(m as usize)
@@ -543,17 +446,17 @@ mod tests {
 
     #[test]
     fn resizing_small_gens_matches_creating_bigger_gens() {
-        let gens = BulletproofGens::<Affine>::new(64, 8);
+        let gens = BulletproofGens::<PallasAffine>::new(64, 8);
 
-        let mut gen_resized = BulletproofGens::<Affine>::new(32, 8);
+        let mut gen_resized = BulletproofGens::<PallasAffine>::new(32, 8);
         gen_resized.increase_capacity(64);
 
         let helper = |n: u32, m: u32| {
-            let gens_G: Vec<Affine> = gens.G(n, m).copied().collect();
-            let gens_H: Vec<Affine> = gens.H(n, m).copied().collect();
+            let gens_G: Vec<PallasAffine> = gens.G(n, m).copied().collect();
+            let gens_H: Vec<PallasAffine> = gens.H(n, m).copied().collect();
 
-            let resized_G: Vec<Affine> = gen_resized.G(n, m).copied().collect();
-            let resized_H: Vec<Affine> = gen_resized.H(n, m).copied().collect();
+            let resized_G: Vec<PallasAffine> = gen_resized.G(n, m).copied().collect();
+            let resized_H: Vec<PallasAffine> = gen_resized.H(n, m).copied().collect();
 
             assert_eq!(gens_G, resized_G);
             assert_eq!(gens_H, resized_H);

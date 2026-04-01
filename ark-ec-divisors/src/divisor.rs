@@ -55,33 +55,6 @@ pub(super) struct SmallDivisor<F: PrimeField> {
     y_coefficient: F,
 }
 
-impl<F> ConditionallySelectable for SmallDivisor<F>
-where
-    // F: PrimeField + ConditionallySelectable,
-    F: PrimeField,
-{
-    fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
-        // F does not implement ConditionallySelectable
-        // let x_coefficient = <_>::conditional_select(&a.x_coefficient, &b.x_coefficient, choice);
-        // let zero_coefficient =
-        //     <_>::conditional_select(&a.zero_coefficient, &b.zero_coefficient, choice);
-        // let y_coefficient = <_>::conditional_select(&a.y_coefficient, &b.y_coefficient, choice);
-        let c = bool::from(choice);
-        let x_coefficient = if !c { a.x_coefficient } else { b.x_coefficient };
-        let zero_coefficient = if !c {
-            a.zero_coefficient
-        } else {
-            b.zero_coefficient
-        };
-        let y_coefficient = if !c { a.y_coefficient } else { b.y_coefficient };
-        SmallDivisor {
-            x_coefficient,
-            zero_coefficient,
-            y_coefficient,
-        }
-    }
-}
-
 impl<F: PrimeField> SmallDivisor<F> {
     pub(super) fn new(x_coefficient: F, zero_coefficient: F, y_coefficient: F) -> Self {
         Self {
@@ -309,5 +282,32 @@ impl<F: PrimeField> DivisorEvals<F> {
         let a = interpolator.interpolate(&self.a.evals)?;
         let b = interpolator.interpolate(&self.b.evals)?;
         Ok([a, b])
+    }
+}
+
+impl<F> ConditionallySelectable for SmallDivisor<F>
+where
+    // F: PrimeField + ConditionallySelectable,
+    F: PrimeField,
+{
+    fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
+        // F does not implement ConditionallySelectable
+        // let x_coefficient = <_>::conditional_select(&a.x_coefficient, &b.x_coefficient, choice);
+        // let zero_coefficient =
+        //     <_>::conditional_select(&a.zero_coefficient, &b.zero_coefficient, choice);
+        // let y_coefficient = <_>::conditional_select(&a.y_coefficient, &b.y_coefficient, choice);
+        let c = bool::from(choice);
+        let x_coefficient = if !c { a.x_coefficient } else { b.x_coefficient };
+        let zero_coefficient = if !c {
+            a.zero_coefficient
+        } else {
+            b.zero_coefficient
+        };
+        let y_coefficient = if !c { a.y_coefficient } else { b.y_coefficient };
+        SmallDivisor {
+            x_coefficient,
+            zero_coefficient,
+            y_coefficient,
+        }
     }
 }

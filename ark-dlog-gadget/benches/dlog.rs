@@ -117,7 +117,7 @@ fn bench_blinding_with_discrete_log_prove<C, Params, B, S, BP>(
                 discrete_log_blinding(
                     &mut prover,
                     (o_x_var, o_y_var),
-                    o_blind_claim,
+                    *o_blind_claim,
                     (o_tilde_x, o_tilde_y),
                     &curve,
                     &[&t_table],
@@ -198,7 +198,7 @@ fn bench_blinding_with_discrete_log_verify<C, Params, B, S, BP>(
         discrete_log_blinding(
             &mut prover,
             (o_x_var, o_y_var),
-            o_blind_claim,
+            *o_blind_claim,
             (o_tilde_x, o_tilde_y),
             &curve,
             &[&t_table],
@@ -243,7 +243,7 @@ fn bench_blinding_with_discrete_log_verify<C, Params, B, S, BP>(
                 discrete_log_blinding(
                     &mut verifier,
                     (o_x_var, o_y_var),
-                    o_blind_claim,
+                    *o_blind_claim,
                     (o_tilde_x, o_tilde_y),
                     &curve,
                     &[&t_table],
@@ -342,7 +342,7 @@ fn bench_blinding_with_discrete_log_combined_prove<C, Params, B, S, BP>(
                 discrete_log_blinding(
                     &mut prover,
                     (o_x_var, o_y_var),
-                    o_blind_claim,
+                    *o_blind_claim,
                     (o_tilde_x, o_tilde_y),
                     &curve,
                     &[&t_table],
@@ -435,7 +435,7 @@ fn bench_blinding_with_discrete_log_combined_verify<C, Params, B, S, BP>(
         discrete_log_blinding(
             &mut prover,
             (o_x_var, o_y_var),
-            o_blind_claim,
+            *o_blind_claim,
             (o_tilde_x, o_tilde_y),
             &curve,
             &[&t_table],
@@ -483,7 +483,7 @@ fn bench_blinding_with_discrete_log_combined_verify<C, Params, B, S, BP>(
                 discrete_log_blinding(
                     &mut verifier,
                     (o_x_var, o_y_var),
-                    o_blind_claim,
+                    *o_blind_claim,
                     (o_tilde_x, o_tilde_y),
                     &curve,
                     &[&t_table],
