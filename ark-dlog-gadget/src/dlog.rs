@@ -7,7 +7,7 @@ use ark_ec_divisors::util::{DiscreteLogParameter, GeneratorMultiplesSource, Gene
 use ark_ec_divisors::{DivisorCurve, DivisorPoly, ScalarDecomposition};
 use ark_ff::{BigInteger, PrimeField, batch_inversion};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use ark_std::{fmt::Debug, vec, vec::Vec};
+use ark_std::{boxed::Box, fmt::Debug, vec, vec::Vec};
 use bulletproofs::BulletproofGens;
 use bulletproofs::r1cs::{
     ConstraintSystem, LinearCombination, Prover, Variable, Verifier, constant,
