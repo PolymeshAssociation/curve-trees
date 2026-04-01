@@ -214,7 +214,7 @@ impl<
         F0,
         F0,
         DivisorComms<Affine<P0>>,
-        PointWithDlog<F0, Parameters>,
+        Box<PointWithDlog<F0, Parameters>>,
     )> {
         let child_node = witness_node.child_node_to_randomize;
         let all_x_coords = &witness_node.x_coord_children;
@@ -255,7 +255,7 @@ impl<
         F0,
         F0,
         DivisorComms<Affine<P0>>,
-        PointWithDlog<F0, Parameters>,
+        Box<PointWithDlog<F0, Parameters>>,
     )> {
         let (x_var, y_var, x, y) = witness_node.single_level_select(
             prover,
@@ -533,7 +533,7 @@ impl<
                 LinearCombination<F0>,
                 F0,
                 F0,
-                PointWithDlog<F0, Parameters>,
+                Box<PointWithDlog<F0, Parameters>>,
             )>,
         >,
         delta: Affine<P1>,
@@ -650,7 +650,7 @@ pub type DlogItem<F, Params> = (
     LinearCombination<F>,
     F,
     F,
-    PointWithDlog<F, Params>,
+    Box<PointWithDlog<F, Params>>,
 );
 
 /// Enum for single root item case (single-path prover/verifier, batched prover/verifier)
@@ -711,7 +711,7 @@ pub fn constraints_for_dlogs<
         discrete_log_blinding_given_challenge(
             cs_even,
             (x_var, y_var),
-            p,
+            *p,
             (x, y),
             &curve_spec_even,
             &challenge_even,
@@ -724,7 +724,7 @@ pub fn constraints_for_dlogs<
         discrete_log_blinding_given_challenge(
             cs_odd,
             (x_var, y_var),
-            p,
+            *p,
             (x, y),
             &curve_spec_odd,
             &challenge_odd,
@@ -761,7 +761,7 @@ pub fn create_and_commit_divisor<
     randomization: F1,
     blinding_base_table: &GeneratorTable<F0, Params>,
     bp_gens: &BulletproofGens<Affine<C0>>,
-) -> Result<(DivisorComms<Affine<C0>>, PointWithDlog<F0, Params>)> {
+) -> Result<(DivisorComms<Affine<C0>>, Box<PointWithDlog<F0, Params>>)> {
     let (divisor_commitments, o_blind_claim) = {
         // Optimz: All divisors could be computed in parallel. And creating multiple divisors at once is faster
         let witness = create_divisor_and_decomposition::<F0, C1, Params>(
