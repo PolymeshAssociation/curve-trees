@@ -10,7 +10,7 @@ use ark_ec::short_weierstrass::{Affine, SWCurveConfig};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::PrimeField;
 use ark_std::vec;
-use ark_std::vec::Vec;
+use ark_std::{boxed::Box, vec::Vec};
 use bulletproofs::r1cs::{ConstraintSystem, LinearCombination, Verifier};
 use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
 

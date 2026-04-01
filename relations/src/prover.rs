@@ -18,7 +18,7 @@ use ark_ec_divisors::util::GeneratorTable;
 use ark_ec_divisors::DivisorCurve;
 use ark_ff::{Field, PrimeField};
 use ark_std::vec;
-use ark_std::vec::Vec;
+use ark_std::{boxed::Box, vec::Vec};
 use bulletproofs::r1cs::{ConstraintSystem, LinearCombination, Prover, Variable};
 use bulletproofs::BulletproofGens;
 use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
