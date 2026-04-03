@@ -5,7 +5,7 @@ use ark_serialize::{
     CanonicalDeserialize, CanonicalSerialize, Compress, Read, SerializationError, Valid, Validate,
     Write,
 };
-use ark_std::{fmt::Debug, marker::PhantomData, vec::Vec};
+use ark_std::{boxed::Box, fmt::Debug, marker::PhantomData, vec::Vec};
 use core::ops::Add;
 use generic_array::typenum::{U1, Unsigned};
 use generic_array::{ArrayLength, GenericArray};
@@ -108,7 +108,7 @@ pub trait DiscreteLogParameter: Debug + Clone {
 #[derive(Debug, Clone)]
 pub struct GeneratorTable<F: PrimeField, Parameters: DiscreteLogParameter>(
     /// Contains (x, y) coordinates of the generator multiplied by powers of two as `[G, 2G, 4G, ..., 2^s.G]` where `s` is `ScalarBits`.
-    pub GenericArray<(F, F), Parameters::ScalarBits>,
+    pub Box<GenericArray<(F, F), Parameters::ScalarBits>>,
 );
 
 impl<F: PrimeField, Parameters: DiscreteLogParameter> CanonicalSerialize
@@ -146,7 +146,7 @@ impl<F: PrimeField, Parameters: DiscreteLogParameter> CanonicalDeserialize
         compress: Compress,
         validate: Validate,
     ) -> Result<Self, SerializationError> {
-        let mut array = GenericArray::default();
+        let mut array = Box::new(GenericArray::default());
         for i in 0..Parameters::ScalarBits::USIZE {
             let x = F::deserialize_with_mode(&mut reader, compress, validate)?;
             let y = F::deserialize_with_mode(&mut reader, compress, validate)?;
@@ -165,7 +165,7 @@ impl<F: PrimeField, Parameters: DiscreteLogParameter> GeneratorTable<F, Paramete
             points.push(points[i - 1].double());
         }
 
-        let mut res = Self(GenericArray::default());
+        let mut res = Self(Box::new(GenericArray::default()));
         let affines = Projective::<C>::normalize_batch(&points);
         for (i, aff) in affines.into_iter().enumerate() {
             res.0[i] = (aff.x, aff.y);
