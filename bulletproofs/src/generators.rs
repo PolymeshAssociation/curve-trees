@@ -287,6 +287,51 @@ impl<C: AffineRepr> BulletproofGens<C> {
 
 impl<C: HashToCurveExt> BulletproofGens<SWAffine<C>> {
     /// Creates by hashing the label
+    #[cfg(feature = "parallel")]
+    pub fn new_using_label(label: &[u8], gens_capacity: u32, party_capacity: u32) -> Self {
+        use rayon::prelude::*;
+
+        let mut G_vec = Vec::with_capacity(party_capacity as usize);
+        let mut H_vec = Vec::with_capacity(party_capacity as usize);
+        for i in 0..party_capacity {
+            let dst_g = [b"BulletproofGens-G", i.to_le_bytes().as_slice()].concat();
+            let dst_h = [b"BulletproofGens-H", i.to_le_bytes().as_slice()].concat();
+
+            let (G, H) = rayon::join(
+                || {
+                    (0..gens_capacity)
+                        .into_par_iter()
+                        .map(|j| {
+                            let msg = [label, j.to_le_bytes().as_slice()].concat();
+                            C::hash_to_curve(&dst_g, &msg)
+                        })
+                        .collect()
+                },
+                || {
+                    (0..gens_capacity)
+                        .into_par_iter()
+                        .map(|j| {
+                            let msg = [label, j.to_le_bytes().as_slice()].concat();
+                            C::hash_to_curve(&dst_h, &msg)
+                        })
+                        .collect()
+                },
+            );
+
+            G_vec.push(G);
+            H_vec.push(H);
+        }
+
+        Self {
+            gens_capacity,
+            party_capacity,
+            G_vec,
+            H_vec,
+        }
+    }
+
+    /// Creates by hashing the label
+    #[cfg(not(feature = "parallel"))]
     pub fn new_using_label(label: &[u8], gens_capacity: u32, party_capacity: u32) -> Self {
         let mut G_vec = Vec::with_capacity(party_capacity as usize);
         let mut H_vec = Vec::with_capacity(party_capacity as usize);
