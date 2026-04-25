@@ -13,7 +13,7 @@ use ark_ec::hashing::map_to_curve_hasher::MapToCurveBasedHasher;
 use ark_ec::hashing::HashToCurve;
 use ark_ec::short_weierstrass::{Affine as SWAffine, Projective as SWProjective, SWCurveConfig};
 use ark_ec::{AffineRepr, VariableBaseMSM};
-use ark_ff::field_hashers::DefaultFieldHasher;
+use ark_ff::{field_hashers::DefaultFieldHasher, PrimeField};
 use ark_helios::HeliosConfig;
 use ark_selene::SeleneConfig;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
@@ -64,8 +64,75 @@ impl<C: AffineRepr> PedersenGens<C> {
 /// Extension trait providing a unified hash-to-curve interface for all supported curves.
 /// Pallas and Vesta have specific impls, SWU curves use a helper macro.
 pub trait HashToCurveExt: SWCurveConfig {
+    /// Returns the name of the curve.
+    fn curve_name() -> &'static str {
+        &core::any::type_name::<Self>()
+    }
+
+    /// Return the curve point uncompressed size in bytes, which is used for buffer allocation when calling the host function.
+    fn uncompressed_size() -> usize {
+        2 * (Self::ScalarField::MODULUS_BIT_SIZE as usize / 8 + 1)
+    }
+
+    /// Return the uncompressed size of a vec of curve points with the given count, plus bytes for the count itself, which is used for buffer allocation when calling the host function.
+    fn batch_uncompressed_size(gens_count: u32) -> usize {
+        use ark_serialize::impls::compact::CompactU64;
+        CompactU64(gens_count as u64).uncompressed_size()
+            + (gens_count as usize * Self::uncompressed_size())
+    }
+
     /// Hash `message` to an affine curve point, using `dst` as the domain separation tag.
     fn hash_to_curve(dst: &[u8], message: &[u8]) -> SWAffine<Self>;
+
+    /// Generate a batch of generators.
+    ///
+    /// `gens_offset` allows growing the set of generators.
+    fn batch_hash_to_curve(
+        dst: &[u8],
+        msg_prefix: &[u8],
+        gens_offset: u32,
+        gens_count: u32,
+    ) -> Vec<SWAffine<Self>> {
+        #[cfg(all(feature = "host_hash_to_curve", not(feature = "std")))]
+        {
+            if let Some(gens) = crate::use_host_batch_hash_to_curve::<Self>(
+                dst,
+                msg_prefix,
+                gens_offset,
+                gens_count,
+            ) {
+                return gens;
+            }
+        }
+
+        let gens_start = gens_offset;
+        let gens_end = gens_offset + gens_count;
+
+        #[cfg(feature = "parallel")]
+        let gens = {
+            use rayon::prelude::*;
+
+            (gens_start..gens_end)
+                .into_par_iter()
+                .map(|j| {
+                    let msg = [msg_prefix, j.to_le_bytes().as_slice()].concat();
+                    Self::hash_to_curve(dst, &msg)
+                })
+                .collect()
+        };
+
+        #[cfg(not(feature = "parallel"))]
+        let gens = {
+            let mut gens = Vec::with_capacity(gens_count as usize);
+            for j in gens_start..gens_end {
+                let msg = [msg_prefix, j.to_le_bytes().as_slice()].concat();
+                gens.push(Self::hash_to_curve(dst, &msg));
+            }
+            gens
+        };
+
+        gens
+    }
 }
 
 // Implement for each SWU curve via a macro to avoid blanket-impl coherence conflicts.
@@ -286,68 +353,42 @@ impl<C: AffineRepr> BulletproofGens<C> {
 }
 
 impl<C: HashToCurveExt> BulletproofGens<SWAffine<C>> {
-    /// Creates by hashing the label
-    #[cfg(feature = "parallel")]
-    pub fn new_using_label(label: &[u8], gens_capacity: u32, party_capacity: u32) -> Self {
-        use rayon::prelude::*;
+    /// Generate one set of generators for each party by hashing the label
+    pub fn new_party_gens_using_label(
+        label: &[u8],
+        generator_label: &[u8],
+        party_idx: u32,
+        gens_offset: u32,
+        gens_count: u32,
+    ) -> Vec<SWAffine<C>> {
+        let dst_gen = [generator_label, party_idx.to_le_bytes().as_slice()].concat();
 
-        let mut G_vec = Vec::with_capacity(party_capacity as usize);
-        let mut H_vec = Vec::with_capacity(party_capacity as usize);
-        for i in 0..party_capacity {
-            let dst_g = [b"BulletproofGens-G", i.to_le_bytes().as_slice()].concat();
-            let dst_h = [b"BulletproofGens-H", i.to_le_bytes().as_slice()].concat();
-
-            let (G, H) = rayon::join(
-                || {
-                    (0..gens_capacity)
-                        .into_par_iter()
-                        .map(|j| {
-                            let msg = [label, j.to_le_bytes().as_slice()].concat();
-                            C::hash_to_curve(&dst_g, &msg)
-                        })
-                        .collect()
-                },
-                || {
-                    (0..gens_capacity)
-                        .into_par_iter()
-                        .map(|j| {
-                            let msg = [label, j.to_le_bytes().as_slice()].concat();
-                            C::hash_to_curve(&dst_h, &msg)
-                        })
-                        .collect()
-                },
-            );
-
-            G_vec.push(G);
-            H_vec.push(H);
-        }
-
-        Self {
-            gens_capacity,
-            party_capacity,
-            G_vec,
-            H_vec,
-        }
+        C::batch_hash_to_curve(&dst_gen, label, gens_offset, gens_count)
     }
 
     /// Creates by hashing the label
-    #[cfg(not(feature = "parallel"))]
     pub fn new_using_label(label: &[u8], gens_capacity: u32, party_capacity: u32) -> Self {
         let mut G_vec = Vec::with_capacity(party_capacity as usize);
         let mut H_vec = Vec::with_capacity(party_capacity as usize);
-        for i in 0..party_capacity {
-            let dst_g = [b"BulletproofGens-G", i.to_le_bytes().as_slice()].concat();
-            let dst_h = [b"BulletproofGens-H", i.to_le_bytes().as_slice()].concat();
-            let mut G = Vec::with_capacity(gens_capacity as usize);
-            let mut H = Vec::with_capacity(gens_capacity as usize);
-            for j in 0..gens_capacity {
-                let msg = [label, j.to_le_bytes().as_slice()].concat();
-                G.push(C::hash_to_curve(&dst_g, &msg));
-                H.push(C::hash_to_curve(&dst_h, &msg));
-            }
+        for party_idx in 0..party_capacity {
+            let G = Self::new_party_gens_using_label(
+                label,
+                b"BulletproofGens-G",
+                party_idx,
+                0,
+                gens_capacity,
+            );
+            let H = Self::new_party_gens_using_label(
+                label,
+                b"BulletproofGens-H",
+                party_idx,
+                0,
+                gens_capacity,
+            );
             G_vec.push(G);
             H_vec.push(H);
         }
+
         Self {
             gens_capacity,
             party_capacity,

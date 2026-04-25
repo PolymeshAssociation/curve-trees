@@ -35,6 +35,10 @@ ark-selene = { workspace = true, default-features = false }
 ark-wei25519 = { workspace = true, default-features = false }
 hashbrown = { version = "0.15.0", default-features = false }
 
+polkavm-derive = { version = "0.32.0", optional = true }
+ark-host-msm = { workspace = true, default-features = false, optional = true }
+lazy_static = { version = "1.5.0", default-features = false, optional = true }
+
 [target.'cfg(all(target_has_atomic = "8", target_has_atomic = "16", target_has_atomic = "32", target_has_atomic = "64", target_has_atomic = "ptr"))'.dependencies]
 ahash = { version = "0.8", default-features = false }
 
@@ -46,13 +50,26 @@ test-log = "0.2"
 criterion = "0.7"
 
 [features]
-default = ["std", "parallel", "asm"]
+default = ["std", "parallel", "asm", "host_hash_to_curve"]
 
 no_std = []
-std = ["rand/std", "thiserror/std", "sha2/std", "ark-pallas/std", "ark-vesta/std", "dock_crypto_utils/std", "ahash/std"]
+std = ["rand/std", "thiserror/std", "sha2/std", "ark-pallas/std", "ark-vesta/std", "dock_crypto_utils/std", "ahash/std", "impl_host_hash_to_curve", "lazy_static"]
 asm = ["ark-ff/asm", "sha2/asm"]
 parallel = ["std", "rayon" ]
 parallel_full = [ "parallel", "dock_crypto_utils/parallel_full" ]
+
+# Enable host `hash_to_curve` support.
+host_hash_to_curve = [
+    "ark-host-msm",
+]
+# For the host-side.
+impl_host_hash_to_curve = [
+    "ark-host-msm",
+]
+polkavm = [
+    "host_hash_to_curve",
+    "polkavm-derive",
+]
 
 [[test]]
 name = "r1cs"

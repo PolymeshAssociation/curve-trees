@@ -15,3 +15,14 @@ pub use crate::util::affine_from_bytes_tai;
 
 pub mod hash_to_curve_pasta;
 pub mod r1cs;
+
+#[cfg(any(
+    all(not(feature = "std"), feature = "host_hash_to_curve"),
+    feature = "impl_host_hash_to_curve"
+))]
+pub mod host_hash_to_curve;
+#[cfg(any(
+    all(not(feature = "std"), feature = "host_hash_to_curve"),
+    feature = "impl_host_hash_to_curve"
+))]
+pub use host_hash_to_curve::host_fn::*;
