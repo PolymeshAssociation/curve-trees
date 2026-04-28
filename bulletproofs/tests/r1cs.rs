@@ -12,7 +12,7 @@ use ark_pallas::Affine;
 use bulletproofs::r1cs::verifier::{batch_verify_with_given_randomness, batch_verify_with_rng};
 use bulletproofs::r1cs::*;
 use bulletproofs::{BulletproofGens, PedersenGens};
-use dock_crypto_utils::randomized_mult_checker::RandomizedMultChecker;
+use dock_crypto_utils::randomized_mult_checker::RandomizedMultCheckerGuard;
 use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
@@ -214,16 +214,18 @@ fn kshuffle_helper(k: usize) {
         let mut rng = rand::thread_rng();
         let mut verifier_transcript = MerlinTranscript::new(b"ShuffleProofTest");
         let r = Scalar::rand(&mut rng);
-        let mut rmc = RandomizedMultChecker::new(r);
-        let vt = proof
-            .verification_scalars_and_points(
-                &mut verifier_transcript,
-                &input_commitments,
-                &output_commitments,
-            )
-            .unwrap();
-        add_verification_tuple_to_rmc(vt, &pc_gens, &bp_gens, &mut rmc).unwrap();
-        assert!(rmc.verify());
+        let res = RandomizedMultCheckerGuard::new(r).with_err((), |rmc| {
+            let vt = proof
+                .verification_scalars_and_points(
+                    &mut verifier_transcript,
+                    &input_commitments,
+                    &output_commitments,
+                )
+                .unwrap();
+            add_verification_tuple_to_rmc(vt, &pc_gens, &bp_gens, rmc).unwrap();
+            Ok(())
+        });
+        assert!(res.is_ok());
         println!("rmc.verify: {:?}", start.elapsed());
     }
 }
@@ -289,25 +291,29 @@ fn kshuffle_batch_helper(k: usize, n: usize) {
     println!("batch_verify_with_given_randomness: {:?}", start.elapsed());
 
     let start = Instant::now();
-    let mut rmc = RandomizedMultChecker::new(r);
-    add_verification_tuples_to_rmc_0(vsps.clone(), &pc_gens, &bp_gens, &mut rmc).unwrap();
-    println!(
-        "add_verification_tuples_to_rmc_0 prepare: {:?}",
-        start.elapsed()
-    );
-    println!("MSM size = {}", rmc.len());
-    assert!(rmc.verify());
+    let res = RandomizedMultCheckerGuard::new(r).with_err((), |rmc| {
+        add_verification_tuples_to_rmc_0(vsps.clone(), &pc_gens, &bp_gens, rmc).unwrap();
+        println!(
+            "add_verification_tuples_to_rmc_0 prepare: {:?}",
+            start.elapsed()
+        );
+        println!("MSM size = {}", rmc.len());
+        Ok(())
+    });
+    assert!(res.is_ok());
     println!("add_verification_tuples_to_rmc_0: {:?}", start.elapsed());
 
     let start = Instant::now();
-    let mut rmc = RandomizedMultChecker::new(r);
-    add_verification_tuples_to_rmc(vsps, &pc_gens, &bp_gens, &mut rmc).unwrap();
-    println!(
-        "add_verification_tuples_to_rmc prepare: {:?}",
-        start.elapsed()
-    );
-    println!("MSM size = {}", rmc.len());
-    assert!(rmc.verify());
+    let res = RandomizedMultCheckerGuard::new(r).with_err((), |rmc| {
+        add_verification_tuples_to_rmc(vsps, &pc_gens, &bp_gens, rmc).unwrap();
+        println!(
+            "add_verification_tuples_to_rmc prepare: {:?}",
+            start.elapsed()
+        );
+        println!("MSM size = {}", rmc.len());
+        Ok(())
+    });
+    assert!(res.is_ok());
     println!("add_verification_tuples_to_rmc: {:?}", start.elapsed());
 }
 
@@ -580,10 +586,12 @@ fn range_proof_helper<C: AffineRepr>(v_val: u64, n: usize) -> Result<(), R1CSErr
     assert!(range_proof(&mut verifier, var.into(), None, n).is_ok());
 
     let r = C::ScalarField::rand(&mut rng);
-    let mut rmc = RandomizedMultChecker::new(r);
-    let vt = verifier.verification_scalars_and_points(&proof)?;
-    add_verification_tuple_to_rmc(vt, &pc_gens, &bp_gens, &mut rmc)?;
-    assert!(rmc.verify());
+    let res = RandomizedMultCheckerGuard::new(r).with_err(R1CSError::VerificationError, |rmc| {
+        let vt = verifier.verification_scalars_and_points(&proof)?;
+        add_verification_tuple_to_rmc(vt, &pc_gens, &bp_gens, rmc)?;
+        Ok(())
+    });
+    assert!(res.is_ok());
 
     Ok(())
 }
@@ -664,45 +672,65 @@ fn test_batch_verify() {
         vt_rp.proof_independent_scalars.len()
     );
 
-    let mut rmc = RandomizedMultChecker::new_using_rng(&mut rng);
-    add_verification_tuples_to_rmc_0(
-        vec![vt_ex.clone(), vt_rp.clone()],
-        &pc_gens,
-        &bp_gens,
-        &mut rmc,
-    )
-    .unwrap();
-    assert!(rmc.verify());
+    let res = RandomizedMultCheckerGuard::new_using_rng(&mut rng).with_err(
+        R1CSError::VerificationError,
+        |rmc| {
+            add_verification_tuples_to_rmc_0(
+                vec![vt_ex.clone(), vt_rp.clone()],
+                &pc_gens,
+                &bp_gens,
+                rmc,
+            )
+            .unwrap();
+            Ok(())
+        },
+    );
+    assert!(res.is_ok());
 
-    let mut rmc = RandomizedMultChecker::new_using_rng(&mut rng);
-    add_verification_tuples_to_rmc_0(
-        vec![vt_rp.clone(), vt_ex.clone()],
-        &pc_gens,
-        &bp_gens,
-        &mut rmc,
-    )
-    .unwrap();
-    assert!(rmc.verify());
+    let res = RandomizedMultCheckerGuard::new_using_rng(&mut rng).with_err(
+        R1CSError::VerificationError,
+        |rmc| {
+            add_verification_tuples_to_rmc_0(
+                vec![vt_rp.clone(), vt_ex.clone()],
+                &pc_gens,
+                &bp_gens,
+                rmc,
+            )
+            .unwrap();
+            Ok(())
+        },
+    );
+    assert!(res.is_ok());
 
-    let mut rmc = RandomizedMultChecker::new_using_rng(&mut rng);
-    add_verification_tuples_to_rmc(
-        vec![vt_ex.clone(), vt_rp.clone()],
-        &pc_gens,
-        &bp_gens,
-        &mut rmc,
-    )
-    .unwrap();
-    assert!(rmc.verify());
+    let res = RandomizedMultCheckerGuard::new_using_rng(&mut rng).with_err(
+        R1CSError::VerificationError,
+        |rmc| {
+            add_verification_tuples_to_rmc(
+                vec![vt_ex.clone(), vt_rp.clone()],
+                &pc_gens,
+                &bp_gens,
+                rmc,
+            )
+            .unwrap();
+            Ok(())
+        },
+    );
+    assert!(res.is_ok());
 
-    let mut rmc = RandomizedMultChecker::new_using_rng(&mut rng);
-    add_verification_tuples_to_rmc(
-        vec![vt_rp.clone(), vt_ex.clone()],
-        &pc_gens,
-        &bp_gens,
-        &mut rmc,
-    )
-    .unwrap();
-    assert!(rmc.verify());
+    let res = RandomizedMultCheckerGuard::new_using_rng(&mut rng).with_err(
+        R1CSError::VerificationError,
+        |rmc| {
+            add_verification_tuples_to_rmc(
+                vec![vt_rp.clone(), vt_ex.clone()],
+                &pc_gens,
+                &bp_gens,
+                rmc,
+            )
+            .unwrap();
+            Ok(())
+        },
+    );
+    assert!(res.is_ok());
 
     batch_verify(vec![vt_ex.clone(), vt_rp.clone()], &pc_gens, &bp_gens).unwrap();
     batch_verify(vec![vt_rp, vt_ex], &pc_gens, &bp_gens).unwrap();
