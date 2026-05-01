@@ -44,7 +44,7 @@ impl<C: AffineRepr> InnerProductProof<C> {
         mut H_vec: Vec<C>,
         mut a_vec: Vec<C::ScalarField>,
         mut b_vec: Vec<C::ScalarField>,
-    ) -> InnerProductProof<C> {
+    ) -> Result<InnerProductProof<C>, ProofError> {
         // Create slices G, H, a, b backed by their respective
         // vectors.  This lets us reslice as we compress the lengths
         // of the vectors in the main loop below.
@@ -129,7 +129,7 @@ impl<C: AffineRepr> InnerProductProof<C> {
             transcript.append_point(b"R", &R);
 
             let u = TranscriptProtocol::challenge_scalar::<C>(transcript, b"u");
-            let u_inv = u.inverse().expect("u challenge is zero");
+            let u_inv = u.inverse().ok_or_else(|| ProofError::InvertingZero)?;
 
             for i in 0..n {
                 a_L[i] = a_L[i] * u + u_inv * a_R[i];
@@ -201,7 +201,7 @@ impl<C: AffineRepr> InnerProductProof<C> {
             transcript.append_point(b"R", &R);
 
             let u = TranscriptProtocol::challenge_scalar::<C>(transcript, b"u");
-            let u_inv = u.inverse().expect("u challenge is zero");
+            let u_inv = u.inverse().ok_or_else(|| ProofError::InvertingZero)?;
 
             for i in 0..n {
                 a_L[i] = a_L[i] * u + u_inv * a_R[i];
@@ -217,12 +217,12 @@ impl<C: AffineRepr> InnerProductProof<C> {
             // todo collapse iteration one and rest?
         }
 
-        InnerProductProof {
+        Ok(InnerProductProof {
             L_vec,
             R_vec,
             a: a[0],
             b: b[0],
-        }
+        })
     }
 
     /// Computes three vectors of verification scalars \\([u\_{i}^{2}]\\), \\([u\_{i}^{-2}]\\) and \\([s\_{i}]\\) for combined multiscalar multiplication
@@ -466,7 +466,8 @@ mod tests {
             H.clone(),
             a.clone(),
             b.clone(),
-        );
+        )
+        .unwrap();
 
         let mut verifier = MerlinTranscript::new(b"innerproducttest");
         proof.verify(

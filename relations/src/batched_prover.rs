@@ -216,7 +216,9 @@ impl<
                 let rerandomized_plus_delta = (rerandomizations_of_selected[i]
                     + even_parameters.sl_params.delta)
                     .into_affine();
-                let (x, y) = rerandomized_plus_delta.xy().unwrap();
+                let (x, y) = rerandomized_plus_delta
+                    .xy()
+                    .ok_or_else(|| Error::PointCantBeZero)?;
 
                 let (divisor_comms, p) = create_and_commit_divisor::<_, F1, F0, P1, P0, Parameters1>(
                     rng,
@@ -292,13 +294,15 @@ impl<
             num_indices,
             &all_children_x,
             Some(&selected_children_plus_delta),
-        );
+        )?;
 
         // Compute the target point for discrete log verification
         let shifted_rerandomized = (re_randomized_sum_of_children
             + (parameters.sl_params.delta * P1::ScalarField::from(num_indices as u64)))
         .into_affine();
-        let (x, y) = shifted_rerandomized.xy().unwrap();
+        let (x, y) = shifted_rerandomized
+            .xy()
+            .ok_or_else(|| Error::PointCantBeZero)?;
 
         // Create single divisor proof for the sum
         let (divisor_comms, p) = create_and_commit_divisor::<_, F0, F1, P0, P1, Parameters0>(
@@ -353,12 +357,14 @@ impl<
             num_indices,
             children_vars,
             Some(&selected_children_plus_delta),
-        );
+        )?;
 
         let shifted_rerandomized = (re_randomized_sum_of_children
             + (parameters.sl_params.delta * P1::ScalarField::from(num_indices)))
         .into_affine();
-        let (x, y) = shifted_rerandomized.xy().unwrap();
+        let (x, y) = shifted_rerandomized
+            .xy()
+            .ok_or_else(|| Error::PointCantBeZero)?;
 
         let (divisor_comms, p) = create_and_commit_divisor::<_, F0, F1, P0, P1, Parameters0>(
             rng,
@@ -380,11 +386,11 @@ pub fn batched_select_and_accumulate_root<
     num_indices: u32, // The number of parallel selections
     all_children_x_coords: &[F],
     selected_children_plus_delta: Option<&[Affine<C>]>,
-) -> (
+) -> Result<(
     Option<Affine<C>>,
     LinearCombination<F>,
     LinearCombination<F>,
-) {
+)> {
     // Initialize the accumulated sum of the selected children to dummy values.
     let mut sum_of_selected = PointRepresentation {
         x: Variable::One(PhantomData).into(),
@@ -418,11 +424,11 @@ pub fn batched_select_and_accumulate_root<
             sum_of_selected = ith_selected;
         } else {
             // In the consecutive iterations, add the ith selected child to the accumulated sum
-            sum_of_selected = checked_curve_addition_helper(cs, sum_of_selected, ith_selected);
+            sum_of_selected = checked_curve_addition_helper(cs, sum_of_selected, ith_selected)?;
         }
     }
 
-    (sum_of_selected.point, sum_of_selected.x, sum_of_selected.y)
+    Ok((sum_of_selected.point, sum_of_selected.x, sum_of_selected.y))
 }
 
 pub fn batched_select_and_accumulate_non_root<
@@ -434,11 +440,11 @@ pub fn batched_select_and_accumulate_non_root<
     num_indices: u32, // The number of parallel selections
     all_children_x_coords: Vec<LinearCombination<F>>,
     selected_children_plus_delta: Option<&[Affine<C>]>,
-) -> (
+) -> Result<(
     Option<Affine<C>>,
     LinearCombination<F>,
     LinearCombination<F>,
-) {
+)> {
     // Initialize the accumulated sum of the selected children to dummy values.
     let mut sum_of_selected = PointRepresentation {
         x: Variable::One(PhantomData).into(),
@@ -472,9 +478,9 @@ pub fn batched_select_and_accumulate_non_root<
             sum_of_selected = ith_selected;
         } else {
             // In the consecutive iterations, add the ith selected child to the accumulated sum
-            sum_of_selected = checked_curve_addition_helper(cs, sum_of_selected, ith_selected);
+            sum_of_selected = checked_curve_addition_helper(cs, sum_of_selected, ith_selected)?;
         }
     }
 
-    (sum_of_selected.point, sum_of_selected.x, sum_of_selected.y)
+    Ok((sum_of_selected.point, sum_of_selected.x, sum_of_selected.y))
 }

@@ -56,7 +56,7 @@ impl<
                     child,
                     all_x_coords,
                     None,
-                );
+                )?;
                 let p = commit_dlog_and_divisor::<_, _, Parameters0>(
                     even_verifier,
                     self.even_divisor_comms.get(0).ok_or_else(|| {
@@ -85,7 +85,7 @@ impl<
                     child,
                     all_x_coords,
                     None,
-                );
+                )?;
                 let p = commit_dlog_and_divisor::<_, _, Parameters1>(
                     odd_verifier,
                     self.odd_divisor_comms.get(0).ok_or_else(|| {
@@ -148,7 +148,7 @@ impl<
                     child,
                     variables,
                     None,
-                );
+                )?;
                 let divisor_comms = self.even_divisor_comms.get(child_index).ok_or_else(|| {
                     Error::MalformedProofInput(
                         "even_divisor_comms shorter than required for even-side traversal"
@@ -196,7 +196,7 @@ impl<
                     child,
                     variables,
                     None,
-                );
+                )?;
                 let divisor_comms = self.odd_divisor_comms.get(child_index).ok_or_else(|| {
                     Error::MalformedProofInput(
                         "odd_divisor_comms shorter than required for odd-side traversal"
@@ -390,7 +390,7 @@ impl<
                     child,
                     variables,
                     None,
-                );
+                )?;
 
                 let divisor_comms = path_even_comms.get(child_index).ok_or_else(|| {
                     Error::MalformedProofInput(
@@ -436,7 +436,7 @@ impl<
                     child,
                     variables,
                     None,
-                );
+                )?;
 
                 let divisor_comms = path_odd_comms.get(child_index).ok_or_else(|| {
                     Error::MalformedProofInput(

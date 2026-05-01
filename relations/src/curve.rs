@@ -1,3 +1,4 @@
+use crate::{error::Error, error::Result};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::Field;
 use bulletproofs::r1cs::*;
@@ -34,6 +35,7 @@ pub struct PointRepresentation<F: Field, C: AffineRepr<BaseField = F>> {
 
 /// Given variables representing the coordinates of two points returns two variables representing the sum.
 /// The prover must additionally provide the two summands as input and gets the sum as output.
+#[cfg(test)]
 pub fn incomplete_curve_addition_helper<
     F: Field,
     Cs: ConstraintSystem<F>,
@@ -84,20 +86,26 @@ pub fn checked_curve_addition_helper<
     cs: &mut Cs,
     left: PointRepresentation<F, P>,
     right: PointRepresentation<F, P>,
-) -> PointRepresentation<F, P> {
-    let (out_witness, delta, x_l_minus_x_r_inv) = match (left.point, right.point) {
+) -> Result<PointRepresentation<F, P>> {
+    let (sum, delta, x_l_minus_x_r_inv) = match (left.point, right.point) {
         (Some(left), Some(right)) => {
             let out = (left + right).into_affine();
-            let delta =
-                (right.y().unwrap() - left.y().unwrap()) / (right.x().unwrap() - left.x().unwrap());
-            assert_ne!(left.x().unwrap(), right.x().unwrap());
-            let x_l_minus_x_r_inv = F::one() / (left.x().unwrap() - right.x().unwrap());
+            let (right_x, right_y) = right.xy().ok_or(Error::PointCantBeZero)?;
+            let (left_x, left_y) = left.xy().ok_or(Error::PointCantBeZero)?;
+            if right_x == left_x {
+                return Err(Error::PointCantBeNegative);
+            }
+            let denom = right_x - left_x;
+            let delta = (right_y - left_y) / denom;
+            let x_l_minus_x_r_inv = F::one() / -denom;
             (Some(out), Some(delta), Some(x_l_minus_x_r_inv))
         }
         _ => (None, None, None),
     };
-    let x_out = cs.allocate(out_witness.map(|o| o.x().unwrap())).unwrap();
-    let y_out = cs.allocate(out_witness.map(|o| o.y().unwrap())).unwrap();
+    // unwrap is fine as the code just ensures that points are not negative so sum can't be 0
+    let sum_xy = sum.map(|s| s.xy().unwrap());
+    let x_out = cs.allocate(sum_xy.map(|s| s.0))?;
+    let y_out = cs.allocate(sum_xy.map(|s| s.1))?;
     checked_curve_addition(
         cs,
         &CurveAddition {
@@ -111,11 +119,11 @@ pub fn checked_curve_addition_helper<
         },
         x_l_minus_x_r_inv,
     );
-    PointRepresentation {
+    Ok(PointRepresentation {
         x: x_out.into(),
         y: y_out.into(),
-        point: out_witness,
-    }
+        point: sum,
+    })
 }
 
 /// For enforcing addition of points `(x_o, y_o) = (x_l, y_l) + (x_r, y_r)`
@@ -367,7 +375,8 @@ mod tests {
                 y: y_r_var.into(),
                 point: Some(q),
             },
-        );
+        )
+        .unwrap();
         assert_eq!(
             addition_result
                 .point
@@ -396,7 +405,8 @@ mod tests {
                 y: y_r_var.into(),
                 point: None,
             },
-        );
+        )
+        .unwrap();
 
         verifier.verify(&proof, &pc_gens, &bp_gens).unwrap();
     }

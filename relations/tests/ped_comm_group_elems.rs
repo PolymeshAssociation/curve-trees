@@ -19,6 +19,7 @@ use common::prove;
 use dock_crypto_utils::transcript::MerlinTranscript;
 use rand::prelude::SliceRandom;
 use relations::curve_tree::CurveTree;
+use relations::error::Error;
 use relations::parameters::{
     SelRerandParameters, SelRerandProofParameters, SingleLayerProofParametersNew,
 };
@@ -439,4 +440,82 @@ pub fn check<
     }
 
     println!("For tree with {num_leaves} leaves, nesting size {nesting_size}, {num_proofs} proofs took {:?} prover time and {:?} verifier time", prover_time, verifier_time);
+}
+
+#[test]
+pub fn verify_rejects_re_randomized_point_at_infinity() {
+    // Verifier must reject when a malicious prover supplies `re_randomized_points[i] = -delta`,
+    // which makes `re_randomized_plus_delta[i]` the point at infinity.
+
+    let mut rng = rand::thread_rng();
+    let generators_length = 1 << 13;
+    let nesting_size = 2;
+
+    let sr_params =
+        SelRerandParameters::<PallasConfig, VestaConfig>::new(generators_length, generators_length)
+            .expect("Failed to create SelRerandParameters");
+
+    let odd_proof_params =
+        SingleLayerProofParametersNew::<VestaConfig, VestaParams>::from_single_layer_params(
+            sr_params.odd_parameters.clone(),
+        );
+
+    let nested: Vec<Affine<VestaConfig>> = (0..nesting_size)
+        .map(|_| Affine::<VestaConfig>::rand(&mut rng))
+        .collect();
+
+    let x_coords: Vec<_> = nested
+        .iter()
+        .map(|n| (*n + sr_params.odd_parameters.delta).into_affine().x)
+        .collect();
+    let re_randomized_comm =
+        sr_params
+            .even_parameters
+            .commit(x_coords.as_slice(), VestaBase::zero(), 0);
+
+    let pallas_transcript = MerlinTranscript::new(b"ped_comm_group_elems_test");
+    let mut pallas_prover: Prover<_, Affine<PallasConfig>> =
+        Prover::new(&sr_params.even_parameters.pc_gens, pallas_transcript);
+
+    let blinding_of_comm = VestaBase::rand(&mut rng);
+    let blindings_for_points: Vec<PallasBase> = (0..nesting_size)
+        .map(|_| PallasBase::rand(&mut rng))
+        .collect();
+
+    let shared_dlog_indices: BTreeSet<usize> = BTreeSet::new();
+
+    let (mut re_randomized_nested, comms) =
+        prove_new::<_, _, _, PallasConfig, VestaConfig, VestaParams>(
+            &mut rng,
+            &mut pallas_prover,
+            nested.clone(),
+            &re_randomized_comm,
+            blinding_of_comm,
+            blindings_for_points.clone(),
+            &odd_proof_params,
+            &sr_params.even_parameters.bp_gens,
+            shared_dlog_indices.clone(),
+        )
+        .expect("Failed to prove");
+
+    // re_randomized_points[0] = -delta so that re_randomized_plus_delta[0] = O (infinity)
+    let delta = odd_proof_params.sl_params.delta;
+    re_randomized_nested.re_randomized_points[0] = (-delta.into_group()).into_affine();
+
+    let pallas_transcript = MerlinTranscript::new(b"ped_comm_group_elems_test");
+    let mut pallas_verifier = Verifier::new(pallas_transcript);
+
+    let result = verify_new::<_, _, PallasConfig, VestaConfig, VestaParams>(
+        &mut pallas_verifier,
+        re_randomized_comm,
+        re_randomized_nested,
+        comms,
+        &odd_proof_params,
+        shared_dlog_indices,
+    );
+
+    assert!(
+        matches!(result, Err(Error::PointCantBeZero)),
+        "expected PointCantBeZero, got: {result:?}",
+    );
 }
