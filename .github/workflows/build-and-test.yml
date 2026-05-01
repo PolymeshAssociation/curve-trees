@@ -20,7 +20,7 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
 
     - name: Install cargo-nextest
-      run: cargo install cargo-nextest --locked
+      uses: taiki-e/install-action@nextest
 
     - name: Cache cargo registry
       uses: actions/cache@v3
