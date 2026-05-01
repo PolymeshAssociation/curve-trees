@@ -238,7 +238,8 @@ fn bench_blinding_with_discrete_log_verify<C, Params, B, S, BP>(
                     &mut verifier,
                     &all_divisor_commitments[i],
                     vc_len,
-                );
+                )
+                .unwrap();
 
                 discrete_log_blinding(
                     &mut verifier,
@@ -473,7 +474,8 @@ fn bench_blinding_with_discrete_log_combined_verify<C, Params, B, S, BP>(
                     &mut verifier,
                     &all_divisor_commitments[i],
                     vc_len,
-                );
+                )
+                .unwrap();
                 all_o_blind_claims.push((o_blind_claim, o_x_var, o_y_var));
             }
 

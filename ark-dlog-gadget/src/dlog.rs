@@ -752,6 +752,7 @@ pub fn create_divisor_and_decomposition<
     )))
 }
 
+/// Assuumes `vars_dlog` and `vars_divisor` are of appropriate length.
 fn dlog_and_divisor_vars<F: PrimeField, Parameters: DiscreteLogParameters>(
     mut vars_dlog: Vec<Variable<F>>,
     mut vars_divisor: Vec<Variable<F>>,
@@ -874,7 +875,11 @@ pub fn commit_witness_chunks_verifier<
     cs: &mut Verifier<MerlinTranscript, C>,
     comms: &DivisorComms<C>,
     chunk_len: usize,
-) -> Box<PointWithDlog<F, Parameters>> {
+) -> Result<Box<PointWithDlog<F, Parameters>>, Error> {
+    if chunk_len == 0 {
+        return Err(Error::ZeroChunkSize);
+    }
+
     let mut vars = Vec::with_capacity(DECOMPOSITION_SIZE * 2);
 
     for comm in &comms.0 {
@@ -882,10 +887,18 @@ pub fn commit_witness_chunks_verifier<
         vars.extend(chunk_vars);
     }
 
+    let expected_vars_len = DECOMPOSITION_SIZE * 2;
+    if vars.len() != expected_vars_len {
+        return Err(Error::VerifierWitnessVarCountMismatch {
+            got: vars.len(),
+            expected: expected_vars_len,
+        });
+    }
+
     let vars_dlog = vars[0..DECOMPOSITION_SIZE].to_vec();
     let vars_divisor = vars[DECOMPOSITION_SIZE..].to_vec();
 
-    dlog_and_divisor_vars(vars_dlog, vars_divisor)
+    Ok(dlog_and_divisor_vars(vars_dlog, vars_divisor))
 }
 
 /// Each generator in `generator_sources` is multiplied by the scalar `blinding`
@@ -1435,6 +1448,64 @@ mod tests {
     }
 
     #[test]
+    fn test_commit_witness_chunks_verifier_rejects_malformed_commitments() {
+        let mut rng = StdRng::seed_from_u64(11);
+        let pc_gens = PedersenGens::<VestaAffine>::default();
+        let bp_gens = BulletproofGens::<VestaAffine>::new(512, 1);
+        let generator = Projective::<PallasConfig>::rand(&mut rng);
+        let generator_table =
+            GeneratorTable::<PallasBase, PallasParams>::new::<PallasConfig>(generator);
+
+        let witness = create_divisor_and_decomposition::<_, PallasConfig, PallasParams>(
+            &generator_table,
+            PallasScalar::rand(&mut rng),
+        )
+        .unwrap();
+
+        let vc_len = 64;
+
+        let transcript = MerlinTranscript::new(b"malformed-dlog-prover");
+        let mut prover = Prover::new(&pc_gens, transcript);
+        let (comms, _, _) = commit_witness_chunks_prover::<_, _, _, PallasParams>(
+            &mut rng,
+            &mut prover,
+            &witness,
+            vc_len,
+            &bp_gens,
+        )
+        .unwrap();
+
+        let mut missing_chunk = comms.clone();
+        missing_chunk.0.pop();
+
+        let transcript = MerlinTranscript::new(b"malformed-dlog-verifier-short");
+        let mut verifier = Verifier::new(transcript);
+        let result = commit_witness_chunks_verifier::<_, _, PallasParams>(
+            &mut verifier,
+            &missing_chunk,
+            vc_len,
+        );
+        match result {
+            Err(err) => match err {
+                Error::VerifierWitnessVarCountMismatch {
+                    got: _,
+                    expected: _,
+                } => (),
+                other => panic!("unexpected error variant: {other:?}"),
+            },
+            _ => panic!("expected verifier witness var count mismatch"),
+        }
+
+        let transcript = MerlinTranscript::new(b"malformed-dlog-verifier-zero");
+        let mut verifier = Verifier::new(transcript);
+        let result = commit_witness_chunks_verifier::<_, _, PallasParams>(&mut verifier, &comms, 0);
+        match result {
+            Err(err) => assert!(matches!(err, Error::ZeroChunkSize)),
+            _ => panic!("expected zero chunk size error"),
+        }
+    }
+
+    #[test]
     fn test_blinding_with_discrete_log() {
         fn check<
             C: DivisorCurve<BaseField = B, ScalarField = S>,
@@ -1543,7 +1614,8 @@ mod tests {
                 let o_x_var = vars_orig.pop().unwrap();
 
                 let o_blind_claim =
-                    commit_witness_chunks_verifier::<_, _, Params>(&mut verifier, &comms, vc_len);
+                    commit_witness_chunks_verifier::<_, _, Params>(&mut verifier, &comms, vc_len)
+                        .unwrap();
 
                 verifying_times_00.push(start.elapsed());
 
@@ -1750,7 +1822,8 @@ mod tests {
                     &mut verifier,
                     &all_divisor_commitments[i],
                     vc_len,
-                );
+                )
+                .unwrap();
                 all_o_blind_claims.push((o_blind_claim, O_x_var, O_y_var));
             }
 
@@ -1942,7 +2015,8 @@ mod tests {
                     &mut verifier,
                     &all_divisor_commitments[i],
                     vc_len,
-                );
+                )
+                .unwrap();
                 all_o_blind_claims.push((o_blind_claim, O_x_var, O_y_var));
             }
 

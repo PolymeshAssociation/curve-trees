@@ -60,6 +60,7 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{
     cfg_iter,
     collections::{BTreeMap, BTreeSet},
+    string::ToString,
     vec::Vec,
 };
 use bulletproofs::r1cs::{constant, ConstraintSystem, Prover, Variable, Verifier};
@@ -235,7 +236,7 @@ pub fn prove<
     R: CryptoRngCore,
     Fb: PrimeField,
     Fs: PrimeField,
-    P0: SWCurveConfig<BaseField = Fb, ScalarField = Fs> + Copy,
+    P0: SWCurveConfig<ScalarField = Fs> + Copy,
     P1: DivisorCurve<BaseField = Fs, ScalarField = Fb> + Copy,
     Parameters: DiscreteLogParameters,
 >(
@@ -383,7 +384,7 @@ pub fn prove<
 pub fn verify<
     Fb: PrimeField,
     Fs: PrimeField,
-    P0: SWCurveConfig<BaseField = Fb, ScalarField = Fs> + Copy,
+    P0: SWCurveConfig<ScalarField = Fs> + Copy,
     P1: SWCurveConfig<BaseField = Fs, ScalarField = Fb> + Copy,
     Parameters: DiscreteLogParameters,
 >(
@@ -429,8 +430,11 @@ pub fn verify<
             );
             blinds_multi.insert(i, blinds);
         } else {
-            let blind =
-                commit_witness_chunks_verifier::<_, _, Parameters>(verifier, comm, VC_LEN as usize);
+            let blind = commit_witness_chunks_verifier::<_, _, Parameters>(
+                verifier,
+                comm,
+                VC_LEN as usize,
+            )?;
             blinds_single.insert(i, blind);
         }
     }
@@ -449,10 +453,13 @@ pub fn verify<
         let (re_rand_x_var, re_rand_y_var) = re_randomized_plus_delta[i].xy().unwrap();
 
         if shared_dlog_indices.contains(&i) {
+            let blinds = blinds_multi.remove(&i).ok_or_else(|| {
+                Error::MalformedProofInput("missing shared dlog witness".to_string())
+            })?;
             discrete_log_blinding_and_dlog_given_challenge(
                 verifier,
                 (x_var, y_var),
-                blinds_multi.remove(&i).unwrap(),
+                blinds,
                 (re_rand_x_var, re_rand_y_var),
                 &cs,
                 &challenge,
@@ -460,10 +467,13 @@ pub fn verify<
                 &challenge_gen[1],
             )?;
         } else {
+            let blind = blinds_single.remove(&i).ok_or_else(|| {
+                Error::MalformedProofInput("missing single dlog witness".to_string())
+            })?;
             discrete_log_blinding_given_challenge(
                 verifier,
                 (x_var, y_var),
-                *blinds_single.remove(&i).unwrap(),
+                *blind,
                 (re_rand_x_var, re_rand_y_var),
                 &cs,
                 &challenge,

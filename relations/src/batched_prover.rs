@@ -9,7 +9,7 @@ use crate::prover::{constraints_for_dlogs, create_and_commit_divisor};
 use crate::select::{select, select_public_set};
 use ark_dlog_gadget::dlog::{DiscreteLogParameters, DivisorComms, PointWithDlog};
 
-use crate::parameters::{SelRerandProofParametersNew, SingleLayerProofParametersNew};
+use crate::parameters::{SelRerandProofParametersRef, SingleLayerProofParametersNew};
 use ark_ec::short_weierstrass::{Affine, Projective, SWCurveConfig};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ec_divisors::DivisorCurve;
@@ -42,12 +42,15 @@ impl<
         &self,
         even_prover: &mut Prover<MerlinTranscript, Affine<P0>>,
         odd_prover: &mut Prover<MerlinTranscript, Affine<P1>>,
-        parameters: &SelRerandProofParametersNew<P0, P1, Parameters0, Parameters1>,
+        parameters: &(impl SelRerandProofParametersRef<P0, P1, Parameters0, Parameters1> + Sync),
         rng: &mut R,
     ) -> Result<(
         SelectAndRerandomizeMultiPathWithDivisorComms<L, M, P0, P1>,
         Vec<P0::ScalarField>,
     )> {
+        let even_parameters = parameters.even_parameters();
+        let odd_parameters = parameters.odd_parameters();
+
         let num_indices = self.num_indices();
         if num_indices > M as u32 {
             return Err(Error::MoreIndicesThanSupportedBatchSize(
@@ -63,7 +66,7 @@ impl<
             mut odd_rerandomization_scalars,
             rerandomizations_of_selected,
             rerandomization_scalars_of_selected,
-        ) = self.randomize_nodes(parameters.pc_gens(), rng);
+        ) = self.randomize_nodes((even_parameters.pc_gens(), odd_parameters.pc_gens()), rng);
 
         let root_is_even = self.root_is_even();
 
@@ -81,8 +84,8 @@ impl<
                     &self.even_internal_nodes[0],
                     odd_rerandomized_sum_of_nodes[0],
                     odd_rerandomization_scalars[0],
-                    &parameters.odd_parameters,
-                    &parameters.even_parameters.sl_params.bp_gens,
+                    odd_parameters,
+                    &even_parameters.sl_params.bp_gens,
                 )?;
             even_node_comms.push(divisor_comms);
             even_node_divisors.push((sum_x_var, sum_y_var, x, y, p));
@@ -98,8 +101,8 @@ impl<
                     &self.odd_internal_nodes[0],
                     even_rerandomized_sum_of_nodes[0],
                     even_rerandomization_scalars[0],
-                    &parameters.even_parameters,
-                    &parameters.odd_parameters.sl_params.bp_gens,
+                    even_parameters,
+                    &odd_parameters.sl_params.bp_gens,
                 )?;
             odd_node_comms.push(divisor_comms);
             odd_node_divisors.push((sum_x_var, sum_y_var, x, y, p));
@@ -122,8 +125,8 @@ impl<
                     odd_rerandomization_scalars[index],
                     &even_rerandomized_sum_of_nodes[i],
                     even_rerandomization_scalars[i],
-                    &parameters.odd_parameters,
-                    &parameters.even_parameters.sl_params.bp_gens,
+                    odd_parameters,
+                    &even_parameters.sl_params.bp_gens,
                 )?;
             even_node_comms.push(divisor_comms);
             even_node_divisors.push((sum_x_var, sum_y_var, x, y, p));
@@ -146,8 +149,8 @@ impl<
                     even_rerandomization_scalars[index],
                     &odd_rerandomized_sum_of_nodes[i],
                         odd_rerandomization_scalars[i],
-                    &parameters.even_parameters,
-                    &parameters.odd_parameters.sl_params.bp_gens,
+                    even_parameters,
+                    &odd_parameters.sl_params.bp_gens,
                 )?;
                 odd_node_comms.push(divisor_comms);
                 odd_node_divisors.push((sum_x_var, sum_y_var, x, y, p));
@@ -195,7 +198,7 @@ impl<
 
             for (i, chunk) in chunks.iter().enumerate() {
                 let child_plus_delta = (nodes[i].child_node_to_randomize
-                    + parameters.even_parameters.sl_params.delta)
+                    + even_parameters.sl_params.delta)
                     .into_affine();
 
                 // Allocate x, y variables on odd_prover (F1 constraint system for P0 base field)
@@ -211,7 +214,7 @@ impl<
                     .append(b"rerandomized_child", &rerandomizations_of_selected[i]);
 
                 let rerandomized_plus_delta = (rerandomizations_of_selected[i]
-                    + parameters.even_parameters.sl_params.delta)
+                    + even_parameters.sl_params.delta)
                     .into_affine();
                 let (x, y) = rerandomized_plus_delta.xy().unwrap();
 
@@ -219,8 +222,8 @@ impl<
                     rng,
                     odd_prover,
                     rerandomization_scalars_of_selected[i],
-                    &parameters.even_parameters.table_b_blinding,
-                    &parameters.odd_parameters.sl_params.bp_gens,
+                    &even_parameters.table_b_blinding,
+                    &odd_parameters.sl_params.bp_gens,
                 )?;
 
                 odd_node_comms.push(divisor_comms);
@@ -231,8 +234,8 @@ impl<
         constraints_for_dlogs::<_, _, _, _, P0, P1, Parameters0, Parameters1>(
             even_prover,
             odd_prover,
-            &parameters.even_parameters.table_b_blinding,
-            &parameters.odd_parameters.table_b_blinding,
+            &even_parameters.table_b_blinding,
+            &odd_parameters.table_b_blinding,
             even_node_divisors,
             odd_node_divisors,
         )?;

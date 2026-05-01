@@ -96,7 +96,7 @@ fn setup_curve_tree_data_new<const L: usize>(height: usize) -> NewSetupData<L> {
         .select_and_rerandomize_prover_gadget_new::<_, PallasParams, VestaParams>(
             &mut pallas_prover,
             &mut vesta_prover,
-            &SRProofParamsNewPallasLeaf,
+            &*SRProofParamsNewPallasLeaf,
             &mut rng,
         )
         .unwrap();
@@ -130,12 +130,14 @@ fn curve_tree_verify_new<const L: usize>(c: &mut Criterion, height: usize) {
             let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
             let mut vesta_verifier = Verifier::new(vesta_transcript);
 
-            path_commitments.select_and_rerandomize_verifier_gadget::<PallasParams, VestaParams>(
-                &root,
-                &mut pallas_verifier,
-                &mut vesta_verifier,
-                &SRProofParamsNewPallasLeaf,
-            );
+            path_commitments
+                .select_and_rerandomize_verifier_gadget::<PallasParams, VestaParams>(
+                    &root,
+                    &mut pallas_verifier,
+                    &mut vesta_verifier,
+                    &*SRProofParamsNewPallasLeaf,
+                )
+                .unwrap();
 
             #[cfg(feature = "parallel")]
             let (vesta_res, pallas_res) = rayon::join(
@@ -205,9 +207,10 @@ fn curve_tree_prove_new<const L: usize>(c: &mut Criterion, height: usize) {
                 .select_and_rerandomize_prover_gadget_new::<_, PallasParams, VestaParams>(
                     &mut pallas_prover,
                     &mut vesta_prover,
-                    &SRProofParamsNewPallasLeaf,
+                    &*SRProofParamsNewPallasLeaf,
                     &mut rng,
-                );
+                )
+                .unwrap();
 
             let result_proof = prove(pallas_prover, vesta_prover);
             black_box((result_gadget, result_proof))

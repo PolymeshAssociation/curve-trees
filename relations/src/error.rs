@@ -59,6 +59,14 @@ pub enum Error {
     #[error("Paths count must be greater than 0")]
     NeedNonZeroNumberOfPaths,
 
+    /// Number of selected indices must be greater than 0
+    #[error("Number of selected indices must be greater than 0")]
+    NeedNonZeroNumberOfIndices,
+
+    /// Malformed proof input
+    #[error("Malformed proof input: {0}")]
+    MalformedProofInput(String),
+
     /// Root type mismatch
     #[error("Root type mismatch: expected {expected}, got {got}")]
     RootTypeMismatch { expected: String, got: String },

@@ -31,6 +31,7 @@ use std::time::{Duration, Instant};
 mod common;
 use common::prove;
 use relations::curve_tree_prover::CurveTreeWitnessPath;
+use relations::error::Error;
 use relations::parameters::{
     SelRerandParameters, SelRerandParametersRef, SelRerandProofParameters,
     SelRerandProofParametersNew,
@@ -1679,4 +1680,113 @@ pub fn check_combined_vs_common_root_proofs_with_parameters_divisor<
                     * all_leaf_rerandomizations[i])
         )
     }
+}
+
+#[test]
+pub fn test_single_path_divisor_malformed_proof_inputs() {
+    let mut rng = thread_rng();
+    let generators_length = 1 << 11;
+    let sr_proof_params =
+        SelRerandProofParametersNew::<PallasConfig, VestaConfig, PallasParams, VestaParams>::new(
+            generators_length,
+            generators_length,
+        )
+        .unwrap();
+
+    let set = (0..8)
+        .map(|_| Affine::<PallasConfig>::rand(&mut rng))
+        .collect::<Vec<_>>();
+    let curve_tree =
+        CurveTree::<32, 1, PallasConfig, VestaConfig>::from_leaves(&set, &sr_proof_params, Some(4));
+    let root = curve_tree.root_node();
+
+    let pallas_transcript = MerlinTranscript::new(b"malformed-single-path");
+    let mut pallas_prover: Prover<_, Affine<PallasConfig>> = Prover::new(
+        &sr_proof_params.even_parameters().pc_gens,
+        pallas_transcript,
+    );
+    let vesta_transcript = MerlinTranscript::new(b"malformed-single-path");
+    let mut vesta_prover: Prover<_, Affine<VestaConfig>> =
+        Prover::new(&sr_proof_params.odd_parameters().pc_gens, vesta_transcript);
+
+    let path = curve_tree.get_path_to_leaf_for_proof(0, 0).unwrap();
+    let (valid_path_commitments, _) = path
+        .select_and_rerandomize_prover_gadget_new::<_, PallasParams, VestaParams>(
+            &mut pallas_prover,
+            &mut vesta_prover,
+            &sr_proof_params,
+            &mut rng,
+        )
+        .unwrap();
+
+    let assert_malformed = |err: Error, expected: &str| match err {
+        Error::MalformedProofInput(msg) => assert!(msg.contains(expected), "{msg}"),
+        other => panic!("unexpected error variant: {other:?}"),
+    };
+
+    let mut missing_root_child = valid_path_commitments.clone();
+    let expected_root_child_msg = match &root {
+        Root::Even(_) => {
+            missing_root_child.path.odd_commitments.clear();
+            "missing root child in odd_commitments for even root"
+        }
+        Root::Odd(_) => {
+            missing_root_child.path.even_commitments.clear();
+            "missing root child in even_commitments for odd root"
+        }
+    };
+    let pallas_transcript = MerlinTranscript::new(b"malformed-single-path-root-child");
+    let mut pallas_verifier = Verifier::new(pallas_transcript);
+    let vesta_transcript = MerlinTranscript::new(b"malformed-single-path-root-child");
+    let mut vesta_verifier = Verifier::new(vesta_transcript);
+    let err = missing_root_child
+        .select_and_rerandomize_verifier_gadget::<PallasParams, VestaParams>(
+            &root,
+            &mut pallas_verifier,
+            &mut vesta_verifier,
+            &sr_proof_params,
+        )
+        .unwrap_err();
+    assert_malformed(err, expected_root_child_msg);
+
+    let mut missing_root_divisor = valid_path_commitments.clone();
+    let expected_root_divisor_msg = match &root {
+        Root::Even(_) => {
+            missing_root_divisor.even_divisor_comms.clear();
+            "missing root divisor commitments for even side"
+        }
+        Root::Odd(_) => {
+            missing_root_divisor.odd_divisor_comms.clear();
+            "missing root divisor commitments for odd side"
+        }
+    };
+    let pallas_transcript = MerlinTranscript::new(b"malformed-single-path-root-divisor");
+    let mut pallas_verifier = Verifier::new(pallas_transcript);
+    let vesta_transcript = MerlinTranscript::new(b"malformed-single-path-root-divisor");
+    let mut vesta_verifier = Verifier::new(vesta_transcript);
+    let err = missing_root_divisor
+        .select_and_rerandomize_verifier_gadget::<PallasParams, VestaParams>(
+            &root,
+            &mut pallas_verifier,
+            &mut vesta_verifier,
+            &sr_proof_params,
+        )
+        .unwrap_err();
+    assert_malformed(err, expected_root_divisor_msg);
+
+    let mut missing_even_non_root_chain = valid_path_commitments.clone();
+    missing_even_non_root_chain.path.even_commitments.clear();
+    let pallas_transcript = MerlinTranscript::new(b"malformed-single-path-even-chain");
+    let mut pallas_verifier = Verifier::new(pallas_transcript);
+    let vesta_transcript = MerlinTranscript::new(b"malformed-single-path-even-chain");
+    let mut vesta_verifier = Verifier::new(vesta_transcript);
+    let err = missing_even_non_root_chain
+        .select_and_rerandomize_verifier_gadget::<PallasParams, VestaParams>(
+            &root,
+            &mut pallas_verifier,
+            &mut vesta_verifier,
+            &sr_proof_params,
+        )
+        .unwrap_err();
+    assert_malformed(err, "even_commitments must contain at least one element");
 }

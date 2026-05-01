@@ -97,7 +97,7 @@ fn bench_batched_curve_tree_with_varying_batch_size_new<const L: usize, const M:
                     >(
                         &mut pallas_prover,
                         &mut vesta_prover,
-                        &SRProofParamsNewPallasLeaf,
+                        &*SRProofParamsNewPallasLeaf,
                         &mut rng,
                     )
                     .expect("Failed to prove batched select and rerandomize");
@@ -134,7 +134,7 @@ fn bench_batched_curve_tree_with_varying_batch_size_new<const L: usize, const M:
                 .batched_select_and_rerandomize_prover_gadget_new::<_, PallasParams, VestaParams>(
                     &mut pallas_prover,
                     &mut vesta_prover,
-                    &SRProofParamsNewPallasLeaf,
+                    &*SRProofParamsNewPallasLeaf,
                     &mut rng,
                 )
                 .expect("Failed to prove batched select and rerandomize");
@@ -178,7 +178,7 @@ fn bench_batched_curve_tree_with_varying_batch_size_new<const L: usize, const M:
                             &root,
                             &mut pallas_verifier,
                             &mut vesta_verifier,
-                            &SRProofParamsNewPallasLeaf,
+                            &*SRProofParamsNewPallasLeaf,
                         )
                         .unwrap();
 
