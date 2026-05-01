@@ -2,7 +2,7 @@ use crate::curve_tree::{SelectAndRerandomizePath, SelectAndRerandomizePathWithDi
 use crate::curve_tree_prover::{
     CurveTreeWitnessPath, RootChildren, WitnessNode, WitnessPathsWithSameRoot,
 };
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::parameters::SelRerandProofParametersRef;
 use crate::select::{multi_select_public_set_ext_challenge, select, select_public_set};
 use crate::utils::get_2_rngs_from_one;
@@ -227,7 +227,7 @@ impl<
             rerandomized_child,
             all_x_coords,
             Some(child_node),
-        );
+        )?;
         let (divisor_comms, p) = create_and_commit_divisor::<R, F0, F1, P0, P1, Parameters>(
             rng,
             prover,
@@ -266,7 +266,7 @@ impl<
             rerandomized_self,
             self_randomization,
             rerandomized_child,
-        );
+        )?;
         let (divisor_comms, p) = create_and_commit_divisor::<_, F0, F1, P0, P1, Parameters>(
             rng,
             prover,
@@ -293,7 +293,7 @@ impl<
         self_node_rerandomized: &Affine<P0>,
         self_rerandomization_scalar: P0::ScalarField,
         rerandomized_child: &Affine<P1>,
-    ) -> (Variable<F0>, Variable<F0>, F0, F0) {
+    ) -> Result<(Variable<F0>, Variable<F0>, F0, F0)> {
         // In this case this (`self`) is a non-root inner node and the children (and the scalar used for rerandomizing) are part of the witness.
         // Allocate variables for x-coordinates (which are committed in `self_node_rerandomized`) of child nodes with `self_rerandomization_scalar` as the blinding
         let children = prover
@@ -562,7 +562,7 @@ impl<
         let challenge = prover
             .transcript()
             .challenge_scalar(b"challenge-for-multi_select");
-        multi_select_public_set_ext_challenge(prover, x_vars.clone(), x_coords, challenge);
+        multi_select_public_set_ext_challenge(prover, x_vars.clone(), x_coords, challenge)?;
 
         // For each path, create divisor proof for its selected child of root
         for (path_idx, (x_var, child)) in x_vars
@@ -578,8 +578,11 @@ impl<
                 .transcript()
                 .append(b"rerandomized_child", rerandomized_child);
 
-            let y_var: LinearCombination<F0> = prover.allocate(Some(child.y)).unwrap().into();
-            let (x, y) = (*rerandomized_child + delta).into_affine().xy().unwrap();
+            let y_var: LinearCombination<F0> = prover.allocate(Some(child.y))?.into();
+            let (x, y) = (*rerandomized_child + delta)
+                .into_affine()
+                .xy()
+                .ok_or_else(|| Error::PointCantBeZero)?;
 
             // Create divisor and commit
             let (divisor_comms, p) = create_and_commit_divisor::<_, F0, F1, P0, P1, Parameters>(
@@ -608,7 +611,7 @@ pub fn select_root<
     rerandomized_child: &Affine<C2>, // The public rerandomization of the selected child without Delta
     all_children_plus_delta: &[Fs],  // Public set of x-coordinates of all children plus delta
     child: Option<Affine<C2>>,       // Witness of the selected child
-) -> (Variable<Fs>, Variable<Fs>, Fs, Fs) {
+) -> Result<(Variable<Fs>, Variable<Fs>, Fs, Fs)> {
     // Add the re-randomised child to the transcript
     cs.transcript()
         .append(b"rerandomized_child", &rerandomized_child);
@@ -616,12 +619,15 @@ pub fn select_root<
     let delta = delta.into_group();
     // Show that child is part of `all_children` by showing that the child's x-coordinate is present in x-coordinates of the all children
     let child_plus_delta = child.map(|c| (c + delta).into_affine());
-    let x = cs.allocate(child_plus_delta.map(|xy| xy.x)).unwrap();
-    let y = cs.allocate(child_plus_delta.map(|xy| xy.y)).unwrap();
+    let x = cs.allocate(child_plus_delta.map(|xy| xy.x))?;
+    let y = cs.allocate(child_plus_delta.map(|xy| xy.y))?;
     let x_lc: LinearCombination<_> = x.into();
-    select_public_set(cs, x_lc.clone(), all_children_plus_delta);
-    let (x_rerand, y_rerand) = (*rerandomized_child + delta).into_affine().xy().unwrap();
-    (x, y, x_rerand, y_rerand)
+    select_public_set(cs, x_lc.clone(), all_children_plus_delta)?;
+    let (x_rerand, y_rerand) = (*rerandomized_child + delta)
+        .into_affine()
+        .xy()
+        .ok_or_else(|| Error::PointCantBeZero)?;
+    Ok((x, y, x_rerand, y_rerand))
 }
 
 pub fn select_non_root<
@@ -635,7 +641,7 @@ pub fn select_non_root<
     rerandomized_child: &Affine<C2>, // The public rerandomization of the selected child without Delta
     all_children_plus_delta: Vec<LinearCombination<Fs>>, // Public set of x-coordinates of all children plus delta
     child: Option<Affine<C2>>,                           // Witness of the selected child
-) -> (Variable<Fs>, Variable<Fs>, Fs, Fs) {
+) -> Result<(Variable<Fs>, Variable<Fs>, Fs, Fs)> {
     // Add the re-randomised child to the transcript
     cs.transcript()
         .append(b"rerandomized_child", &rerandomized_child);
@@ -643,12 +649,15 @@ pub fn select_non_root<
     let delta = delta.into_group();
     // Show that child is part of `all_children` by showing that the child's x-coordinate is present in x-coordinates of the all children
     let child_plus_delta = child.map(|c| (c + delta).into_affine());
-    let x = cs.allocate(child_plus_delta.map(|xy| xy.x)).unwrap();
-    let y = cs.allocate(child_plus_delta.map(|xy| xy.y)).unwrap();
+    let x = cs.allocate(child_plus_delta.map(|xy| xy.x))?;
+    let y = cs.allocate(child_plus_delta.map(|xy| xy.y))?;
     let x_lc: LinearCombination<_> = x.into();
-    select(cs, x_lc.clone(), all_children_plus_delta.iter().cloned());
-    let (x_rerand, y_rerand) = (*rerandomized_child + delta).into_affine().xy().unwrap();
-    (x, y, x_rerand, y_rerand)
+    select(cs, x_lc.clone(), all_children_plus_delta.iter().cloned())?;
+    let (x_rerand, y_rerand) = (*rerandomized_child + delta)
+        .into_affine()
+        .xy()
+        .ok_or_else(|| Error::PointCantBeZero)?;
+    Ok((x, y, x_rerand, y_rerand))
 }
 
 pub type DlogItem<F, Params> = (

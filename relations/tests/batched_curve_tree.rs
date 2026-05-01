@@ -289,12 +289,14 @@ pub fn check_individual_vs_batched_proofs_with_parameters<
             Prover::new(&sr_params.odd_parameters.pc_gens, vesta_transcript);
 
         let path = curve_tree.get_path_to_leaf_for_proof(i, 0).unwrap();
-        let (path_commitments, _) = path.select_and_rerandomize_prover_gadget(
-            &mut pallas_prover,
-            &mut vesta_prover,
-            &sr_proof_params,
-            &mut rng,
-        );
+        let (path_commitments, _) = path
+            .select_and_rerandomize_prover_gadget(
+                &mut pallas_prover,
+                &mut vesta_prover,
+                &sr_proof_params,
+                &mut rng,
+            )
+            .unwrap();
 
         let (pallas_proof, vesta_proof) = prove(
             pallas_prover,
@@ -322,12 +324,14 @@ pub fn check_individual_vs_batched_proofs_with_parameters<
         let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
         let mut vesta_verifier = Verifier::new(vesta_transcript);
 
-        let _ = path_commitments.select_and_rerandomize_verifier_gadget(
-            &curve_tree.root_node(),
-            &mut pallas_verifier,
-            &mut vesta_verifier,
-            &sr_proof_params,
-        );
+        let _ = path_commitments
+            .select_and_rerandomize_verifier_gadget(
+                &curve_tree.root_node(),
+                &mut pallas_verifier,
+                &mut vesta_verifier,
+                &sr_proof_params,
+            )
+            .unwrap();
 
         verify(
             pallas_verifier,
@@ -366,12 +370,14 @@ pub fn check_individual_vs_batched_proofs_with_parameters<
     // Call select_and_rerandomize_prover_gadget for each leaf to accumulate constraints
     let mut path_commitments_list: Vec<SelectAndRerandomizePath<L, P0, P1>> = Vec::new();
     for i in 0..M {
-        let (path_commitments, _) = paths[i].select_and_rerandomize_prover_gadget(
-            &mut pallas_prover,
-            &mut vesta_prover,
-            &sr_proof_params,
-            &mut rng,
-        );
+        let (path_commitments, _) = paths[i]
+            .select_and_rerandomize_prover_gadget(
+                &mut pallas_prover,
+                &mut vesta_prover,
+                &sr_proof_params,
+                &mut rng,
+            )
+            .unwrap();
         path_commitments_list.push(path_commitments);
     }
 
@@ -400,12 +406,14 @@ pub fn check_individual_vs_batched_proofs_with_parameters<
 
     // For verification, we need to call the verifier gadget for each leaf too
     for path_commitments in &path_commitments_list {
-        path_commitments.select_and_rerandomize_verifier_gadget(
-            &root,
-            &mut pallas_verifier,
-            &mut vesta_verifier,
-            &sr_proof_params,
-        );
+        path_commitments
+            .select_and_rerandomize_verifier_gadget(
+                &root,
+                &mut pallas_verifier,
+                &mut vesta_verifier,
+                &sr_proof_params,
+            )
+            .unwrap();
     }
 
     verify(

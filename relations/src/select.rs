@@ -4,21 +4,30 @@ use bulletproofs::r1cs::*;
 use dock_crypto_utils::ff::powers;
 use dock_crypto_utils::poly::poly_from_roots;
 
+fn empty_input_error(description: &'static str) -> R1CSError {
+    R1CSError::GadgetError {
+        description: description.to_string(),
+    }
+}
+
 /// Prove that a commitment x is one of the values committed to in vector commitment xs.
 pub fn select<F: Field, Cs: ConstraintSystem<F>>(
     cs: &mut Cs,
     x: LinearCombination<F>,
     mut xs: impl Iterator<Item = LinearCombination<F>>,
-) {
+) -> Result<(), R1CSError> {
     // (x_1 - x) * (x_2 - x) * ... * (x_n - x) = 0
-    let first_factor: LinearCombination<F> =
-        xs.next().expect("Cannot select from empty list.") - x.clone(); // todo check if it adds an extra constraint to start from constant 1 and then use iterator
+    let first_factor: LinearCombination<F> = xs
+        .next()
+        .ok_or_else(|| empty_input_error("Cannot select from empty list."))?
+        - x.clone(); // todo check if it adds an extra constraint to start from constant 1 and then use iterator
     let mut product: LinearCombination<F> = first_factor;
     for xi in xs {
         let (_, _, next_product) = cs.multiply(product, xi.clone() - x.clone());
         product = next_product.into();
     }
     cs.constrain(product);
+    Ok(())
 }
 
 // TODO: This is broken because randomized constraints and vector commitments aren't supported yet
@@ -28,8 +37,12 @@ pub fn multi_select<F: Field, Cs: RandomizableConstraintSystem<F>>(
     mut xs: Vec<LinearCombination<F>>,
     ys: Vec<LinearCombination<F>>,
 ) -> Result<(), R1CSError> {
-    assert!(xs.len() > 0);
-    assert!(ys.len() > 0);
+    if xs.is_empty() {
+        return Err(empty_input_error("multi_select: `xs` cannot be empty"));
+    }
+    if ys.is_empty() {
+        return Err(empty_input_error("multi_select: `ys` cannot be empty"));
+    }
     cs.specify_randomized_constraints(move |cs| {
         let challenge = cs.challenge_scalar(b"challenge");
         let x = xs.remove(0);
@@ -62,9 +75,17 @@ pub fn multi_select_ext_challenge<F: Field, Cs: ConstraintSystem<F>>(
     mut xs: Vec<LinearCombination<F>>,
     ys: Vec<LinearCombination<F>>,
     challenge: F,
-) {
-    assert!(xs.len() > 0);
-    assert!(ys.len() > 0);
+) -> Result<(), R1CSError> {
+    if xs.is_empty() {
+        return Err(empty_input_error(
+            "multi_select_ext_challenge: `xs` cannot be empty",
+        ));
+    }
+    if ys.is_empty() {
+        return Err(empty_input_error(
+            "multi_select_ext_challenge: `ys` cannot be empty",
+        ));
+    }
 
     let x = xs.remove(0);
 
@@ -86,6 +107,7 @@ pub fn multi_select_ext_challenge<F: Field, Cs: ConstraintSystem<F>>(
     }
 
     cs.constrain(product);
+    Ok(())
 }
 
 /// Naive implementation of [`multi_select`] that calls [`select`] in a loop for each x_i in `xs`.
@@ -93,13 +115,23 @@ pub fn multi_select_naive<F: Field, Cs: ConstraintSystem<F>>(
     cs: &mut Cs,
     xs: Vec<LinearCombination<F>>,
     ys: Vec<LinearCombination<F>>,
-) {
-    assert!(xs.len() > 0);
-    assert!(ys.len() > 0);
+) -> Result<(), R1CSError> {
+    if xs.is_empty() {
+        return Err(empty_input_error(
+            "multi_select_naive: `xs` cannot be empty",
+        ));
+    }
+    if ys.is_empty() {
+        return Err(empty_input_error(
+            "multi_select_naive: `ys` cannot be empty",
+        ));
+    }
 
     for x in xs {
-        select(cs, x, ys.clone().into_iter());
+        select(cs, x, ys.clone().into_iter())?;
     }
+
+    Ok(())
 }
 
 /// Prove that a commitment `x` is one of the values in public set `xs`.
@@ -107,7 +139,11 @@ pub fn select_public_set<F: Field, Cs: ConstraintSystem<F>>(
     cs: &mut Cs,
     x: LinearCombination<F>,
     xs: &[F],
-) {
+) -> Result<(), R1CSError> {
+    if xs.is_empty() {
+        return Err(empty_input_error("select_public_set: `xs` cannot be empty"));
+    }
+
     let poly = poly_from_roots::<F>(xs);
     let mut eval: LinearCombination<F> = poly.coeffs[0].into();
     let mut x_power = x.clone();
@@ -121,6 +157,7 @@ pub fn select_public_set<F: Field, Cs: ConstraintSystem<F>>(
     }
 
     cs.constrain(eval);
+    Ok(())
 }
 
 pub fn multi_select_public_set_ext_challenge<F: Field, Cs: ConstraintSystem<F>>(
@@ -128,9 +165,17 @@ pub fn multi_select_public_set_ext_challenge<F: Field, Cs: ConstraintSystem<F>>(
     xs: Vec<LinearCombination<F>>,
     ys: &[F],
     challenge: F,
-) {
-    assert!(xs.len() > 0);
-    assert!(ys.len() > 0);
+) -> Result<(), R1CSError> {
+    if xs.is_empty() {
+        return Err(empty_input_error(
+            "multi_select_public_set_ext_challenge: `xs` cannot be empty",
+        ));
+    }
+    if ys.is_empty() {
+        return Err(empty_input_error(
+            "multi_select_public_set_ext_challenge: `ys` cannot be empty",
+        ));
+    }
 
     let poly = poly_from_roots::<F>(ys);
     let challenge_powers = powers(&challenge, xs.len() as u32);
@@ -152,6 +197,7 @@ pub fn multi_select_public_set_ext_challenge<F: Field, Cs: ConstraintSystem<F>>(
         }
     }
     cs.constrain(eval);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -199,7 +245,8 @@ mod tests {
                     &mut prover,
                     x_var.into(),
                     xs_vars.into_iter().map(|v| v.into()),
-                );
+                )
+                .unwrap();
 
                 let proof = prover.prove(&bpg).unwrap();
                 println!("For set size = {set_size}");
@@ -220,7 +267,8 @@ mod tests {
                 &mut verifier,
                 x_var.into(),
                 xs_vars.into_iter().map(|v| v.into()),
-            );
+            )
+            .unwrap();
 
             verifier.verify(&proof, pg, bpg).unwrap();
             println!("Verifier time {:?}", start.elapsed());
@@ -255,7 +303,7 @@ mod tests {
                 let blinding_x = PallasBase::rand(&mut rng);
                 let (x_comm, x_var) = prover.commit(x, blinding_x);
 
-                select_public_set(&mut prover, x_var.into(), xs.as_slice());
+                select_public_set(&mut prover, x_var.into(), xs.as_slice()).unwrap();
 
                 let proof = prover.prove(&bpg).unwrap();
                 println!("For set size = {set_size}");
@@ -272,7 +320,7 @@ mod tests {
             let x_var = verifier.commit(x_comm);
 
             // Verifier uses the same public set xs
-            select_public_set(&mut verifier, x_var.into(), xs.as_slice());
+            select_public_set(&mut verifier, x_var.into(), xs.as_slice()).unwrap();
 
             verifier.verify(&proof, pg, bpg).unwrap();
             println!("Verifier time {:?}", start.elapsed());
@@ -316,7 +364,8 @@ mod tests {
                     &mut prover,
                     xs_vars.clone().into_iter().map(|v| v.into()).collect(),
                     ys_vars.clone().into_iter().map(|v| v.into()).collect(),
-                );
+                )
+                .unwrap();
 
                 let proof = prover.prove(&bpg).unwrap();
                 println!("For set size = {set_size}, subset size = {subset_size}");
@@ -337,7 +386,8 @@ mod tests {
                 &mut verifier,
                 xs_vars.clone().into_iter().map(|v| v.into()).collect(),
                 ys_vars.clone().into_iter().map(|v| v.into()).collect(),
-            );
+            )
+            .unwrap();
 
             verifier.verify(&proof, pg, bpg).unwrap();
             println!("Verifier time {:?}", start.elapsed());
@@ -452,7 +502,8 @@ mod tests {
                     xs_vars.into_iter().map(|v| v.into()).collect(),
                     ys_vars.into_iter().map(|v| v.into()).collect(),
                     c,
-                );
+                )
+                .unwrap();
 
                 let proof = prover.prove(&bpg).unwrap();
                 println!("For set size = {set_size}, subset size = {subset_size}");
@@ -476,7 +527,8 @@ mod tests {
                 xs_vars.into_iter().map(|v| v.into()).collect(),
                 ys_vars.into_iter().map(|v| v.into()).collect(),
                 c,
-            );
+            )
+            .unwrap();
 
             verifier.verify(&proof, pg, bpg).unwrap();
             println!("Verifier time {:?}", start.elapsed());
@@ -525,7 +577,8 @@ mod tests {
                     xs_vars.into_iter().map(|v| v.into()).collect(),
                     ys.as_slice(),
                     c,
-                );
+                )
+                .unwrap();
 
                 let proof = prover.prove(&bpg).unwrap();
                 println!("For set size = {set_size}, subset size = {subset_size}");
@@ -548,7 +601,8 @@ mod tests {
                 xs_vars.into_iter().map(|v| v.into()).collect(),
                 ys.as_slice(),
                 c,
-            );
+            )
+            .unwrap();
 
             verifier.verify(&proof, pg, bpg).unwrap();
             println!("Verifier time {:?}", start.elapsed());
@@ -557,5 +611,54 @@ mod tests {
         check(512, 2, &pg, &bpg);
         check(512, 3, &pg, &bpg);
         check(512, 4, &pg, &bpg);
+    }
+
+    #[test]
+    fn test_empty_inputs_return_error() {
+        let pg = PedersenGens::<VestaA>::default();
+        let mut transcript = MerlinTranscript::new(b"select");
+        let mut prover: Prover<_, VestaA> = Prover::new(&pg, &mut transcript);
+
+        let (x_comm, x_var) = prover.commit(VestaScalar::from(5u64), PallasBase::from(7u64));
+        let _ = x_comm;
+
+        assert!(select(
+            &mut prover,
+            x_var.into(),
+            core::iter::empty::<LinearCombination<VestaScalar>>(),
+        )
+        .is_err());
+
+        assert!(multi_select(
+            &mut prover,
+            vec![],
+            vec![LinearCombination::<VestaScalar>::from(x_var)],
+        )
+        .is_err());
+
+        assert!(multi_select_ext_challenge(
+            &mut prover,
+            vec![LinearCombination::<VestaScalar>::from(x_var)],
+            vec![],
+            VestaScalar::from(11u64),
+        )
+        .is_err());
+
+        assert!(multi_select_naive(
+            &mut prover,
+            vec![],
+            vec![LinearCombination::<VestaScalar>::from(x_var)],
+        )
+        .is_err());
+
+        assert!(select_public_set(&mut prover, x_var.into(), &[]).is_err());
+
+        assert!(multi_select_public_set_ext_challenge(
+            &mut prover,
+            vec![],
+            &[VestaScalar::from(13u64)],
+            VestaScalar::from(17u64),
+        )
+        .is_err());
     }
 }

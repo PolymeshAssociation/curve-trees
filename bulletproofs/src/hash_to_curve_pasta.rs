@@ -216,14 +216,17 @@ pub fn map_to_curve_simple_swu<F: Field, P: SWCurveConfig<BaseField = F>>(
         gx1 = num_gx1 / div3;
         if gx1.legendre().is_qr() {
             gx1_square = true;
-            gx1.sqrt()
-                .expect("We have checked that gx1 is a quadratic residue. Q.E.D")
+            match gx1.sqrt() {
+                Some(y) => y,
+                _ => unreachable!("We have checked that gx1 is a quadratic residue. Q.E.D"),
+            }
         } else {
             let zeta_gx1 = zeta * gx1;
             gx1_square = false;
-            zeta_gx1
-                .sqrt()
-                .expect("ZETA * gx1 is a quadratic residue because legard is multiplicative. Q.E.D")
+            match zeta_gx1.sqrt() {
+                Some(y) => y,
+                _ => unreachable!("We have checked that ZETA * gx1 is a quadratic residue. Q.E.D"),
+            }
         }
     };
 
@@ -236,7 +239,6 @@ pub fn map_to_curve_simple_swu<F: Field, P: SWCurveConfig<BaseField = F>>(
     // so we avoid computing gx2 explicitly.
 
     // Not including theta like done in zcash pasta curves as the square root algorithm is different.
-    // TODO: Recheck with Amir as well.
     let y2 = zeta_u2 * element * y1;
     let num_x = if gx1_square { num_x1 } else { num_x2 };
     let y = if gx1_square { y1 } else { y2 };

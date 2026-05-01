@@ -197,12 +197,14 @@ fn test_curve_tree_inner<
     let sr_proof_params = SelRerandProofParameters::try_from(sr_params.clone()).unwrap();
 
     let path = curve_tree.get_path_to_leaf_for_proof(0, 0).unwrap();
-    let (path_commitments, re_randomization_of_leaf) = path.select_and_rerandomize_prover_gadget(
-        &mut even_prover,
-        &mut odd_prover,
-        &sr_proof_params,
-        &mut rng,
-    );
+    let (path_commitments, re_randomization_of_leaf) = path
+        .select_and_rerandomize_prover_gadget(
+            &mut even_prover,
+            &mut odd_prover,
+            &sr_proof_params,
+            &mut rng,
+        )
+        .unwrap();
 
     let (pallas_proof, vesta_proof) = prove(
         even_prover,
@@ -221,12 +223,14 @@ fn test_curve_tree_inner<
         let odd_transcript = MerlinTranscript::new(b"select_and_rerandomize");
         let mut odd_verifier = Verifier::new(odd_transcript);
 
-        path_commitments.select_and_rerandomize_verifier_gadget(
-            &root,
-            &mut even_verifier,
-            &mut odd_verifier,
-            &sr_proof_params,
-        );
+        path_commitments
+            .select_and_rerandomize_verifier_gadget(
+                &root,
+                &mut even_verifier,
+                &mut odd_verifier,
+                &sr_proof_params,
+            )
+            .unwrap();
         let rerandomized_leaf = path_commitments.get_rerandomized_leaf();
         odd_verifier
             .verify(
@@ -329,7 +333,8 @@ pub fn test_curve_tree_with_parameters_new<
                 &mut vesta_prover,
                 &sr_proof_params,
                 &mut rng,
-            );
+            )
+            .unwrap();
 
         let nc1 = pallas_prover.constraints.len();
         let nc2 = vesta_prover.constraints.len();
@@ -360,12 +365,14 @@ pub fn test_curve_tree_with_parameters_new<
             let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
             let mut vesta_verifier = Verifier::new(vesta_transcript);
 
-            path_commitments.select_and_rerandomize_verifier_gadget(
-                &root,
-                &mut pallas_verifier,
-                &mut vesta_verifier,
-                &sr_proof_params,
-            );
+            path_commitments
+                .select_and_rerandomize_verifier_gadget(
+                    &root,
+                    &mut pallas_verifier,
+                    &mut vesta_verifier,
+                    &sr_proof_params,
+                )
+                .unwrap();
             let rerandomized_leaf = path_commitments.get_rerandomized_leaf();
             verify(
                 pallas_verifier,
@@ -475,7 +482,8 @@ pub fn test_curve_tree_get_update<
                 &mut vesta_prover,
                 &sr_proof_params,
                 &mut rng,
-            );
+            )
+            .unwrap();
 
         let (pallas_proof, vesta_proof) = prove(
             pallas_prover,
@@ -492,12 +500,14 @@ pub fn test_curve_tree_get_update<
             let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
             let mut vesta_verifier = Verifier::new(vesta_transcript);
 
-            path_commitments.select_and_rerandomize_verifier_gadget(
-                &root,
-                &mut pallas_verifier,
-                &mut vesta_verifier,
-                &sr_proof_params,
-            );
+            path_commitments
+                .select_and_rerandomize_verifier_gadget(
+                    &root,
+                    &mut pallas_verifier,
+                    &mut vesta_verifier,
+                    &sr_proof_params,
+                )
+                .unwrap();
             let rerandomized_leaf = path_commitments.get_rerandomized_leaf();
             let vesta_res = vesta_verifier.verify(
                 &vesta_proof,
@@ -568,12 +578,14 @@ pub fn test_curve_tree_batch_verification() {
             Prover::new(&sr_proof_params.odd_parameters().pc_gens, vesta_transcript);
 
         let path = curve_tree.get_path_to_leaf_for_proof(i, 0).unwrap();
-        let (path_commitment, _) = path.select_and_rerandomize_prover_gadget(
-            &mut pallas_prover,
-            &mut vesta_prover,
-            &sr_proof_params,
-            &mut thread_rng(),
-        );
+        let (path_commitment, _) = path
+            .select_and_rerandomize_prover_gadget(
+                &mut pallas_prover,
+                &mut vesta_prover,
+                &sr_proof_params,
+                &mut thread_rng(),
+            )
+            .unwrap();
 
         let pallas_proof = pallas_prover
             .prove(&sr_proof_params.even_parameters().bp_gens)
@@ -726,12 +738,14 @@ pub fn check_combined_vs_common_root_proofs_with_parameters<
     let mut all_leaf_rerandomizations = vec![];
     for i in 0..num_paths {
         let path = curve_tree.get_path_to_leaf_for_proof(i, 0).unwrap();
-        let (path_commitments, rl) = path.select_and_rerandomize_prover_gadget(
-            &mut pallas_prover,
-            &mut vesta_prover,
-            &sr_proof_params,
-            &mut rng,
-        );
+        let (path_commitments, rl) = path
+            .select_and_rerandomize_prover_gadget(
+                &mut pallas_prover,
+                &mut vesta_prover,
+                &sr_proof_params,
+                &mut rng,
+            )
+            .unwrap();
         path_commitments_list.push(path_commitments);
         all_leaf_rerandomizations.push(rl);
     }
@@ -758,12 +772,14 @@ pub fn check_combined_vs_common_root_proofs_with_parameters<
 
     let mut rerandomized_leaves = vec![];
     for path_commitments in &path_commitments_list {
-        path_commitments.select_and_rerandomize_verifier_gadget(
-            &curve_tree.root_node(),
-            &mut pallas_verifier,
-            &mut vesta_verifier,
-            &sr_proof_params,
-        );
+        path_commitments
+            .select_and_rerandomize_verifier_gadget(
+                &curve_tree.root_node(),
+                &mut pallas_verifier,
+                &mut vesta_verifier,
+                &sr_proof_params,
+            )
+            .unwrap();
         rerandomized_leaves.push(path_commitments.get_rerandomized_leaf());
     }
 

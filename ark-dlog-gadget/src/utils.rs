@@ -43,7 +43,7 @@ impl<C: DivisorCurve> ScalarMulAndDivisor<C> {
         let (x, y) = aff.xy().ok_or(Error::PointAtInfinity)?;
         let divisor = scalar
             .scalar_mul_divisor(generator_source)?
-            .normalize_x_coefficient();
+            .normalize_x_coefficient()?;
         Ok(ScalarMulAndDivisor {
             point,
             x,
@@ -131,6 +131,7 @@ pub fn incomplete_add_pub<F: PrimeField, Cs: ConstraintSystem<F>>(
     // slope of line through (b_x, b_y) and (a_x, a_y)
     let slope = cs.evaluate(&b_y_lc).map(|b_y| {
         let b_x = cs.evaluate(&b_x_lc).unwrap();
+        // unwrap only affects prover as verifier can't evaluate the lc
         let b_x_minus_a_x_inv = (b_x - a_x).inverse().unwrap();
         (b_y - a_y) * b_x_minus_a_x_inv
     });
@@ -171,6 +172,7 @@ pub fn inverse<F: Field, Cs: ConstraintSystem<F>>(
             assert_eq!(F::ONE, o.unwrap());
         }
     }
+    // unwrap only affects prover as verifier can't evaluate the lc
     let x_inv = cs.evaluate(&x_lc).map(|x| x.inverse().unwrap());
     let x_inv_lc: LinearCombination<F> = cs.allocate(x_inv).unwrap().into();
     let (_, _, o) = cs.multiply(x_lc, x_inv_lc.clone());

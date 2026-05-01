@@ -67,7 +67,7 @@ impl<
                     num_indices,
                     &all_x_coords,
                     None,
-                );
+                )?;
 
                 let root_child = self.path.odd_commitments.get(0).ok_or_else(|| {
                     Error::MalformedProofInput(
@@ -107,7 +107,7 @@ impl<
                     num_indices,
                     &all_x_coords,
                     None,
-                );
+                )?;
 
                 let root_child = self.path.even_commitments.get(0).ok_or_else(|| {
                     Error::MalformedProofInput(
@@ -177,7 +177,7 @@ impl<
                     num_indices,
                     children_vars,
                     None,
-                );
+                )?;
 
                 let shifted_rerandomized = (*child_commitment
                     + (odd_parameters.sl_params.delta * P1::ScalarField::from(num_indices)))
@@ -237,7 +237,7 @@ impl<
                             num_indices,
                             children_vars,
                             None,
-                        );
+                        )?;
 
                     let shifted_rerandomized = (*child_commitment
                         + (even_parameters.sl_params.delta * P0::ScalarField::from(num_indices)))
@@ -306,7 +306,7 @@ impl<
                 // Select
                 let children_lc: Vec<LinearCombination<F1>> =
                     chunk.iter().map(|v| (*v).into()).collect();
-                select(odd_verifier, x_var.clone(), children_lc.into_iter());
+                select(odd_verifier, x_var.clone(), children_lc.into_iter())?;
 
                 // Add transcript entry for rerandomized leaf
                 let selected_commitment =

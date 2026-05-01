@@ -51,6 +51,10 @@ pub enum Error {
     #[error("The curve point cannot be 0")]
     PointCantBeZero,
 
+    /// The curve point cannot be negative of another.
+    #[error("The curve point cannot be negative of another")]
+    PointCantBeNegative,
+
     /// Mismatched commitment lengths
     #[error("Mismatched commitment lengths: expected {expected}, got {got}")]
     InconsistentCommitmentLengths { expected: usize, got: usize },

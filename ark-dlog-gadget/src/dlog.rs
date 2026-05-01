@@ -429,6 +429,7 @@ pub fn discrete_log_challenge<
         let z3 = vvv;
 
         // Normalize from XYZ to XY
+        // unwrap is as both points are chosen to be distinct and not negative of each other
         let z3_inv = z3.inverse().unwrap();
         let x3 = x3 * z3_inv;
         let y3 = y3 * z3_inv;
@@ -752,7 +753,7 @@ pub fn create_divisor_and_decomposition<
     )))
 }
 
-/// Assuumes `vars_dlog` and `vars_divisor` are of appropriate length.
+/// Assumes `vars_dlog` and `vars_divisor` are of appropriate length.
 fn dlog_and_divisor_vars<F: PrimeField, Parameters: DiscreteLogParameters>(
     mut vars_dlog: Vec<Variable<F>>,
     mut vars_divisor: Vec<Variable<F>>,
@@ -880,15 +881,15 @@ pub fn commit_witness_chunks_verifier<
         return Err(Error::ZeroChunkSize);
     }
 
-    let mut vars = Vec::with_capacity(DECOMPOSITION_SIZE * 2);
+    let expected_vars_len = DECOMPOSITION_SIZE * 2;
+    let mut vars = Vec::with_capacity(expected_vars_len);
 
     for comm in &comms.0 {
         let chunk_vars = cs.commit_vec(chunk_len, *comm);
         vars.extend(chunk_vars);
     }
-
-    let expected_vars_len = DECOMPOSITION_SIZE * 2;
-    if vars.len() != expected_vars_len {
+    // Allow padding
+    if vars.len() < expected_vars_len {
         return Err(Error::VerifierWitnessVarCountMismatch {
             got: vars.len(),
             expected: expected_vars_len,
@@ -1069,13 +1070,25 @@ pub fn commit_witness_chunks_verifier_multi_gen<
     comms: &DivisorComms<C>,
     chunk_len: usize,
     num_generators: usize,
-) -> PointsWithDlog<F, Parameters> {
-    let mut vars = Vec::new();
+) -> Result<PointsWithDlog<F, Parameters>, Error> {
+    if chunk_len == 0 {
+        return Err(Error::ZeroChunkSize);
+    }
+    let expected_vars_len =
+        MAX_BITS_SUPPORTED + num_generators + (num_generators * DECOMPOSITION_SIZE);
+    let mut vars = Vec::with_capacity(expected_vars_len);
     for comm in &comms.0 {
         let chunk_vars = cs.commit_vec(chunk_len, *comm);
         vars.extend(chunk_vars);
     }
-    dlog_and_divisor_vars_multi(vars, num_generators)
+    // Allow padding
+    if vars.len() < expected_vars_len {
+        return Err(Error::VerifierWitnessVarCountMismatch {
+            got: vars.len(),
+            expected: expected_vars_len,
+        });
+    }
+    Ok(dlog_and_divisor_vars_multi(vars, num_generators))
 }
 
 /// Similar to [`discrete_log`] but proves that given points have the specified discrete logarithm over
@@ -2176,7 +2189,8 @@ mod tests {
                 &comms,
                 vc_len,
                 n,
-            );
+            )
+            .unwrap();
             let commit_time_v = start_v.elapsed();
 
             let original_point_vars: Vec<(Variable<B>, Variable<B>)> = (0..n)
@@ -2342,7 +2356,8 @@ mod tests {
                     &comms,
                     vc_len,
                     2,
-                );
+                )
+                .unwrap();
 
                 discrete_log_blinding_and_dlog(
                     &mut verifier,

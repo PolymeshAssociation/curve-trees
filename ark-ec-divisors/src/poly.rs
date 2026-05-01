@@ -1,3 +1,4 @@
+use crate::error::Error;
 use ark_ff::PrimeField;
 use ark_std::{vec, vec::Vec};
 use core::ops::{Add, Mul, Neg, Sub};
@@ -364,9 +365,11 @@ impl<F: PrimeField> DivisorPoly<F> {
     ///
     /// Panics if there is no x coefficient to normalize or if it cannot be normalized to 1.
     #[must_use]
-    pub fn normalize_x_coefficient(self) -> Self {
-        let scalar = self.x_coefficients[0].inverse().unwrap();
-        self * scalar
+    pub fn normalize_x_coefficient(self) -> Result<Self, Error> {
+        let scalar = self.x_coefficients[0]
+            .inverse()
+            .ok_or_else(|| Error::InvertingZero)?;
+        Ok(self * scalar)
     }
 }
 
