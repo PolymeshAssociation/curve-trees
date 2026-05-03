@@ -51,6 +51,10 @@ pub enum Error {
     #[error("The curve point cannot be 0")]
     PointCantBeZero,
 
+    /// The curve point cannot be negative of another.
+    #[error("The curve point cannot be negative of another")]
+    PointCantBeNegative,
+
     /// Mismatched commitment lengths
     #[error("Mismatched commitment lengths: expected {expected}, got {got}")]
     InconsistentCommitmentLengths { expected: usize, got: usize },
@@ -58,6 +62,14 @@ pub enum Error {
     /// Paths count must be greater than 0
     #[error("Paths count must be greater than 0")]
     NeedNonZeroNumberOfPaths,
+
+    /// Number of selected indices must be greater than 0
+    #[error("Number of selected indices must be greater than 0")]
+    NeedNonZeroNumberOfIndices,
+
+    /// Malformed proof input
+    #[error("Malformed proof input: {0}")]
+    MalformedProofInput(String),
 
     /// Root type mismatch
     #[error("Root type mismatch: expected {expected}, got {got}")]

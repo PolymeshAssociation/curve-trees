@@ -2,8 +2,8 @@ use crate::curve_tree::{SelectAndRerandomizePath, SelectAndRerandomizePathWithDi
 use crate::curve_tree_prover::{
     CurveTreeWitnessPath, RootChildren, WitnessNode, WitnessPathsWithSameRoot,
 };
-use crate::error::Result;
-use crate::parameters::SelRerandProofParametersNew;
+use crate::error::{Error, Result};
+use crate::parameters::SelRerandProofParametersRef;
 use crate::select::{multi_select_public_set_ext_challenge, select, select_public_set};
 use crate::utils::get_2_rngs_from_one;
 use ark_dlog_gadget::dlog::{
@@ -50,16 +50,19 @@ impl<
         &self,
         even_prover: &mut Prover<MerlinTranscript, Affine<P0>>,
         odd_prover: &mut Prover<MerlinTranscript, Affine<P1>>,
-        parameters: &SelRerandProofParametersNew<P0, P1, Parameters0, Parameters1>,
+        parameters: &(impl SelRerandProofParametersRef<P0, P1, Parameters0, Parameters1> + Sync),
         rng: &mut R,
     ) -> Result<(SelectAndRerandomizePathWithDivisorComms<L, P0, P1>, F0)> {
+        let even_parameters = parameters.even_parameters();
+        let odd_parameters = parameters.odd_parameters();
+
         let (
             even_rerandomized_nodes,
             odd_rerandomized_nodes,
             mut even_rerandomization_scalars,
             mut odd_rerandomization_scalars,
             re_randomization_of_leaf,
-        ) = self.randomize_nodes(parameters.pc_gens(), rng);
+        ) = self.randomize_nodes((even_parameters.pc_gens(), odd_parameters.pc_gens()), rng);
 
         let mut even_node_comms = vec![];
         let mut even_node_divisors = vec![];
@@ -75,9 +78,9 @@ impl<
                     &self.even_internal_nodes[0],
                     &odd_rerandomized_nodes[0],
                     odd_rerandomization_scalars[0],
-                    &parameters.odd_parameters.table_b_blinding,
-                    &parameters.odd_parameters.sl_params.delta,
-                    &parameters.even_parameters.sl_params.bp_gens,
+                    &odd_parameters.table_b_blinding,
+                    &odd_parameters.sl_params.delta,
+                    &even_parameters.sl_params.bp_gens,
                 )?;
             even_node_divisors.push((x_var.into(), y_var.into(), x_rerand, y_rerand, p));
             even_node_comms.push(divisor_comms);
@@ -92,9 +95,9 @@ impl<
                     &self.odd_internal_nodes[0],
                     &even_rerandomized_nodes[0],
                     even_rerandomization_scalars[0],
-                    &parameters.even_parameters.table_b_blinding,
-                    &parameters.even_parameters.sl_params.delta,
-                    &parameters.odd_parameters.sl_params.bp_gens,
+                    &even_parameters.table_b_blinding,
+                    &even_parameters.sl_params.delta,
+                    &odd_parameters.sl_params.bp_gens,
                 )?;
             odd_node_divisors.push((x_var.into(), y_var.into(), x_rerand, y_rerand, p));
             odd_node_comms.push(divisor_comms);
@@ -119,9 +122,9 @@ impl<
                         even_rerandomization_scalars[i],
                         &odd_rerandomized_nodes[index],
                         odd_rerandomization_scalars[index],
-                        &parameters.odd_parameters.table_b_blinding,
-                        &parameters.odd_parameters.sl_params.delta,
-                        &parameters.even_parameters.sl_params.bp_gens,
+                        &odd_parameters.table_b_blinding,
+                        &odd_parameters.sl_params.delta,
+                        &even_parameters.sl_params.bp_gens,
                     )?;
                 even_node_comms.push(divisor_comms);
                 even_node_divisors.push((x_var.into(), y_var.into(), x_rerand, y_rerand, p));
@@ -148,9 +151,9 @@ impl<
                         odd_rerandomization_scalars[i],
                         &even_rerandomized_nodes[index],
                         even_rerandomization_scalars[index],
-                        &parameters.even_parameters.table_b_blinding,
-                        &parameters.even_parameters.sl_params.delta,
-                        &parameters.odd_parameters.sl_params.bp_gens,
+                        &even_parameters.table_b_blinding,
+                        &even_parameters.sl_params.delta,
+                        &odd_parameters.sl_params.bp_gens,
                     )?;
                 odd_node_comms.push(divisor_comms);
                 odd_node_divisors.push((x_var.into(), y_var.into(), x_rerand, y_rerand, p));
@@ -177,8 +180,8 @@ impl<
         constraints_for_dlogs::<_, _, _, _, P0, P1, Parameters0, Parameters1>(
             even_prover,
             odd_prover,
-            &parameters.even_parameters.table_b_blinding,
-            &parameters.odd_parameters.table_b_blinding,
+            &even_parameters.table_b_blinding,
+            &odd_parameters.table_b_blinding,
             even_node_divisors,
             odd_node_divisors,
         )?;
@@ -224,7 +227,7 @@ impl<
             rerandomized_child,
             all_x_coords,
             Some(child_node),
-        );
+        )?;
         let (divisor_comms, p) = create_and_commit_divisor::<R, F0, F1, P0, P1, Parameters>(
             rng,
             prover,
@@ -263,7 +266,7 @@ impl<
             rerandomized_self,
             self_randomization,
             rerandomized_child,
-        );
+        )?;
         let (divisor_comms, p) = create_and_commit_divisor::<_, F0, F1, P0, P1, Parameters>(
             rng,
             prover,
@@ -290,7 +293,7 @@ impl<
         self_node_rerandomized: &Affine<P0>,
         self_rerandomization_scalar: P0::ScalarField,
         rerandomized_child: &Affine<P1>,
-    ) -> (Variable<F0>, Variable<F0>, F0, F0) {
+    ) -> Result<(Variable<F0>, Variable<F0>, F0, F0)> {
         // In this case this (`self`) is a non-root inner node and the children (and the scalar used for rerandomizing) are part of the witness.
         // Allocate variables for x-coordinates (which are committed in `self_node_rerandomized`) of child nodes with `self_rerandomization_scalar` as the blinding
         let children = prover
@@ -329,12 +332,15 @@ impl<
         &self,
         even_prover: &mut Prover<MerlinTranscript, Affine<P0>>,
         odd_prover: &mut Prover<MerlinTranscript, Affine<P1>>,
-        parameters: &SelRerandProofParametersNew<P0, P1, Parameters0, Parameters1>,
+        parameters: &(impl SelRerandProofParametersRef<P0, P1, Parameters0, Parameters1> + Sync),
         rng: &mut R,
     ) -> Result<(
         Vec<SelectAndRerandomizePathWithDivisorComms<L, P0, P1>>,
         Vec<F0>,
     )> {
+        let even_parameters = parameters.even_parameters();
+        let odd_parameters = parameters.odd_parameters();
+
         let num_paths = self.num_paths();
         let individual_paths = self.to_individual_paths();
 
@@ -355,7 +361,7 @@ impl<
                 even_rerandomization_scalars,
                 odd_rerandomization_scalars,
                 re_randomization_of_leaf,
-            ) = path.randomize_nodes(parameters.pc_gens(), rng);
+            ) = path.randomize_nodes((even_parameters.pc_gens(), odd_parameters.pc_gens()), rng);
 
             all_even_rerandomized_nodes.push(even_rerandomized_nodes);
             all_odd_rerandomized_nodes.push(odd_rerandomized_nodes);
@@ -376,8 +382,8 @@ impl<
                 x_coords,
                 child_nodes_to_randomize,
             } => {
-                let delta = parameters.odd_parameters.sl_params.delta;
-                let bp_gens = &parameters.even_parameters.sl_params.bp_gens;
+                let delta = odd_parameters.sl_params.delta;
+                let bp_gens = &even_parameters.sl_params.bp_gens;
 
                 Self::create_and_commit_divisor_for_root::<_, Parameters0>(
                     rng,
@@ -390,15 +396,15 @@ impl<
                     &mut even_node_divisors,
                     delta,
                     bp_gens,
-                    &parameters.odd_parameters.table_b_blinding,
+                    &odd_parameters.table_b_blinding,
                 )?;
             }
             RootChildren::Odd {
                 x_coords,
                 child_nodes_to_randomize,
             } => {
-                let delta = parameters.even_parameters.sl_params.delta;
-                let bp_gens = &parameters.odd_parameters.sl_params.bp_gens;
+                let delta = even_parameters.sl_params.delta;
+                let bp_gens = &odd_parameters.sl_params.bp_gens;
 
                 WitnessPathsWithSameRoot::<L, P1, P0>::create_and_commit_divisor_for_root::<
                     _,
@@ -414,7 +420,7 @@ impl<
                     &mut odd_node_divisors,
                     delta,
                     bp_gens,
-                    &parameters.even_parameters.table_b_blinding,
+                    &even_parameters.table_b_blinding,
                 )?;
             }
         }
@@ -457,9 +463,9 @@ impl<
                         even_rerandomization_scalars[i],
                         &odd_rerandomized_nodes[index],
                         odd_rerandomization_scalars[index],
-                        &parameters.odd_parameters.table_b_blinding,
-                        &parameters.odd_parameters.sl_params.delta,
-                        &parameters.even_parameters.sl_params.bp_gens,
+                        &odd_parameters.table_b_blinding,
+                        &odd_parameters.sl_params.delta,
+                        &even_parameters.sl_params.bp_gens,
                     )?;
                 even_node_comms[path_idx].push(divisor_comms);
                 even_node_divisors[path_idx].push((x_var.into(), y_var.into(), x, y, p));
@@ -483,9 +489,9 @@ impl<
                         odd_rerandomization_scalars[i],
                         &even_rerandomized_nodes[index],
                         even_rerandomization_scalars[index],
-                        &parameters.even_parameters.table_b_blinding,
-                        &parameters.even_parameters.sl_params.delta,
-                        &parameters.odd_parameters.sl_params.bp_gens,
+                        &even_parameters.table_b_blinding,
+                        &even_parameters.sl_params.delta,
+                        &odd_parameters.sl_params.bp_gens,
                     )?;
                 odd_node_comms[path_idx].push(divisor_comms);
                 odd_node_divisors[path_idx].push((x_var.into(), y_var.into(), x, y, p));
@@ -495,8 +501,8 @@ impl<
         constraints_for_dlogs::<_, _, _, _, P0, P1, Parameters0, Parameters1>(
             even_prover,
             odd_prover,
-            &parameters.even_parameters.table_b_blinding,
-            &parameters.odd_parameters.table_b_blinding,
+            &even_parameters.table_b_blinding,
+            &odd_parameters.table_b_blinding,
             even_node_divisors.into_iter().flatten(),
             odd_node_divisors.into_iter().flatten(),
         )?;
@@ -572,8 +578,11 @@ impl<
                 .transcript()
                 .append(b"rerandomized_child", rerandomized_child);
 
-            let y_var: LinearCombination<F0> = prover.allocate(Some(child.y)).unwrap().into();
-            let (x, y) = (*rerandomized_child + delta).into_affine().xy().unwrap();
+            let y_var: LinearCombination<F0> = prover.allocate(Some(child.y))?.into();
+            let (x, y) = (*rerandomized_child + delta)
+                .into_affine()
+                .xy()
+                .ok_or_else(|| Error::PointCantBeZero)?;
 
             // Create divisor and commit
             let (divisor_comms, p) = create_and_commit_divisor::<_, F0, F1, P0, P1, Parameters>(
@@ -602,7 +611,7 @@ pub fn select_root<
     rerandomized_child: &Affine<C2>, // The public rerandomization of the selected child without Delta
     all_children_plus_delta: &[Fs],  // Public set of x-coordinates of all children plus delta
     child: Option<Affine<C2>>,       // Witness of the selected child
-) -> (Variable<Fs>, Variable<Fs>, Fs, Fs) {
+) -> Result<(Variable<Fs>, Variable<Fs>, Fs, Fs)> {
     // Add the re-randomised child to the transcript
     cs.transcript()
         .append(b"rerandomized_child", &rerandomized_child);
@@ -610,12 +619,15 @@ pub fn select_root<
     let delta = delta.into_group();
     // Show that child is part of `all_children` by showing that the child's x-coordinate is present in x-coordinates of the all children
     let child_plus_delta = child.map(|c| (c + delta).into_affine());
-    let x = cs.allocate(child_plus_delta.map(|xy| xy.x)).unwrap();
-    let y = cs.allocate(child_plus_delta.map(|xy| xy.y)).unwrap();
+    let x = cs.allocate(child_plus_delta.map(|xy| xy.x))?;
+    let y = cs.allocate(child_plus_delta.map(|xy| xy.y))?;
     let x_lc: LinearCombination<_> = x.into();
     select_public_set(cs, x_lc.clone(), all_children_plus_delta);
-    let (x_rerand, y_rerand) = (*rerandomized_child + delta).into_affine().xy().unwrap();
-    (x, y, x_rerand, y_rerand)
+    let (x_rerand, y_rerand) = (*rerandomized_child + delta)
+        .into_affine()
+        .xy()
+        .ok_or_else(|| Error::PointCantBeZero)?;
+    Ok((x, y, x_rerand, y_rerand))
 }
 
 pub fn select_non_root<
@@ -629,7 +641,7 @@ pub fn select_non_root<
     rerandomized_child: &Affine<C2>, // The public rerandomization of the selected child without Delta
     all_children_plus_delta: Vec<LinearCombination<Fs>>, // Public set of x-coordinates of all children plus delta
     child: Option<Affine<C2>>,                           // Witness of the selected child
-) -> (Variable<Fs>, Variable<Fs>, Fs, Fs) {
+) -> Result<(Variable<Fs>, Variable<Fs>, Fs, Fs)> {
     // Add the re-randomised child to the transcript
     cs.transcript()
         .append(b"rerandomized_child", &rerandomized_child);
@@ -637,12 +649,15 @@ pub fn select_non_root<
     let delta = delta.into_group();
     // Show that child is part of `all_children` by showing that the child's x-coordinate is present in x-coordinates of the all children
     let child_plus_delta = child.map(|c| (c + delta).into_affine());
-    let x = cs.allocate(child_plus_delta.map(|xy| xy.x)).unwrap();
-    let y = cs.allocate(child_plus_delta.map(|xy| xy.y)).unwrap();
+    let x = cs.allocate(child_plus_delta.map(|xy| xy.x))?;
+    let y = cs.allocate(child_plus_delta.map(|xy| xy.y))?;
     let x_lc: LinearCombination<_> = x.into();
     select(cs, x_lc.clone(), all_children_plus_delta.iter().cloned());
-    let (x_rerand, y_rerand) = (*rerandomized_child + delta).into_affine().xy().unwrap();
-    (x, y, x_rerand, y_rerand)
+    let (x_rerand, y_rerand) = (*rerandomized_child + delta)
+        .into_affine()
+        .xy()
+        .ok_or_else(|| Error::PointCantBeZero)?;
+    Ok((x, y, x_rerand, y_rerand))
 }
 
 pub type DlogItem<F, Params> = (

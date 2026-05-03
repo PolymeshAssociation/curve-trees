@@ -223,7 +223,7 @@ where
             sum_of_selected = ith_selected;
         } else {
             // In the consecutive iterations, add the ith selected child to the accumulated sum
-            sum_of_selected = checked_curve_addition_helper(cs, sum_of_selected, ith_selected);
+            sum_of_selected = checked_curve_addition_helper(cs, sum_of_selected, ith_selected)?;
         }
     }
     // Add num_indices*Delta to the public sum of the children
@@ -283,7 +283,7 @@ pub fn single_level_batched_validate_and_rerandomize_root_children<
             sum_of_selected = ith_selected;
         } else {
             // In the consecutive iterations, add the ith selected child to the accumulated sum
-            sum_of_selected = checked_curve_addition_helper(cs, sum_of_selected, ith_selected);
+            sum_of_selected = checked_curve_addition_helper(cs, sum_of_selected, ith_selected)?;
         }
     }
 

@@ -33,6 +33,17 @@ impl<P0: SWCurveConfig + Copy, P1: SWCurveConfig + Copy, T: SelRerandParametersR
     }
 }
 
+pub trait SelRerandProofParametersRef<
+    P0: SWCurveConfig<BaseField: PrimeField> + Copy,
+    P1: SWCurveConfig<BaseField: PrimeField> + Copy,
+    DLogParams0: DiscreteLogParameters,
+    DLogParams1: DiscreteLogParameters,
+>
+{
+    fn even_parameters(&self) -> &SingleLayerProofParametersNew<P0, DLogParams1>;
+    fn odd_parameters(&self) -> &SingleLayerProofParametersNew<P1, DLogParams0>;
+}
+
 #[derive(Clone, CanonicalSerialize, CanonicalDeserialize)]
 pub struct SingleLayerParameters<P: SWCurveConfig + Copy> {
     pub bp_gens: BulletproofGens<Affine<P>>,
@@ -325,6 +336,36 @@ pub struct SelRerandProofParametersNew<
     pub odd_parameters: SingleLayerProofParametersNew<P1, DLogParams0>,
 }
 
+pub struct SelRerandProofParametersRefNew<
+    'a,
+    P0: SWCurveConfig<BaseField: PrimeField> + Copy,
+    P1: SWCurveConfig<BaseField: PrimeField> + Copy,
+    DLogParams0: DiscreteLogParameters,
+    DLogParams1: DiscreteLogParameters,
+> {
+    pub even_parameters: &'a SingleLayerProofParametersNew<P0, DLogParams1>,
+    pub odd_parameters: &'a SingleLayerProofParametersNew<P1, DLogParams0>,
+}
+
+impl<
+        'a,
+        P0: SWCurveConfig<BaseField: PrimeField> + Copy,
+        P1: SWCurveConfig<BaseField: PrimeField> + Copy,
+        DLogParams0: DiscreteLogParameters,
+        DLogParams1: DiscreteLogParameters,
+    > SelRerandProofParametersRefNew<'a, P0, P1, DLogParams0, DLogParams1>
+{
+    pub fn new(
+        even_parameters: &'a SingleLayerProofParametersNew<P0, DLogParams1>,
+        odd_parameters: &'a SingleLayerProofParametersNew<P1, DLogParams0>,
+    ) -> Self {
+        Self {
+            even_parameters,
+            odd_parameters,
+        }
+    }
+}
+
 impl<
         P0: DivisorCurve + Copy,
         P1: DivisorCurve + Copy,
@@ -376,7 +417,77 @@ impl<
         P1: SWCurveConfig<BaseField: PrimeField> + Copy,
         DLog0: DiscreteLogParameters,
         DLog1: DiscreteLogParameters,
+    > SelRerandProofParametersRef<P0, P1, DLog0, DLog1>
+    for SelRerandProofParametersNew<P0, P1, DLog0, DLog1>
+{
+    fn even_parameters(&self) -> &SingleLayerProofParametersNew<P0, DLog1> {
+        &self.even_parameters
+    }
+
+    fn odd_parameters(&self) -> &SingleLayerProofParametersNew<P1, DLog0> {
+        &self.odd_parameters
+    }
+}
+
+impl<
+        'a,
+        P0: SWCurveConfig<BaseField: PrimeField> + Copy,
+        P1: SWCurveConfig<BaseField: PrimeField> + Copy,
+        DLog0: DiscreteLogParameters,
+        DLog1: DiscreteLogParameters,
+    > SelRerandProofParametersRef<P0, P1, DLog0, DLog1>
+    for SelRerandProofParametersRefNew<'a, P0, P1, DLog0, DLog1>
+{
+    fn even_parameters(&self) -> &SingleLayerProofParametersNew<P0, DLog1> {
+        self.even_parameters
+    }
+
+    fn odd_parameters(&self) -> &SingleLayerProofParametersNew<P1, DLog0> {
+        self.odd_parameters
+    }
+}
+
+impl<
+        P0: SWCurveConfig<BaseField: PrimeField> + Copy,
+        P1: SWCurveConfig<BaseField: PrimeField> + Copy,
+        DLog0: DiscreteLogParameters,
+        DLog1: DiscreteLogParameters,
+        T: SelRerandProofParametersRef<P0, P1, DLog0, DLog1>,
+    > SelRerandProofParametersRef<P0, P1, DLog0, DLog1> for &T
+{
+    fn even_parameters(&self) -> &SingleLayerProofParametersNew<P0, DLog1> {
+        (*self).even_parameters()
+    }
+
+    fn odd_parameters(&self) -> &SingleLayerProofParametersNew<P1, DLog0> {
+        (*self).odd_parameters()
+    }
+}
+
+impl<
+        'a,
+        P0: SWCurveConfig<BaseField: PrimeField> + Copy,
+        P1: SWCurveConfig<BaseField: PrimeField> + Copy,
+        DLog0: DiscreteLogParameters,
+        DLog1: DiscreteLogParameters,
     > SelRerandParametersRef<P0, P1> for SelRerandProofParametersNew<P0, P1, DLog0, DLog1>
+{
+    fn even_parameters(&self) -> &SingleLayerParameters<P0> {
+        &self.even_parameters.sl_params
+    }
+
+    fn odd_parameters(&self) -> &SingleLayerParameters<P1> {
+        &self.odd_parameters.sl_params
+    }
+}
+
+impl<
+        'a,
+        P0: SWCurveConfig<BaseField: PrimeField> + Copy,
+        P1: SWCurveConfig<BaseField: PrimeField> + Copy,
+        DLog0: DiscreteLogParameters,
+        DLog1: DiscreteLogParameters,
+    > SelRerandParametersRef<P0, P1> for SelRerandProofParametersRefNew<'a, P0, P1, DLog0, DLog1>
 {
     fn even_parameters(&self) -> &SingleLayerParameters<P0> {
         &self.even_parameters.sl_params

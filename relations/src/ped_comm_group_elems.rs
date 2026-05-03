@@ -235,7 +235,7 @@ pub fn prove<
     R: CryptoRngCore,
     Fb: PrimeField,
     Fs: PrimeField,
-    P0: SWCurveConfig<BaseField = Fb, ScalarField = Fs> + Copy,
+    P0: SWCurveConfig<ScalarField = Fs> + Copy,
     P1: DivisorCurve<BaseField = Fs, ScalarField = Fb> + Copy,
     Parameters: DiscreteLogParameters,
 >(
@@ -351,7 +351,9 @@ pub fn prove<
         let x_var = x_coord_vars[i];
         let y_var = prover.allocate(Some(points_plus_delta[i].y))?;
 
-        let (re_rand_x_var, re_rand_y_var) = re_randomized_points_plus_delta[i].xy().unwrap();
+        let (re_rand_x_var, re_rand_y_var) = re_randomized_points_plus_delta[i]
+            .xy()
+            .ok_or_else(|| Error::PointCantBeZero)?;
 
         if shared_dlog_indices.contains(&i) {
             discrete_log_blinding_and_dlog_given_challenge(
@@ -383,7 +385,7 @@ pub fn prove<
 pub fn verify<
     Fb: PrimeField,
     Fs: PrimeField,
-    P0: SWCurveConfig<BaseField = Fb, ScalarField = Fs> + Copy,
+    P0: SWCurveConfig<ScalarField = Fs> + Copy,
     P1: SWCurveConfig<BaseField = Fs, ScalarField = Fb> + Copy,
     Parameters: DiscreteLogParameters,
 >(
@@ -426,11 +428,14 @@ pub fn verify<
                 comm,
                 VC_LEN as usize,
                 2,
-            );
+            )?;
             blinds_multi.insert(i, blinds);
         } else {
-            let blind =
-                commit_witness_chunks_verifier::<_, _, Parameters>(verifier, comm, VC_LEN as usize);
+            let blind = commit_witness_chunks_verifier::<_, _, Parameters>(
+                verifier,
+                comm,
+                VC_LEN as usize,
+            )?;
             blinds_single.insert(i, blind);
         }
     }
@@ -446,13 +451,17 @@ pub fn verify<
         let x_var = x_coord_vars[i];
         let y_var = verifier.allocate(None)?;
 
-        let (re_rand_x_var, re_rand_y_var) = re_randomized_plus_delta[i].xy().unwrap();
+        let (re_rand_x_var, re_rand_y_var) = re_randomized_plus_delta[i]
+            .xy()
+            .ok_or_else(|| Error::PointCantBeZero)?;
 
+        // unwrap on blinds_multi is fine as its created in this function above
         if shared_dlog_indices.contains(&i) {
+            let blinds = blinds_multi.remove(&i).unwrap();
             discrete_log_blinding_and_dlog_given_challenge(
                 verifier,
                 (x_var, y_var),
-                blinds_multi.remove(&i).unwrap(),
+                blinds,
                 (re_rand_x_var, re_rand_y_var),
                 &cs,
                 &challenge,
@@ -460,10 +469,11 @@ pub fn verify<
                 &challenge_gen[1],
             )?;
         } else {
+            let blind = blinds_single.remove(&i).unwrap();
             discrete_log_blinding_given_challenge(
                 verifier,
                 (x_var, y_var),
-                *blinds_single.remove(&i).unwrap(),
+                *blind,
                 (re_rand_x_var, re_rand_y_var),
                 &cs,
                 &challenge,

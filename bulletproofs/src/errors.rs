@@ -41,6 +41,9 @@ pub enum ProofError {
     /// Hash to curve error
     #[error("Hash to curve error")]
     HashToCurveError,
+    /// Attempting to invert zero in challenge calculation.
+    #[error("Attempting to invert zero in challenge calculation")]
+    InvertingZero,
 }
 
 impl From<MPCError> for ProofError {

@@ -1240,7 +1240,7 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
             gens.H(padded_n).copied().collect(),
             l_vec,
             r_vec,
-        );
+        )?;
 
         let second_phase = if A_I2.is_zero() && A_O2.is_zero() && S2.is_zero() {
             None

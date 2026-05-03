@@ -13,6 +13,7 @@ use ark_ff::PrimeField;
 use bulletproofs::r1cs::*;
 use relations::batched_curve_tree_prover::CurveTreeWitnessMultiPath;
 use relations::curve_tree::*;
+use relations::error::Error as RelError;
 use relations::utils::{prove, verify};
 use std::time::Instant;
 
@@ -1139,5 +1140,118 @@ pub fn test_batched_curve_tree_with_parameters_new<
                 set[i] + (sr_params.even_parameters.pc_gens.B_blinding * leaf_randomizations[i])
             );
         }
+    }
+}
+
+#[test]
+pub fn test_batched_divisor_malformed_proof_inputs() {
+    let mut rng = thread_rng();
+    let generators_length = 1 << 12;
+    let sr_params =
+        SelRerandParameters::<PallasConfig, VestaConfig>::new(generators_length, generators_length)
+            .unwrap();
+    let sr_proof_params = SelRerandProofParametersNew::<
+        PallasConfig,
+        VestaConfig,
+        PallasParams,
+        VestaParams,
+    >::from_sr_params(sr_params.clone());
+
+    let set = (0..2)
+        .map(|_| Affine::<PallasConfig>::rand(&mut rng))
+        .collect::<Vec<_>>();
+    let curve_tree =
+        CurveTree::<32, 2, PallasConfig, VestaConfig>::from_leaves(&set, &sr_proof_params, Some(4));
+    let root = curve_tree.root_node();
+    let paths = curve_tree.get_paths_to_leaves(&[0, 1]).unwrap();
+
+    let pallas_transcript = MerlinTranscript::new(b"malformed-batched-path");
+    let mut pallas_prover: Prover<_, Affine<PallasConfig>> =
+        Prover::new(&sr_params.even_parameters.pc_gens, pallas_transcript);
+    let vesta_transcript = MerlinTranscript::new(b"malformed-batched-path");
+    let mut vesta_prover: Prover<_, Affine<VestaConfig>> =
+        Prover::new(&sr_params.odd_parameters.pc_gens, vesta_transcript);
+    let (valid_path_commitments, _) = paths
+        .batched_select_and_rerandomize_prover_gadget_new::<_, PallasParams, VestaParams>(
+            &mut pallas_prover,
+            &mut vesta_prover,
+            &sr_proof_params,
+            &mut rng,
+        )
+        .unwrap();
+
+    let mut zero_selected = valid_path_commitments.clone();
+    zero_selected.path.selected_commitments.clear();
+    let pallas_transcript = MerlinTranscript::new(b"malformed-batched-empty-selected");
+    let mut pallas_verifier = Verifier::new(pallas_transcript);
+    let vesta_transcript = MerlinTranscript::new(b"malformed-batched-empty-selected");
+    let mut vesta_verifier = Verifier::new(vesta_transcript);
+    let err = zero_selected
+        .batched_select_and_rerandomize_verifier_gadget::<PallasParams, VestaParams>(
+            &root,
+            &mut pallas_verifier,
+            &mut vesta_verifier,
+            &sr_proof_params,
+        )
+        .unwrap_err();
+    assert!(matches!(err, RelError::NeedNonZeroNumberOfIndices));
+
+    let mut short_root = root.clone();
+    let expected_root_msg = match &mut short_root {
+        Root::Even(root_node) => {
+            root_node.x_coord_children.truncate(1);
+            "root x_coord_children shorter than selected indices for even root"
+        }
+        Root::Odd(root_node) => {
+            root_node.x_coord_children.truncate(1);
+            "root x_coord_children shorter than selected indices for odd root"
+        }
+    };
+    let pallas_transcript = MerlinTranscript::new(b"malformed-batched-root-xcoords");
+    let mut pallas_verifier = Verifier::new(pallas_transcript);
+    let vesta_transcript = MerlinTranscript::new(b"malformed-batched-root-xcoords");
+    let mut vesta_verifier = Verifier::new(vesta_transcript);
+    let err = valid_path_commitments
+        .clone()
+        .batched_select_and_rerandomize_verifier_gadget::<PallasParams, VestaParams>(
+            &short_root,
+            &mut pallas_verifier,
+            &mut vesta_verifier,
+            &sr_proof_params,
+        )
+        .unwrap_err();
+    match err {
+        RelError::MalformedProofInput(msg) => assert!(msg.contains(expected_root_msg), "{msg}"),
+        other => panic!("unexpected error variant: {other:?}"),
+    }
+
+    let mut missing_root_child = valid_path_commitments.clone();
+    let expected_root_child_msg = match &root {
+        Root::Even(_) => {
+            missing_root_child.path.odd_commitments.clear();
+            "missing root child in odd_commitments for even root"
+        }
+        Root::Odd(_) => {
+            missing_root_child.path.even_commitments.clear();
+            "missing root child in even_commitments for odd root"
+        }
+    };
+    let pallas_transcript = MerlinTranscript::new(b"malformed-batched-root-child");
+    let mut pallas_verifier = Verifier::new(pallas_transcript);
+    let vesta_transcript = MerlinTranscript::new(b"malformed-batched-root-child");
+    let mut vesta_verifier = Verifier::new(vesta_transcript);
+    let err = missing_root_child
+        .batched_select_and_rerandomize_verifier_gadget::<PallasParams, VestaParams>(
+            &root,
+            &mut pallas_verifier,
+            &mut vesta_verifier,
+            &sr_proof_params,
+        )
+        .unwrap_err();
+    match err {
+        RelError::MalformedProofInput(msg) => {
+            assert!(msg.contains(expected_root_child_msg), "{msg}")
+        }
+        other => panic!("unexpected error variant: {other:?}"),
     }
 }

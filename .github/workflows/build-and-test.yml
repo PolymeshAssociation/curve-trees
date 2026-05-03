@@ -19,6 +19,9 @@ jobs:
     - name: Install stable Rust
       uses: dtolnay/rust-toolchain@stable
 
+    - name: Install cargo-nextest
+      uses: taiki-e/install-action@nextest
+
     - name: Cache cargo registry
       uses: actions/cache@v3
       with:
@@ -38,7 +41,7 @@ jobs:
           ${{ runner.os }}-target-
 
     - name: Run tests
-      run: cargo test --release --verbose
+      run: cargo nextest run --release
 
   build-wasm:
     runs-on: ubuntu-latest

@@ -9,7 +9,7 @@ use crate::prover::{constraints_for_dlogs, create_and_commit_divisor};
 use crate::select::{select, select_public_set};
 use ark_dlog_gadget::dlog::{DiscreteLogParameters, DivisorComms, PointWithDlog};
 
-use crate::parameters::{SelRerandProofParametersNew, SingleLayerProofParametersNew};
+use crate::parameters::{SelRerandProofParametersRef, SingleLayerProofParametersNew};
 use ark_ec::short_weierstrass::{Affine, Projective, SWCurveConfig};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ec_divisors::DivisorCurve;
@@ -42,12 +42,15 @@ impl<
         &self,
         even_prover: &mut Prover<MerlinTranscript, Affine<P0>>,
         odd_prover: &mut Prover<MerlinTranscript, Affine<P1>>,
-        parameters: &SelRerandProofParametersNew<P0, P1, Parameters0, Parameters1>,
+        parameters: &(impl SelRerandProofParametersRef<P0, P1, Parameters0, Parameters1> + Sync),
         rng: &mut R,
     ) -> Result<(
         SelectAndRerandomizeMultiPathWithDivisorComms<L, M, P0, P1>,
         Vec<P0::ScalarField>,
     )> {
+        let even_parameters = parameters.even_parameters();
+        let odd_parameters = parameters.odd_parameters();
+
         let num_indices = self.num_indices();
         if num_indices > M as u32 {
             return Err(Error::MoreIndicesThanSupportedBatchSize(
@@ -63,7 +66,7 @@ impl<
             mut odd_rerandomization_scalars,
             rerandomizations_of_selected,
             rerandomization_scalars_of_selected,
-        ) = self.randomize_nodes(parameters.pc_gens(), rng);
+        ) = self.randomize_nodes((even_parameters.pc_gens(), odd_parameters.pc_gens()), rng);
 
         let root_is_even = self.root_is_even();
 
@@ -81,8 +84,8 @@ impl<
                     &self.even_internal_nodes[0],
                     odd_rerandomized_sum_of_nodes[0],
                     odd_rerandomization_scalars[0],
-                    &parameters.odd_parameters,
-                    &parameters.even_parameters.sl_params.bp_gens,
+                    odd_parameters,
+                    &even_parameters.sl_params.bp_gens,
                 )?;
             even_node_comms.push(divisor_comms);
             even_node_divisors.push((sum_x_var, sum_y_var, x, y, p));
@@ -98,8 +101,8 @@ impl<
                     &self.odd_internal_nodes[0],
                     even_rerandomized_sum_of_nodes[0],
                     even_rerandomization_scalars[0],
-                    &parameters.even_parameters,
-                    &parameters.odd_parameters.sl_params.bp_gens,
+                    even_parameters,
+                    &odd_parameters.sl_params.bp_gens,
                 )?;
             odd_node_comms.push(divisor_comms);
             odd_node_divisors.push((sum_x_var, sum_y_var, x, y, p));
@@ -122,8 +125,8 @@ impl<
                     odd_rerandomization_scalars[index],
                     &even_rerandomized_sum_of_nodes[i],
                     even_rerandomization_scalars[i],
-                    &parameters.odd_parameters,
-                    &parameters.even_parameters.sl_params.bp_gens,
+                    odd_parameters,
+                    &even_parameters.sl_params.bp_gens,
                 )?;
             even_node_comms.push(divisor_comms);
             even_node_divisors.push((sum_x_var, sum_y_var, x, y, p));
@@ -146,8 +149,8 @@ impl<
                     even_rerandomization_scalars[index],
                     &odd_rerandomized_sum_of_nodes[i],
                         odd_rerandomization_scalars[i],
-                    &parameters.even_parameters,
-                    &parameters.odd_parameters.sl_params.bp_gens,
+                    even_parameters,
+                    &odd_parameters.sl_params.bp_gens,
                 )?;
                 odd_node_comms.push(divisor_comms);
                 odd_node_divisors.push((sum_x_var, sum_y_var, x, y, p));
@@ -195,7 +198,7 @@ impl<
 
             for (i, chunk) in chunks.iter().enumerate() {
                 let child_plus_delta = (nodes[i].child_node_to_randomize
-                    + parameters.even_parameters.sl_params.delta)
+                    + even_parameters.sl_params.delta)
                     .into_affine();
 
                 // Allocate x, y variables on odd_prover (F1 constraint system for P0 base field)
@@ -211,16 +214,18 @@ impl<
                     .append(b"rerandomized_child", &rerandomizations_of_selected[i]);
 
                 let rerandomized_plus_delta = (rerandomizations_of_selected[i]
-                    + parameters.even_parameters.sl_params.delta)
+                    + even_parameters.sl_params.delta)
                     .into_affine();
-                let (x, y) = rerandomized_plus_delta.xy().unwrap();
+                let (x, y) = rerandomized_plus_delta
+                    .xy()
+                    .ok_or_else(|| Error::PointCantBeZero)?;
 
                 let (divisor_comms, p) = create_and_commit_divisor::<_, F1, F0, P1, P0, Parameters1>(
                     rng,
                     odd_prover,
                     rerandomization_scalars_of_selected[i],
-                    &parameters.even_parameters.table_b_blinding,
-                    &parameters.odd_parameters.sl_params.bp_gens,
+                    &even_parameters.table_b_blinding,
+                    &odd_parameters.sl_params.bp_gens,
                 )?;
 
                 odd_node_comms.push(divisor_comms);
@@ -231,8 +236,8 @@ impl<
         constraints_for_dlogs::<_, _, _, _, P0, P1, Parameters0, Parameters1>(
             even_prover,
             odd_prover,
-            &parameters.even_parameters.table_b_blinding,
-            &parameters.odd_parameters.table_b_blinding,
+            &even_parameters.table_b_blinding,
+            &odd_parameters.table_b_blinding,
             even_node_divisors,
             odd_node_divisors,
         )?;
@@ -289,13 +294,15 @@ impl<
             num_indices,
             &all_children_x,
             Some(&selected_children_plus_delta),
-        );
+        )?;
 
         // Compute the target point for discrete log verification
         let shifted_rerandomized = (re_randomized_sum_of_children
             + (parameters.sl_params.delta * P1::ScalarField::from(num_indices as u64)))
         .into_affine();
-        let (x, y) = shifted_rerandomized.xy().unwrap();
+        let (x, y) = shifted_rerandomized
+            .xy()
+            .ok_or_else(|| Error::PointCantBeZero)?;
 
         // Create single divisor proof for the sum
         let (divisor_comms, p) = create_and_commit_divisor::<_, F0, F1, P0, P1, Parameters0>(
@@ -350,12 +357,14 @@ impl<
             num_indices,
             children_vars,
             Some(&selected_children_plus_delta),
-        );
+        )?;
 
         let shifted_rerandomized = (re_randomized_sum_of_children
             + (parameters.sl_params.delta * P1::ScalarField::from(num_indices)))
         .into_affine();
-        let (x, y) = shifted_rerandomized.xy().unwrap();
+        let (x, y) = shifted_rerandomized
+            .xy()
+            .ok_or_else(|| Error::PointCantBeZero)?;
 
         let (divisor_comms, p) = create_and_commit_divisor::<_, F0, F1, P0, P1, Parameters0>(
             rng,
@@ -377,11 +386,11 @@ pub fn batched_select_and_accumulate_root<
     num_indices: u32, // The number of parallel selections
     all_children_x_coords: &[F],
     selected_children_plus_delta: Option<&[Affine<C>]>,
-) -> (
+) -> Result<(
     Option<Affine<C>>,
     LinearCombination<F>,
     LinearCombination<F>,
-) {
+)> {
     // Initialize the accumulated sum of the selected children to dummy values.
     let mut sum_of_selected = PointRepresentation {
         x: Variable::One(PhantomData).into(),
@@ -415,11 +424,11 @@ pub fn batched_select_and_accumulate_root<
             sum_of_selected = ith_selected;
         } else {
             // In the consecutive iterations, add the ith selected child to the accumulated sum
-            sum_of_selected = checked_curve_addition_helper(cs, sum_of_selected, ith_selected);
+            sum_of_selected = checked_curve_addition_helper(cs, sum_of_selected, ith_selected)?;
         }
     }
 
-    (sum_of_selected.point, sum_of_selected.x, sum_of_selected.y)
+    Ok((sum_of_selected.point, sum_of_selected.x, sum_of_selected.y))
 }
 
 pub fn batched_select_and_accumulate_non_root<
@@ -431,11 +440,11 @@ pub fn batched_select_and_accumulate_non_root<
     num_indices: u32, // The number of parallel selections
     all_children_x_coords: Vec<LinearCombination<F>>,
     selected_children_plus_delta: Option<&[Affine<C>]>,
-) -> (
+) -> Result<(
     Option<Affine<C>>,
     LinearCombination<F>,
     LinearCombination<F>,
-) {
+)> {
     // Initialize the accumulated sum of the selected children to dummy values.
     let mut sum_of_selected = PointRepresentation {
         x: Variable::One(PhantomData).into(),
@@ -469,9 +478,9 @@ pub fn batched_select_and_accumulate_non_root<
             sum_of_selected = ith_selected;
         } else {
             // In the consecutive iterations, add the ith selected child to the accumulated sum
-            sum_of_selected = checked_curve_addition_helper(cs, sum_of_selected, ith_selected);
+            sum_of_selected = checked_curve_addition_helper(cs, sum_of_selected, ith_selected)?;
         }
     }
 
-    (sum_of_selected.point, sum_of_selected.x, sum_of_selected.y)
+    Ok((sum_of_selected.point, sum_of_selected.x, sum_of_selected.y))
 }
