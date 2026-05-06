@@ -586,12 +586,23 @@ fn range_proof_helper<C: AffineRepr>(v_val: u64, n: usize) -> Result<(), R1CSErr
     assert!(range_proof(&mut verifier, var.into(), None, n).is_ok());
 
     let r = C::ScalarField::rand(&mut rng);
+    let vt = verifier.verification_scalars_and_points(&proof)?;
+    let mut vt_clone = vt.clone();
     let res = RandomizedMultCheckerGuard::new(r).with_err(R1CSError::VerificationError, |rmc| {
-        let vt = verifier.verification_scalars_and_points(&proof)?;
         add_verification_tuple_to_rmc(vt, &pc_gens, &bp_gens, rmc)?;
         Ok(())
     });
     assert!(res.is_ok());
+
+    assert!(vt_clone.padded_n().is_ok());
+
+    vt_clone.proof_independent_scalars.drain(1..);
+    assert!(vt_clone.padded_n().is_err());
+    assert!(verify_given_verification_tuple(vt_clone.clone(), &pc_gens, &bp_gens).is_err());
+
+    vt_clone.proof_independent_scalars.clear();
+    assert!(vt_clone.padded_n().is_err());
+    assert!(verify_given_verification_tuple(vt_clone, &pc_gens, &bp_gens).is_err());
 
     Ok(())
 }
