@@ -5,7 +5,7 @@ use alloc::{boxed::Box, vec, vec::Vec};
 
 use ark_ec::{AffineRepr, VariableBaseMSM};
 use ark_ff::Field;
-use ark_std::{format, One, UniformRand, Zero};
+use ark_std::{format, string::ToString, One, UniformRand, Zero};
 use core::borrow::BorrowMut;
 use core::mem;
 use dock_crypto_utils::randomized_mult_checker::RandomizedMultChecker;
@@ -767,7 +767,7 @@ pub fn verify_given_verification_tuple<C: AffineRepr>(
     pc_gens: &PedersenGens<C>,
     bp_gens: &BulletproofGens<C>,
 ) -> Result<(), R1CSError> {
-    let padded_n = verification_tuple.padded_n();
+    let padded_n = verification_tuple.padded_n()?;
 
     msm_check(
         verification_tuple.proof_dependent_points,
@@ -785,7 +785,7 @@ pub fn add_verification_tuple_to_rmc<C: AffineRepr>(
     bp_gens: &BulletproofGens<C>,
     rmc: &mut RandomizedMultChecker<C>,
 ) -> Result<(), R1CSError> {
-    let padded_n = verification_tuple.padded_n();
+    let padded_n = verification_tuple.padded_n()?;
     let VerificationTuple {
         proof_dependent_points,
         proof_dependent_scalars,
@@ -809,7 +809,7 @@ pub fn add_pre_randomized_verification_tuple_to_rmc<C: AffineRepr>(
     bp_gens: &BulletproofGens<C>,
     rmc: &mut RandomizedMultChecker<C>,
 ) -> Result<(), R1CSError> {
-    let padded_n = verification_tuple.padded_n();
+    let padded_n = verification_tuple.padded_n()?;
     let VerificationTuple {
         proof_dependent_points,
         proof_dependent_scalars,
@@ -837,9 +837,14 @@ pub struct VerificationTuple<C: AffineRepr> {
 }
 
 impl<C: AffineRepr> VerificationTuple<C> {
-    pub fn padded_n(&self) -> u32 {
+    pub fn padded_n(&self) -> Result<u32, R1CSError> {
+        let scalar_minus_g_and_h = self
+            .proof_independent_scalars
+            .len()
+            .checked_sub(2)
+            .ok_or_else(|| R1CSError::VerificationErrorWithReason("proof_independent_scalars.len()-2 failed. Such a small proof would never happen in practice".to_string()))?;
         // This can be be safely cast to 32 since parameters length always fits in u32
-        ((self.proof_independent_scalars.len() - 2) / 2) as u32
+        Ok((scalar_minus_g_and_h / 2) as u32)
     }
 }
 
