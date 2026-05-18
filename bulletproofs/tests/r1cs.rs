@@ -9,7 +9,6 @@ use ark_std::UniformRand;
 use std::time::Instant;
 
 use ark_pallas::Affine;
-use ark_std::iterable::Iterable;
 use bulletproofs::r1cs::verifier::{batch_verify_with_given_randomness, batch_verify_with_rng};
 use bulletproofs::r1cs::*;
 use bulletproofs::{BulletproofGens, PedersenGens};
@@ -399,7 +398,7 @@ fn example_gadget_proof<C: AffineRepr>(
     let mut rng = rand::thread_rng();
     let (commitments, vars): (Vec<_>, Vec<_>) = [a1, a2, b1, b2, c1]
         .iter()
-        .map(|x| prover.commit(C::ScalarField::from(x), C::ScalarField::rand(&mut rng)))
+        .map(|x| prover.commit(C::ScalarField::from(*x), C::ScalarField::rand(&mut rng)))
         .unzip();
 
     assert_eq!(C::ScalarField::from(a1), prover.eval(&vars[0].into()));
