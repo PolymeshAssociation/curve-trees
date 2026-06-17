@@ -1,16 +1,16 @@
 use ark_dlog_gadget::dlog::{
-    DiscreteLogParameters, commit_witness_chunks_prover, commit_witness_chunks_verifier,
-    create_divisor_and_decomposition, discrete_log_blinding,
+    commit_witness_chunks_prover, commit_witness_chunks_verifier, create_divisor_and_decomposition,
+    discrete_log_blinding, DiscreteLogParameters,
 };
 use ark_dlog_gadget::utils::CurveSpec;
-use ark_ec::AffineRepr;
 use ark_ec::short_weierstrass::Projective;
-use ark_ec_divisors::DivisorCurve;
+use ark_ec::AffineRepr;
 use ark_ec_divisors::curves::helios::HeliosParams;
 use ark_ec_divisors::curves::pallas::PallasParams;
 use ark_ec_divisors::curves::selene::SeleneParams;
 use ark_ec_divisors::curves::vesta::VestaParams;
 use ark_ec_divisors::util::GeneratorTable;
+use ark_ec_divisors::DivisorCurve;
 use ark_ff::PrimeField;
 use ark_helios::{Affine as HeliosAffine, Fq as HeliosFq, Fr as HeliosFr, HeliosConfig};
 use ark_pallas::{Affine as PallasAffine, Fq, Fr, PallasConfig};
@@ -20,10 +20,10 @@ use ark_std::UniformRand;
 use ark_vesta::{Affine as VestaAffine, VestaConfig};
 use bulletproofs::r1cs::{Prover, Verifier};
 use bulletproofs::{BulletproofGens, PedersenGens};
-use criterion::{Criterion, criterion_group, criterion_main};
+use criterion::{criterion_group, criterion_main, Criterion};
 use dock_crypto_utils::transcript::MerlinTranscript;
-use generic_array::ArrayLength;
 use generic_array::typenum::{Sum, U1};
+use generic_array::ArrayLength;
 use rand::prelude::StdRng;
 use rand_core::SeedableRng;
 use std::hint::black_box;

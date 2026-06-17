@@ -10,13 +10,16 @@ use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 
 use dock_crypto_utils::ff::inner_product;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// The general case for Vector CP. This is a polynomial of degree `d` where each coefficient is a vector of length `n`.
+#[derive(Zeroize, ZeroizeOnDrop)]
 pub struct VecPoly<F: PrimeField>(
     /// Outer vector has size `d + 1`, inner vector has size `n` where `n` is the size of the vector and `d` is the degree of the polynomial.
     Vec<Vec<F>>,
 );
 
+#[derive(Zeroize, ZeroizeOnDrop)]
 pub struct Poly<F: PrimeField>(Vec<F>);
 
 impl<F: PrimeField> Poly<F> {
@@ -27,6 +30,11 @@ impl<F: PrimeField> Poly<F> {
     #[inline]
     pub fn coeff_mut(&mut self) -> &mut [F] {
         &mut self.0
+    }
+
+    #[inline]
+    pub fn coeff(&self) -> &[F] {
+        &self.0
     }
 
     #[inline]
@@ -83,22 +91,21 @@ impl<F: PrimeField> VecPoly<F> {
         out
     }
 
-    pub fn inner_product(lhs: &Self, rhs: &Self) -> Poly<F> {
+    pub fn special_inner_product(lhs: &Self, rhs: &Self, mid_degree: usize) -> Poly<F> {
         let l_deg = lhs.deg();
         let r_deg = rhs.deg();
-        // degree of resulting polynomial
-        let deg = l_deg + r_deg;
+        debug_assert_eq!(l_deg, r_deg);
+        // degree of product polynomial
+        let prod_deg = l_deg + r_deg;
 
-        // log::debug!("combined degree: {}", deg);
+        let mut res = Poly::zero(prod_deg);
 
-        let mut res = Poly::zero(deg);
-
-        for d in 0..(deg + 1) {
-            // for each degree `d` of resulting polynomial, find all valid pairs of degrees (l, r) of
+        for d in 0..(prod_deg + 1) {
+            // for each degree `d` of product polynomial, find all valid pairs of degrees (l, r) of
             // input polynomials such that `l + r = d`
-            for l in 0..(d + 1) {
+            for l in mid_degree..(d + 1) {
                 let r = d - l;
-                if l_deg >= l && r_deg >= r {
+                if l_deg >= l && r_deg >= r && (r <= mid_degree || r == r_deg) {
                     res.coeff_mut()[d] += inner_product(lhs.coeff(l), rhs.coeff(r));
                 }
             }
@@ -197,22 +204,5 @@ mod tests {
         assert_eq!(exp_2[1], Scalar::from(2u64));
         assert_eq!(exp_2[2], Scalar::from(4u64));
         assert_eq!(exp_2[3], Scalar::from(8u64));
-    }
-
-    #[test]
-    fn test_inner_product() {
-        let a = vec![
-            Scalar::from(1u64),
-            Scalar::from(2u64),
-            Scalar::from(3u64),
-            Scalar::from(4u64),
-        ];
-        let b = vec![
-            Scalar::from(2u64),
-            Scalar::from(3u64),
-            Scalar::from(4u64),
-            Scalar::from(5u64),
-        ];
-        assert_eq!(Scalar::from(40u64), inner_product(&a, &b));
     }
 }

@@ -4,12 +4,13 @@ use crate::curve_tree_prover::{
 };
 use crate::error::{Error, Result};
 use crate::parameters::SelRerandProofParametersRef;
-use crate::select::{multi_select_public_set_ext_challenge, select, select_public_set};
+use crate::select::{multi_select_public_set, select, select_public_set};
 use crate::utils::get_2_rngs_from_one;
 use ark_dlog_gadget::dlog::{
     commit_witness_chunks_prover, create_divisor_and_decomposition,
-    discrete_log_blinding_given_challenge, discrete_log_challenge, ChallengedGenerator,
-    DiscreteLogChallenge, DiscreteLogParameters, DivisorComms, PointWithDlog,
+    discrete_log_blinding_given_challenge, discrete_log_blinding_given_challenge_assume_on_curve,
+    discrete_log_challenge, ChallengedGenerator, DiscreteLogChallenge, DiscreteLogParameters,
+    DivisorComms, PointWithDlog,
 };
 use ark_dlog_gadget::utils::CurveSpec;
 use ark_ec::short_weierstrass::{Affine, SWCurveConfig};
@@ -61,8 +62,13 @@ impl<
             odd_rerandomized_nodes,
             mut even_rerandomization_scalars,
             mut odd_rerandomization_scalars,
-            re_randomization_of_leaf,
         ) = self.randomize_nodes((even_parameters.pc_gens(), odd_parameters.pc_gens()), rng);
+        // The leaf's rerandomization scalar is the last even rerandomization scalar (the leaf is the
+        // lowest odd node's child); capture it before `even_rerandomization_scalars` is zeroized below.
+        let re_randomization_of_leaf = even_rerandomization_scalars
+            .last()
+            .copied()
+            .unwrap_or_default();
 
         let mut even_node_comms = vec![];
         let mut even_node_divisors = vec![];
@@ -103,61 +109,42 @@ impl<
             odd_node_comms.push(divisor_comms);
         }
 
-        let even_length = self.even_internal_nodes.len();
-        let odd_length = self.odd_internal_nodes.len();
-
         let mut commit_even = |rng: &mut ChaChaRng| -> Result<()> {
-            for i in 0..even_length {
-                // Because root is already processed in the function called before this
-                let index = if root_is_even { i + 1 } else { i };
-                if self.even_internal_nodes.len() == index {
-                    continue;
-                }
-                let (x_var, y_var, x_rerand, y_rerand, divisor_comms, p) =
-                    Self::create_and_commit_divisor_for_non_root::<_, Parameters0>(
-                        rng,
-                        even_prover,
-                        &self.even_internal_nodes[index],
-                        &even_rerandomized_nodes[i],
-                        even_rerandomization_scalars[i],
-                        &odd_rerandomized_nodes[index],
-                        odd_rerandomization_scalars[index],
-                        &odd_parameters.table_b_blinding,
-                        &odd_parameters.sl_params.delta,
-                        &even_parameters.sl_params.bp_gens,
-                    )?;
-                even_node_comms.push(divisor_comms);
-                even_node_divisors.push((x_var.into(), y_var.into(), x_rerand, y_rerand, p));
-            }
+            let (comms, divisors) = Self::process_non_root_levels::<_, Parameters0>(
+                rng,
+                even_prover,
+                root_is_even,
+                &self.even_internal_nodes,
+                &even_rerandomized_nodes,
+                &even_rerandomization_scalars,
+                &odd_rerandomized_nodes,
+                &odd_rerandomization_scalars,
+                &odd_parameters.table_b_blinding,
+                &odd_parameters.sl_params.delta,
+                &even_parameters.sl_params.bp_gens,
+            )?;
+            even_node_comms.extend(comms);
+            even_node_divisors.extend(divisors);
             Ok(())
         };
 
         let mut commit_odd = |rng: &mut ChaChaRng| -> Result<()> {
-            for i in 0..odd_length {
-                // Because root is already processed in the function called before this
-                let index = if !root_is_even { i + 1 } else { i };
-                if self.odd_internal_nodes.len() == index {
-                    continue;
-                }
-                let (x_var, y_var, x_rerand, y_rerand, divisor_comms, p) =
-                    CurveTreeWitnessPath::<L, P1, P0>::create_and_commit_divisor_for_non_root::<
-                        _,
-                        Parameters1,
-                    >(
-                        rng,
-                        odd_prover,
-                        &self.odd_internal_nodes[index],
-                        &odd_rerandomized_nodes[i],
-                        odd_rerandomization_scalars[i],
-                        &even_rerandomized_nodes[index],
-                        even_rerandomization_scalars[index],
-                        &even_parameters.table_b_blinding,
-                        &even_parameters.sl_params.delta,
-                        &odd_parameters.sl_params.bp_gens,
-                    )?;
-                odd_node_comms.push(divisor_comms);
-                odd_node_divisors.push((x_var.into(), y_var.into(), x_rerand, y_rerand, p));
-            }
+            let (comms, divisors) =
+                CurveTreeWitnessPath::<L, P1, P0>::process_non_root_levels::<_, Parameters1>(
+                    rng,
+                    odd_prover,
+                    !root_is_even,
+                    &self.odd_internal_nodes,
+                    &odd_rerandomized_nodes,
+                    &odd_rerandomization_scalars,
+                    &even_rerandomized_nodes,
+                    &even_rerandomization_scalars,
+                    &even_parameters.table_b_blinding,
+                    &even_parameters.sl_params.delta,
+                    &odd_parameters.sl_params.bp_gens,
+                )?;
+            odd_node_comms.extend(comms);
+            odd_node_divisors.extend(divisors);
             Ok(())
         };
 
@@ -202,6 +189,8 @@ impl<
         ))
     }
 
+    /// Enforce membership of x-coordinate of root's child in root node and create the divisor
+    /// corresponding to its randomization and commit it
     fn create_and_commit_divisor_for_root<R: CryptoRngCore, Parameters: DiscreteLogParameters>(
         rng: &mut R,
         prover: &mut Prover<MerlinTranscript, Affine<P0>>,
@@ -221,7 +210,7 @@ impl<
     )> {
         let child_node = witness_node.child_node_to_randomize;
         let all_x_coords = &witness_node.x_coord_children;
-        let (x, y, x_rerand, yx_rerand) = select_root(
+        let (x, y, x_rerand, y_rerand) = select_root(
             prover,
             delta,
             rerandomized_child,
@@ -235,7 +224,7 @@ impl<
             blinding_base_table,
             bp_gens,
         )?;
-        Ok((x, y, x_rerand, yx_rerand, divisor_comms, p))
+        Ok((x, y, x_rerand, y_rerand, divisor_comms, p))
     }
 
     fn create_and_commit_divisor_for_non_root<
@@ -276,6 +265,49 @@ impl<
         )?;
         Ok((x_var, y_var, x, y, divisor_comms, p))
     }
+
+    /// Process the non-root nodes of a single path, returning per-level divisor commitments and dlog
+    /// items. `skip_root` is true when the root lives on this parity (even/odd), i.e., its first
+    /// node is the root, already processed by the caller.
+    fn process_non_root_levels<R: CryptoRngCore, Parameters: DiscreteLogParameters>(
+        rng: &mut R,
+        prover: &mut Prover<MerlinTranscript, Affine<P0>>,
+        skip_root: bool,
+        witness_nodes: &[WitnessNode<L, P0, P1>],
+        this_rerandomized_nodes: &[Affine<P0>],
+        this_rerandomization_scalars: &[F0],
+        child_rerandomized_nodes: &[Affine<P1>],
+        child_rerandomization_scalars: &[F1],
+        blinding_base_table: &GeneratorTable<F0, Parameters>,
+        delta: &Affine<P1>,
+        bp_gens: &BulletproofGens<Affine<P0>>,
+    ) -> Result<(Vec<DivisorComms<Affine<P0>>>, Vec<DlogItem<F0, Parameters>>)> {
+        let mut comms = Vec::new();
+        let mut divisors = Vec::new();
+        for i in 0..witness_nodes.len() {
+            // The root is already processed by the caller.
+            let index = if skip_root { i + 1 } else { i };
+            if witness_nodes.len() == index {
+                continue;
+            }
+            let (x_var, y_var, x, y, divisor_comms, p) =
+                Self::create_and_commit_divisor_for_non_root::<_, Parameters>(
+                    rng,
+                    prover,
+                    &witness_nodes[index],
+                    &this_rerandomized_nodes[i],
+                    this_rerandomization_scalars[i],
+                    &child_rerandomized_nodes[index],
+                    child_rerandomization_scalars[index],
+                    blinding_base_table,
+                    delta,
+                    bp_gens,
+                )?;
+            comms.push(divisor_comms);
+            divisors.push((x_var.into(), y_var.into(), x, y, p));
+        }
+        Ok((comms, divisors))
+    }
 }
 
 impl<
@@ -286,6 +318,8 @@ impl<
         P1: SWCurveConfig<BaseField = F0, ScalarField = F1> + Copy,
     > WitnessNode<L, P0, P1>
 {
+    /// Return variables for x, y coordinates of the node being randomized and then x, y coordinates
+    /// of the randomized node (coordinates taken after adding delta)
     pub fn single_level_select(
         &self,
         prover: &mut Prover<MerlinTranscript, Affine<P0>>,
@@ -354,20 +388,26 @@ impl<
         let mut all_odd_rerandomization_scalars = Vec::with_capacity(num_paths);
         let mut all_leaf_rerandomizations = Vec::with_capacity(num_paths);
 
+        // Optimz: Could be parallelized by forking the rng into many
         for path in &individual_paths {
             let (
                 even_rerandomized_nodes,
                 odd_rerandomized_nodes,
                 even_rerandomization_scalars,
                 odd_rerandomization_scalars,
-                re_randomization_of_leaf,
             ) = path.randomize_nodes((even_parameters.pc_gens(), odd_parameters.pc_gens()), rng);
 
+            // The leaf's rerandomization scalar is the last even rerandomization scalar.
+            all_leaf_rerandomizations.push(
+                even_rerandomization_scalars
+                    .last()
+                    .copied()
+                    .unwrap_or_default(),
+            );
             all_even_rerandomized_nodes.push(even_rerandomized_nodes);
             all_odd_rerandomized_nodes.push(odd_rerandomized_nodes);
             all_even_rerandomization_scalars.push(even_rerandomization_scalars);
             all_odd_rerandomization_scalars.push(odd_rerandomization_scalars);
-            all_leaf_rerandomizations.push(re_randomization_of_leaf);
         }
 
         // Process root level - x-coords are allocated once, but each path has its own divisor proof
@@ -429,8 +469,6 @@ impl<
 
         for path_idx in 0..num_paths {
             let path = &individual_paths[path_idx];
-            let even_length = path.even_internal_nodes.len();
-            let odd_length = path.odd_internal_nodes.len();
             let even_rerandomized_nodes = &all_even_rerandomized_nodes[path_idx];
             let odd_rerandomized_nodes = &all_odd_rerandomized_nodes[path_idx];
             let even_rerandomization_scalars = &all_even_rerandomization_scalars[path_idx];
@@ -446,56 +484,40 @@ impl<
             }
 
             // Process even non-root nodes
-            for i in 0..even_length {
-                let index = if root_is_even { i + 1 } else { i };
-                if path.even_internal_nodes.len() == index {
-                    continue;
-                }
-                let (x_var, y_var, x, y, divisor_comms, p) =
-                    CurveTreeWitnessPath::<L, P0, P1>::create_and_commit_divisor_for_non_root::<
-                        _,
-                        Parameters0,
-                    >(
-                        rng,
-                        even_prover,
-                        &path.even_internal_nodes[index],
-                        &even_rerandomized_nodes[i],
-                        even_rerandomization_scalars[i],
-                        &odd_rerandomized_nodes[index],
-                        odd_rerandomization_scalars[index],
-                        &odd_parameters.table_b_blinding,
-                        &odd_parameters.sl_params.delta,
-                        &even_parameters.sl_params.bp_gens,
-                    )?;
-                even_node_comms[path_idx].push(divisor_comms);
-                even_node_divisors[path_idx].push((x_var.into(), y_var.into(), x, y, p));
-            }
+            let (even_comms, even_divisors) =
+                CurveTreeWitnessPath::<L, P0, P1>::process_non_root_levels::<_, Parameters0>(
+                    rng,
+                    even_prover,
+                    root_is_even,
+                    &path.even_internal_nodes,
+                    even_rerandomized_nodes,
+                    even_rerandomization_scalars,
+                    odd_rerandomized_nodes,
+                    odd_rerandomization_scalars,
+                    &odd_parameters.table_b_blinding,
+                    &odd_parameters.sl_params.delta,
+                    &even_parameters.sl_params.bp_gens,
+                )?;
+            even_node_comms[path_idx].extend(even_comms);
+            even_node_divisors[path_idx].extend(even_divisors);
 
             // Process odd non-root nodes
-            for i in 0..odd_length {
-                let index = if !root_is_even { i + 1 } else { i };
-                if path.odd_internal_nodes.len() == index {
-                    continue;
-                }
-                let (x_var, y_var, x, y, divisor_comms, p) =
-                    CurveTreeWitnessPath::<L, P1, P0>::create_and_commit_divisor_for_non_root::<
-                        _,
-                        Parameters1,
-                    >(
-                        rng,
-                        odd_prover,
-                        &path.odd_internal_nodes[index],
-                        &odd_rerandomized_nodes[i],
-                        odd_rerandomization_scalars[i],
-                        &even_rerandomized_nodes[index],
-                        even_rerandomization_scalars[index],
-                        &even_parameters.table_b_blinding,
-                        &even_parameters.sl_params.delta,
-                        &odd_parameters.sl_params.bp_gens,
-                    )?;
-                odd_node_comms[path_idx].push(divisor_comms);
-                odd_node_divisors[path_idx].push((x_var.into(), y_var.into(), x, y, p));
-            }
+            let (odd_comms, odd_divisors) =
+                CurveTreeWitnessPath::<L, P1, P0>::process_non_root_levels::<_, Parameters1>(
+                    rng,
+                    odd_prover,
+                    !root_is_even,
+                    &path.odd_internal_nodes,
+                    odd_rerandomized_nodes,
+                    odd_rerandomization_scalars,
+                    even_rerandomized_nodes,
+                    even_rerandomization_scalars,
+                    &even_parameters.table_b_blinding,
+                    &even_parameters.sl_params.delta,
+                    &odd_parameters.sl_params.bp_gens,
+                )?;
+            odd_node_comms[path_idx].extend(odd_comms);
+            odd_node_divisors[path_idx].extend(odd_divisors);
         }
 
         constraints_for_dlogs::<_, _, _, _, P0, P1, Parameters0, Parameters1>(
@@ -558,11 +580,8 @@ impl<
             .map(|c| prover.allocate(Some(c.x)).unwrap().into())
             .collect();
 
-        // Get challenge and enforce multi-select on public set
-        let challenge = prover
-            .transcript()
-            .challenge_scalar(b"challenge-for-multi_select");
-        multi_select_public_set_ext_challenge(prover, x_vars.clone(), x_coords, challenge)?;
+        // Enforce multi-select on public set
+        multi_select_public_set(prover, x_vars.clone(), x_coords)?;
 
         // For each path, create divisor proof for its selected child of root
         for (path_idx, (x_var, child)) in x_vars
@@ -600,6 +619,10 @@ impl<
     }
 }
 
+/// Enforce x coordinate of `child + delta` is in `all_children_plus_delta`
+/// Returns x,y coordinates of `child + delta` and x,y coordinates of `rerandomized_child + delta`
+// A potential optimization when same root is used to verify/create several proofs with same root is
+// to precompute
 pub fn select_root<
     Fb: PrimeField,
     Fs: Field,
@@ -630,6 +653,8 @@ pub fn select_root<
     Ok((x, y, x_rerand, y_rerand))
 }
 
+/// Return variables for x, y coordinates of the node being randomized and then x, y coordinates
+/// of the randomized node (coordinates taken after adding delta)
 pub fn select_non_root<
     Fb: PrimeField,
     Fs: Field,
@@ -660,11 +685,12 @@ pub fn select_non_root<
     Ok((x, y, x_rerand, y_rerand))
 }
 
+/// x,y coords of point being randomized, re-randomized point's x,y coords and divisor vars
 pub type DlogItem<F, Params> = (
-    LinearCombination<F>,
-    LinearCombination<F>,
-    F,
-    F,
+    LinearCombination<F>, // x coordinate of the node being randomized
+    LinearCombination<F>, // y coordinate of the node being randomized
+    F,                    // x coordinate of the randomized node
+    F,                    // y coordinate of the randomized node
     Box<PointWithDlog<F, Params>>,
 );
 
@@ -749,6 +775,81 @@ pub fn constraints_for_dlogs<
     Ok(())
 }
 
+/// Like [`constraints_for_dlogs`] but for the batched gadgets, where node items are sums of
+/// already curve-checked children. The on-curve check on each summed point `O` is then redundant
+/// (a sum of on-curve points is on-curve), so it is skipped for `*_summed_items`. Leaves are not
+/// summed and keep their on-curve check via `odd_leaf_items`. All even-curve items are summed and
+/// all leaves live on the odd curve, so three groups suffice.
+pub fn constraints_for_dlogs_presummed<
+    F0: PrimeField,
+    F1: PrimeField,
+    Cs0: ConstraintSystem<F0>,
+    Cs1: ConstraintSystem<F1>,
+    P0: SWCurveConfig<BaseField = F1, ScalarField = F0> + Copy,
+    P1: SWCurveConfig<BaseField = F0, ScalarField = F1> + Copy,
+    Params0: DiscreteLogParameters,
+    Params1: DiscreteLogParameters,
+>(
+    cs_even: &mut Cs0,
+    cs_odd: &mut Cs1,
+    table_even: &GeneratorTable<F1, Params1>,
+    table_odd: &GeneratorTable<F0, Params0>,
+    even_summed_items: impl IntoIterator<Item = DlogItem<F0, Params0>>,
+    odd_summed_items: impl IntoIterator<Item = DlogItem<F1, Params1>>,
+    odd_leaf_items: impl IntoIterator<Item = DlogItem<F1, Params1>>,
+) -> Result<()> {
+    let curve_spec_even = CurveSpec::<F0> {
+        a: P1::COEFF_A,
+        b: P1::COEFF_B,
+    };
+    let curve_spec_odd = CurveSpec::<F1> {
+        a: P0::COEFF_A,
+        b: P0::COEFF_B,
+    };
+    let (challenge_even, challenge_gen_even) = challenge(cs_even, &curve_spec_even, table_odd)?;
+    let (challenge_odd, challenge_gen_odd) = challenge(cs_odd, &curve_spec_odd, table_even)?;
+
+    // Summed even items: point is on-curve by construction, skip the redundant check.
+    for (x_var, y_var, x, y, p) in even_summed_items {
+        discrete_log_blinding_given_challenge_assume_on_curve(
+            cs_even,
+            (x_var, y_var),
+            *p,
+            (x, y),
+            &curve_spec_even,
+            &challenge_even,
+            &challenge_gen_even,
+        );
+    }
+
+    // Summed odd items: same.
+    for (x_var, y_var, x, y, p) in odd_summed_items {
+        discrete_log_blinding_given_challenge_assume_on_curve(
+            cs_odd,
+            (x_var, y_var),
+            *p,
+            (x, y),
+            &curve_spec_odd,
+            &challenge_odd,
+            &challenge_gen_odd,
+        );
+    }
+
+    // Leaf items are not summed, so their on-curve check is the only one and must be enforced.
+    for (x_var, y_var, x, y, p) in odd_leaf_items {
+        discrete_log_blinding_given_challenge(
+            cs_odd,
+            (x_var, y_var),
+            *p,
+            (x, y),
+            &curve_spec_odd,
+            &challenge_odd,
+            &challenge_gen_odd,
+        );
+    }
+    Ok(())
+}
+
 pub fn challenge<F: PrimeField, Cs: ConstraintSystem<F>, Params: DiscreteLogParameters>(
     cs: &mut Cs,
     curve: &CurveSpec<F>,
@@ -763,6 +864,12 @@ pub fn challenge<F: PrimeField, Cs: ConstraintSystem<F>, Params: DiscreteLogPara
     Ok((challenge, challeng_gen))
 }
 
+/// Create a divisor for the scalar multiplication of `randomization` and the point whose table is
+/// `blinding_base_table` and commit the divisor and `randomization`'s decomposition in BP
+#[cfg_attr(
+    all(test, feature = "nightly_mocking_tests"),
+    mocktopus::macros::mockable
+)]
 pub fn create_and_commit_divisor<
     R: CryptoRngCore,
     F0: PrimeField,

@@ -6,7 +6,8 @@
 
 use ark_ec::short_weierstrass::Projective;
 use ark_ec::{AdditiveGroup, CurveConfig, CurveGroup};
-use ark_ff::{PrimeField, Zero, batch_inversion};
+use ark_ff::{batch_inversion, PrimeField, Zero};
+use ark_std::borrow::Borrow;
 use ark_std::{vec, vec::Vec};
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq, CtOption};
 
@@ -211,7 +212,11 @@ fn lines_and_denoms<C: DivisorCurve>(
                 let is_identity = a.is_zero();
                 // TODO: Projective<C> does not implement ConditionallySelectable
                 // <_>::conditional_select(a, &g, Choice::from(u8::from(is_identity)))
-                if is_identity { g } else { *a }
+                if is_identity {
+                    g
+                } else {
+                    *a
+                }
             })
             .collect::<Vec<_>>();
         let a_len = pts.len();
@@ -219,7 +224,11 @@ fn lines_and_denoms<C: DivisorCurve>(
             let is_identity = b.is_zero();
             // TODO: Projective<C> does not implement ConditionallySelectable
             // <_>::conditional_select(b, &g, Choice::from(u8::from(is_identity)))
-            if is_identity { g } else { *b }
+            if is_identity {
+                g
+            } else {
+                *b
+            }
         }));
         let mut xy = batch_to_xy::<C>(&pts);
         let b_xy = xy.split_off(a_len);
@@ -277,21 +286,11 @@ fn lines_and_denoms<C: DivisorCurve>(
 
 /// Create a divisor interpolating the following points.
 ///
-/// Returns an error if:
-///   - No points were passed in
-///   - The points don't sum to the point at infinity
-///   - A passed in point was the point at infinity
-///   - If too small of an interpolator was passed in
-///
-/// Output: DivisorPoly representing `D(x,y) = a(x) - b(x)*y` such that:
-///   - `D(P_i) = 0` for each input point `P_i`
-///   - D has poles only at the point at infinity
-///   - Coefficient of `x^1` is normalized to 1
-///
-/// If the arguments were valid, this function executes in an amount of time constant to the amount
-/// of points.
-#[allow(clippy::new_ret_no_self)]
-pub fn new_divisor<C: DivisorCurve>(
+/// This is the **checked** version of [`new_divisor`] that validates:
+///   - At least two points must be passed in
+///   - The points must sum to the point at infinity
+///   - No point may be the point at infinity
+pub fn new_divisor_checked<C: DivisorCurve>(
     points: &[Projective<C>],
     interpolator: &Interpolator<C::BaseField>,
 ) -> Result<DivisorPoly<C::BaseField>, Error> {
@@ -317,16 +316,57 @@ pub fn new_divisor<C: DivisorCurve>(
         return Err(Error::InvalidArguments);
     }
 
+    new_divisor(points, interpolator)
+}
+
+/// Create a divisor interpolating the following points.
+///
+/// # Safety invariants (caller must guarantee)
+///
+/// The following preconditions are **not** validated at runtime (only as `debug_assert!`s):
+///   - At least two points must be passed in
+///   - The points **must** sum to the point at infinity
+///   - No point may be the point at infinity
+///
+/// Use [`new_divisor_checked`] when the caller cannot guarantee these invariants.
+///
+/// Returns an error if the interpolator is too small.
+///
+/// Output: DivisorPoly representing `D(x,y) = a(x) - b(x)*y` such that:
+///   - `D(P_i) = 0` for each input point `P_i`
+///   - D has poles only at the point at infinity
+///   - Coefficient of `x^1` is normalized to 1
+///
+/// If the arguments were valid, this function executes in an amount of time constant to the amount
+/// of points.
+#[allow(clippy::new_ret_no_self)]
+pub fn new_divisor<C: DivisorCurve>(
+    points: &[Projective<C>],
+    interpolator: &Interpolator<C::BaseField>,
+) -> Result<DivisorPoly<C::BaseField>, Error> {
     let points_len = points.len();
 
-    let modulus =
-        Evals::compute_modulus(C::COEFF_A, C::COEFF_B, interpolator.required_evaluations());
+    // Curve-equation evaluations depend only on the curve and the interpolation domain size, so
+    // they are cached once per curve (see `DivisorCurve::evaluation_of_curve_poly`) rather than
+    // recomputed on every divisor construction. The cache is sized for the canonical scalar-mul
+    // interpolator; in the rare case a differently-sized interpolator is passed, fall back to
+    // computing a matching modulus to preserve correctness.
+    let required_evals = interpolator.required_evaluations();
+    let cached_modulus = C::evaluation_of_curve_poly();
+    let cached_modulus = cached_modulus.borrow();
+    let owned_modulus;
+    let modulus: &Evals<C::BaseField> = if cached_modulus.len() == required_evals as usize {
+        cached_modulus
+    } else {
+        owned_modulus = Evals::compute_modulus(C::COEFF_A, C::COEFF_B, required_evals);
+        &owned_modulus
+    };
     // Create the initial set of divisors
     let mut divs = vec![];
     let mut all_lines = lines_and_denoms::<C>(points)?.into_iter();
     for _ in 0..((points_len / 2) + (points_len % 2)) {
         let (line, _) = all_lines.next().unwrap();
-        divs.push(DivisorEvals::<C::BaseField>::from_small(line, &modulus));
+        divs.push(DivisorEvals::<C::BaseField>::from_small(line, modulus));
     }
 
     // Our Poly algorithm is leaky and will create an excessive number of y x**j and x**j
@@ -364,7 +404,7 @@ pub fn new_divisor<C: DivisorCurve>(
 
             // Merge the two divisors
             let (line, denom) = all_lines.next().unwrap();
-            let merged = DivisorEvals::merge([a_div, b_div], line, denom, &modulus);
+            let merged = DivisorEvals::merge([a_div, b_div], line, denom, modulus);
             next_divs.push(merged);
         }
 

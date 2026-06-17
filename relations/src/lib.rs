@@ -1,4 +1,8 @@
 #![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(
+    all(test, feature = "nightly_mocking_tests"),
+    feature(proc_macro_hygiene)
+)]
 
 extern crate alloc;
 

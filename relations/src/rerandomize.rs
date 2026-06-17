@@ -251,22 +251,6 @@ fn get_num_windows<F: PrimeField>() -> usize {
     (lambda / 3) + 1
 }
 
-// pub fn re_randomize_new<
-//     F: Field,
-//     S: PrimeField,
-//     P: SWCurveConfig<BaseField = F, ScalarField = S>,
-//     Cs: ConstraintSystem<F>,
-// >(
-//     cs: &mut Cs,
-//     tables: &[Lookup3Bit<2, F>],
-//     commitment: PointRepresentation<F, Affine<P>>,
-//     re_randomized_commitment_x_coord: LinearCombination<F>,
-//     re_randomized_commitment_y_coord: LinearCombination<F>,
-//     randomness: Option<S>,
-// ) -> Result<(), Error> {
-//     todo!()
-// }
-
 #[cfg(test)]
 mod tests {
     use super::*;

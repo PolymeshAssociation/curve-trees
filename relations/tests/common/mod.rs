@@ -72,7 +72,7 @@ pub fn check_proof<
                 &sr_proof_params,
             )
             .unwrap();
-        let rerandomized_leaf = path_commitments.get_rerandomized_leaf();
+        let rerandomized_leaf = path_commitments.get_rerandomized_leaf().unwrap();
 
         verify(
             pallas_verifier,

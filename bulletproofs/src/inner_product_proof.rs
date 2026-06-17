@@ -5,14 +5,16 @@ extern crate alloc;
 use alloc::borrow::Borrow;
 use alloc::vec::Vec;
 
-use ark_ec::{AffineRepr, VariableBaseMSM};
+use ark_ec::{AffineRepr, CurveGroup, VariableBaseMSM};
 use ark_ff::{fields::batch_inversion, Field};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress};
-use ark_std::One;
+use ark_std::{cfg_into_iter, cfg_iter, cfg_iter_mut, One};
 use core::iter;
 use dock_crypto_utils::transcript::MerlinTranscript;
+use zeroize::Zeroize;
 
 use crate::errors::ProofError;
+use crate::msm::binary_scalar_mul_jsf_affine;
 use crate::transcript::TranscriptProtocol;
 
 #[derive(Clone, Debug, CanonicalSerialize, CanonicalDeserialize)]
@@ -45,6 +47,10 @@ impl<C: AffineRepr> InnerProductProof<C> {
         mut a_vec: Vec<C::ScalarField>,
         mut b_vec: Vec<C::ScalarField>,
     ) -> Result<InnerProductProof<C>, ProofError> {
+        // Brings `par_iter`/`into_par_iter` into scope for the `cfg_*` iterator macros below.
+        #[cfg(feature = "parallel")]
+        use rayon::prelude::*;
+
         // Create slices G, H, a, b backed by their respective
         // vectors.  This lets us reslice as we compress the lengths
         // of the vectors in the main loop below.
@@ -72,85 +78,7 @@ impl<C: AffineRepr> InnerProductProof<C> {
         let mut L_vec = Vec::with_capacity(lg_n);
         let mut R_vec = Vec::with_capacity(lg_n);
 
-        // If it's the first iteration, unroll the Hprime = H*y_inv scalar mults
-        // into multiscalar muls, for performance.
-        if n != 1 {
-            n /= 2;
-            let (a_L, a_R) = a.split_at_mut(n);
-            let (b_L, b_R) = b.split_at_mut(n);
-            let (G_L, G_R) = G.split_at_mut(n);
-            let (H_L, H_R) = H.split_at_mut(n);
-
-            let c_L = inner_product(a_L, b_R);
-            let c_R = inner_product(a_R, b_L);
-
-            let l_scalars: Vec<C::ScalarField> = a_L
-                .iter()
-                .zip(G_factors[n..2 * n].iter())
-                .map(|(a_L_i, g)| *a_L_i * g)
-                .chain(
-                    b_R.iter()
-                        .zip(H_factors[0..n].iter())
-                        .map(|(b_R_i, h)| *b_R_i * h),
-                )
-                .chain(iter::once(c_L))
-                .collect();
-            let l_points: Vec<C> = G_R
-                .iter()
-                .chain(H_L.iter())
-                .chain(iter::once(Q))
-                .copied()
-                .collect();
-            let L = C::Group::msm_unchecked(l_points.as_slice(), l_scalars.as_slice()).into();
-
-            let r_scalars: Vec<C::ScalarField> = a_R
-                .iter()
-                .zip(G_factors[0..n].iter())
-                .map(|(a_R_i, g)| *a_R_i * g)
-                .chain(
-                    b_L.iter()
-                        .zip(H_factors[n..2 * n].iter())
-                        .map(|(b_L_i, h)| *b_L_i * h),
-                )
-                .chain(iter::once(c_R))
-                .collect();
-            let r_points: Vec<C> = G_L
-                .iter()
-                .chain(H_R.iter())
-                .chain(iter::once(Q))
-                .copied()
-                .collect();
-            let R = C::Group::msm_unchecked(r_points.as_slice(), r_scalars.as_slice()).into();
-
-            L_vec.push(L);
-            R_vec.push(R);
-
-            transcript.append_point(b"L", &L);
-            transcript.append_point(b"R", &R);
-
-            let u = TranscriptProtocol::challenge_scalar::<C>(transcript, b"u");
-            let u_inv = u.inverse().ok_or_else(|| ProofError::InvertingZero)?;
-
-            for i in 0..n {
-                a_L[i] = a_L[i] * u + u_inv * a_R[i];
-                b_L[i] = b_L[i] * u_inv + u * b_R[i];
-                G_L[i] = C::Group::msm_unchecked(
-                    &[G_L[i], G_R[i]],
-                    &[(u_inv * G_factors[i]), (u * G_factors[n + i])],
-                )
-                .into();
-                H_L[i] = C::Group::msm_unchecked(
-                    &[H_L[i], H_R[i]],
-                    &[(u * H_factors[i]), (u_inv * H_factors[n + i])],
-                )
-                .into();
-            }
-
-            a = a_L;
-            b = b_L;
-            G = G_L;
-            H = H_L;
-        }
+        let mut first_round = true;
 
         while n != 1 {
             n /= 2;
@@ -162,37 +90,73 @@ impl<C: AffineRepr> InnerProductProof<C> {
             let c_L = inner_product(a_L, b_R);
             let c_R = inner_product(a_R, b_L);
 
-            let L = C::Group::msm_unchecked(
-                G_R.iter()
-                    .chain(H_L.iter())
-                    .chain(iter::once(Q))
-                    .copied()
-                    .collect::<Vec<C>>()
-                    .as_slice(),
-                a_L.iter()
-                    .chain(b_R.iter())
-                    .chain(iter::once(&c_L))
-                    .copied()
-                    .collect::<Vec<C::ScalarField>>()
-                    .as_slice(),
-            )
-            .into();
+            let (mut l_scalars, mut r_scalars): (Vec<C::ScalarField>, Vec<C::ScalarField>) =
+                if first_round {
+                    // If it's the first iteration, unroll the Hprime = H*y_inv scalar mults
+                    // into multiscalar muls, for performance.
+                    (
+                        a_L.iter()
+                            .zip(G_factors[n..].iter())
+                            .map(|(a_val, g)| *a_val * *g)
+                            .chain(
+                                b_R.iter()
+                                    .zip(H_factors[..n].iter())
+                                    .map(|(b_val, h)| *b_val * *h),
+                            )
+                            .chain(iter::once(c_L))
+                            .collect(),
+                        a_R.iter()
+                            .zip(G_factors[..n].iter())
+                            .map(|(a_val, g)| *a_val * *g)
+                            .chain(
+                                b_L.iter()
+                                    .zip(H_factors[n..].iter())
+                                    .map(|(b_val, h)| *b_val * *h),
+                            )
+                            .chain(iter::once(c_R))
+                            .collect(),
+                    )
+                } else {
+                    (
+                        a_L.iter()
+                            .chain(b_R.iter())
+                            .chain(iter::once(&c_L))
+                            .copied()
+                            .collect(),
+                        a_R.iter()
+                            .chain(b_L.iter())
+                            .chain(iter::once(&c_R))
+                            .copied()
+                            .collect(),
+                    )
+                };
 
-            let R = C::Group::msm_unchecked(
-                G_L.iter()
-                    .chain(H_R.iter())
-                    .chain(iter::once(Q))
-                    .copied()
-                    .collect::<Vec<C>>()
-                    .as_slice(),
-                a_R.iter()
-                    .chain(b_L.iter())
-                    .chain(iter::once(&c_R))
-                    .copied()
-                    .collect::<Vec<C::ScalarField>>()
-                    .as_slice(),
-            )
-            .into();
+            let l_points: Vec<C> = G_R
+                .iter()
+                .chain(H_L.iter())
+                .chain(iter::once(Q))
+                .copied()
+                .collect();
+            let r_points: Vec<C> = G_L
+                .iter()
+                .chain(H_R.iter())
+                .chain(iter::once(Q))
+                .copied()
+                .collect();
+
+            #[cfg(feature = "parallel")]
+            let (L, R): (C, C) = rayon::join(
+                || C::Group::msm_unchecked(l_points.as_slice(), l_scalars.as_slice()).into(),
+                || C::Group::msm_unchecked(r_points.as_slice(), r_scalars.as_slice()).into(),
+            );
+            #[cfg(not(feature = "parallel"))]
+            let (L, R): (C, C) = (
+                C::Group::msm_unchecked(l_points.as_slice(), l_scalars.as_slice()).into(),
+                C::Group::msm_unchecked(r_points.as_slice(), r_scalars.as_slice()).into(),
+            );
+
+            l_scalars.zeroize();
+            r_scalars.zeroize();
 
             L_vec.push(L);
             R_vec.push(R);
@@ -203,26 +167,59 @@ impl<C: AffineRepr> InnerProductProof<C> {
             let u = TranscriptProtocol::challenge_scalar::<C>(transcript, b"u");
             let u_inv = u.inverse().ok_or_else(|| ProofError::InvertingZero)?;
 
-            for i in 0..n {
-                a_L[i] = a_L[i] * u + u_inv * a_R[i];
-                b_L[i] = b_L[i] * u_inv + u * b_R[i];
-                G_L[i] = C::Group::msm_unchecked(&[G_L[i], G_R[i]], &[u_inv, u]).into();
-                H_L[i] = C::Group::msm_unchecked(&[H_L[i], H_R[i]], &[u, u_inv]).into();
-            }
+            cfg_iter_mut!(a_L)
+                .zip(cfg_iter!(a_R))
+                .for_each(|(a_l, a_r)| *a_l = *a_l * u + u_inv * *a_r);
+            cfg_iter_mut!(b_L)
+                .zip(cfg_iter!(b_R))
+                .for_each(|(b_l, b_r)| *b_l = *b_l * u_inv + u * *b_r);
+
+            // The bases are public generators and the scalars are public Fiat-Shamir challenges, so a
+            // variable-time scalar mul (JSF) is fine.
+            let (g_l, g_r): (&[C], &[C]) = (G_L, G_R);
+            let (h_l, h_r): (&[C], &[C]) = (H_L, H_R);
+            let folded_G: Vec<C::Group> = cfg_into_iter!(0..n)
+                .map(|i| {
+                    let (s0, s1) = if first_round {
+                        (u_inv * G_factors[i], u * G_factors[n + i])
+                    } else {
+                        (u_inv, u)
+                    };
+                    binary_scalar_mul_jsf_affine(&g_l[i], s0, &g_r[i], s1)
+                })
+                .collect();
+            let folded_H: Vec<C::Group> = cfg_into_iter!(0..n)
+                .map(|i| {
+                    let (s0, s1) = if first_round {
+                        (u * H_factors[i], u_inv * H_factors[n + i])
+                    } else {
+                        (u, u_inv)
+                    };
+                    binary_scalar_mul_jsf_affine(&h_l[i], s0, &h_r[i], s1)
+                })
+                .collect();
+            G_L.copy_from_slice(&C::Group::normalize_batch(&folded_G));
+            H_L.copy_from_slice(&C::Group::normalize_batch(&folded_H));
 
             a = a_L;
             b = b_L;
             G = G_L;
             H = H_L;
-            // todo collapse iteration one and rest?
+
+            first_round = false;
         }
 
-        Ok(InnerProductProof {
+        let proof = InnerProductProof {
             L_vec,
             R_vec,
             a: a[0],
             b: b[0],
-        })
+        };
+
+        a_vec.zeroize();
+        b_vec.zeroize();
+
+        Ok(proof)
     }
 
     /// Computes three vectors of verification scalars \\([u\_{i}^{2}]\\), \\([u\_{i}^{-2}]\\) and \\([s\_{i}]\\) for combined multiscalar multiplication

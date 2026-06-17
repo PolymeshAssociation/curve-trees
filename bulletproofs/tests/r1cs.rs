@@ -34,6 +34,12 @@ impl<C: AffineRepr> ShuffleProof<C> {
             return Ok(());
         }
 
+        // `z` must be sampled after the shuffled values are bound, else a prover who knows `z`
+        // first can forge a non-permutation.
+        // Sampling after the `commit`/`commit_vec` calls is fine here since `x`/`y` are already
+        // committed, but not in general. This gadget takes arbitrary `Variable`, which may be
+        // low-level wires bound only in `A_I` at `prove()` time. The second phase draws `z`
+        // after `A_I/A_O/S`, binding all witness regardless of representation.
         cs.specify_randomized_constraints(move |cs| {
             let z = cs.challenge_scalar(b"shuffle challenge");
 
@@ -183,13 +189,13 @@ fn kshuffle_helper(k: usize) {
 
     let (proof, input_commitments, output_commitments) = {
         // Randomly generate inputs and outputs to kshuffle
-        let mut rng = rand::thread_rng();
+        let mut rng = thread_rng();
         let (min, max) = (0u64, std::u64::MAX);
         let input: Vec<Scalar> = (0..k)
             .map(|_| Scalar::from(rng.gen_range(min..max)))
             .collect();
         let mut output = input.clone();
-        output.shuffle(&mut rand::thread_rng());
+        output.shuffle(&mut thread_rng());
 
         let mut prover_transcript = MerlinTranscript::new(b"ShuffleProofTest");
         ShuffleProof::prove(&pc_gens, &bp_gens, &mut prover_transcript, &input, &output).unwrap()
@@ -210,7 +216,7 @@ fn kshuffle_helper(k: usize) {
         println!("verify: {:?}", start.elapsed());
 
         let start = Instant::now();
-        let mut rng = rand::thread_rng();
+        let mut rng = thread_rng();
         let mut verifier_transcript = MerlinTranscript::new(b"ShuffleProofTest");
         let r = Scalar::rand(&mut rng);
         let res = RandomizedMultCheckerGuard::new(r).with_err((), |rmc| {
@@ -244,13 +250,13 @@ fn kshuffle_batch_helper(k: usize, n: usize) {
     let mut proofs_and_commitments = Vec::with_capacity(n);
     for _ in 0..n {
         // Randomly generate inputs and outputs to kshuffle
-        let mut rng = rand::thread_rng();
+        let mut rng = thread_rng();
         let (min, max) = (0u64, std::u64::MAX);
         let input: Vec<Scalar> = (0..k)
             .map(|_| Scalar::from(rng.gen_range(min..max)))
             .collect();
         let mut output = input.clone();
-        output.shuffle(&mut rand::thread_rng());
+        output.shuffle(&mut thread_rng());
 
         let mut prover_transcript = MerlinTranscript::new(b"ShuffleProofTest");
         proofs_and_commitments.push(
@@ -395,7 +401,7 @@ fn example_gadget_proof<C: AffineRepr>(
     let mut prover = Prover::new(pc_gens, &mut transcript);
 
     // 2. Commit high-level variables
-    let mut rng = rand::thread_rng();
+    let mut rng = thread_rng();
     let (commitments, vars): (Vec<_>, Vec<_>) = [a1, a2, b1, b2, c1]
         .iter()
         .map(|x| prover.commit(C::ScalarField::from(*x), C::ScalarField::rand(&mut rng)))
@@ -523,7 +529,6 @@ pub fn range_proof<F: Field, CS: ConstraintSystem<F>>(
 
 #[test]
 fn range_proof_gadget() {
-    use rand::thread_rng;
     use rand::Rng;
 
     let mut rng = thread_rng();
@@ -548,7 +553,7 @@ fn range_proof_helper<C: AffineRepr>(v_val: u64, n: usize) -> Result<(), R1CSErr
     let (proof, commitment) = {
         // Prover makes a `ConstraintSystem` instance representing a range proof gadget
         let mut prover_transcript = MerlinTranscript::new(b"RangeProofTest");
-        let mut rng = rand::thread_rng();
+        let mut rng = thread_rng();
 
         let mut prover = Prover::new(&pc_gens, &mut prover_transcript);
 
@@ -575,7 +580,7 @@ fn range_proof_helper<C: AffineRepr>(v_val: u64, n: usize) -> Result<(), R1CSErr
     // Verifier verifies proof
     verifier.verify(&proof, &pc_gens, &bp_gens)?;
 
-    let mut rng = rand::thread_rng();
+    let mut rng = thread_rng();
 
     let mut verifier_transcript = MerlinTranscript::new(b"RangeProofTest");
     let mut verifier = Verifier::new(&mut verifier_transcript);
@@ -625,7 +630,7 @@ fn test_batch_verify() {
 
     let (proof_rp, comm_rp, proof_ex, comm_ex) = {
         let mut prover_transcript = MerlinTranscript::new(b"RangeProofTest");
-        let mut rng = rand::thread_rng();
+        let mut rng = thread_rng();
 
         let mut prover = Prover::new(&pc_gens, &mut prover_transcript);
 

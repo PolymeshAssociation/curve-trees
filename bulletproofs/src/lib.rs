@@ -7,6 +7,7 @@ mod util;
 pub mod errors;
 pub mod generators;
 pub mod inner_product_proof;
+pub mod msm;
 pub mod transcript;
 
 pub use crate::errors::ProofError;

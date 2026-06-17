@@ -9,7 +9,7 @@ use ark_std::{One, UniformRand, Zero};
 use core::borrow::BorrowMut;
 use dock_crypto_utils::transcript::MerlinTranscript;
 use rand_core::{CryptoRng, RngCore};
-use zeroize::{ZeroizeOnDrop, Zeroizing};
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use super::constraint_system::{
     ConstraintSystem, RandomizableConstraintSystem, RandomizedConstraintSystem,
@@ -20,10 +20,11 @@ use super::proof::R1CSProof;
 use crate::errors::R1CSError;
 use crate::generators::{BulletproofGens, PedersenGens};
 use crate::inner_product_proof::InnerProductProof;
-use crate::r1cs::{degree, t_poly_degree, transmitted_t_degree_indices, Metrics};
+use crate::r1cs::{committed_t_degrees, degrees, t_poly_degree, Metrics};
 use crate::transcript::TranscriptProtocol;
 
-use super::op_splits;
+pub const COMMITMENT_LABEL: &[u8; 16] = b"commitment-point";
+pub const VEC_COMMITMENT_LABEL: &[u8; 23] = b"vector-commitment-point";
 
 /// A [`ConstraintSystem`] implementation for use by the prover.
 ///
@@ -333,7 +334,9 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
 
         // Add the commitment to the transcript.
         let V = self.pc_gens.commit(v, v_blinding);
-        self.transcript.borrow_mut().append_point(b"V", &V);
+        self.transcript
+            .borrow_mut()
+            .append_point(COMMITMENT_LABEL, &V);
 
         (V, Variable::Committed(i))
     }
@@ -386,7 +389,9 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
         self.secrets.vec_open.push((v_blinding, v.to_owned()));
 
         // add the commitment to the transcript.
-        self.transcript.borrow_mut().append_point(b"V", comm);
+        self.transcript
+            .borrow_mut()
+            .append_point(VEC_COMMITMENT_LABEL, comm);
         vars
     }
 
@@ -542,7 +547,8 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
         rng: &mut R,
     ) -> Result<(R1CSProof<C>, T), R1CSError> {
         // pad
-        while self.size() > self.secrets.a_L.len() as u32 {
+        let size = self.size();
+        while size > self.secrets.a_L.len() as u32 {
             self.allocate_multiplier(Some((C::ScalarField::zero(), C::ScalarField::zero())))?;
         }
 
@@ -552,17 +558,15 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
         // number of vector commitments
         let ncomm = self.secrets.vec_open.len();
 
-        let op_degree = degree(ncomm);
-
-        let ops = op_splits(op_degree);
-        let veccom_ops = &ops[2..];
+        let (l_r_degrees, inner_product_degree) = degrees(ncomm);
+        let vec_com_degrees = &l_r_degrees[2..];
 
         #[cfg(debug_assertions)]
         {
-            log::debug!("op_degree: {}", op_degree);
+            log::debug!("inner_product_degree: {}", inner_product_degree);
             log::debug!("number of commitments: {}", ncomm);
             log::debug!("number of constraints: {}", self.secrets.a_L.len());
-            log::debug!("ops = {:?}", &ops[..]);
+            log::debug!("degrees = {:?}", &l_r_degrees[..]);
         }
 
         // Commit a length _suffix_ for the number of high-level variables.
@@ -622,9 +626,9 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
         // We are performing a single-party circuit proof, so party index is 0.
         let gens = bp_gens.share(0);
 
-        let i_blinding1 = C::ScalarField::rand(rng);
-        let o_blinding1 = C::ScalarField::rand(rng);
-        let s_blinding1 = C::ScalarField::rand(rng);
+        let mut i_blinding1 = C::ScalarField::rand(rng);
+        let mut o_blinding1 = C::ScalarField::rand(rng);
+        let mut s_blinding1 = C::ScalarField::rand(rng);
 
         let s_L1: Zeroizing<Vec<C::ScalarField>> =
             Zeroizing::new((0..n1).map(|_| C::ScalarField::rand(rng)).collect());
@@ -793,7 +797,7 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
 
         let has_2nd_phase_commitments = n2 > 0;
 
-        let (i_blinding2, o_blinding2, s_blinding2) = if has_2nd_phase_commitments {
+        let (mut i_blinding2, mut o_blinding2, mut s_blinding2) = if has_2nd_phase_commitments {
             (
                 C::ScalarField::rand(rng),
                 C::ScalarField::rand(rng),
@@ -812,6 +816,88 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
         let s_R2: Zeroizing<Vec<C::ScalarField>> =
             Zeroizing::new((0..n2).map(|_| C::ScalarField::rand(rng)).collect());
 
+        #[cfg(feature = "parallel")]
+        let (A_I2, A_O2, S2) = if has_2nd_phase_commitments {
+            // todo clean up when send is safely implemented
+            let blinding = self.pc_gens.B_blinding;
+            let A_I2_scalars = iter::once(&i_blinding2)
+                .chain(self.secrets.a_L.iter().skip(n1 as usize))
+                .chain(self.secrets.a_R.iter().skip(n1 as usize))
+                .copied()
+                .collect::<Vec<C::ScalarField>>();
+            let A_O2_scalars = iter::once(&o_blinding2)
+                .chain(self.secrets.a_O.iter().skip(n1 as usize))
+                .copied()
+                .collect::<Vec<C::ScalarField>>();
+            let S2_scalars = iter::once(&s_blinding2)
+                .chain(s_L2.iter())
+                .chain(s_R2.iter())
+                .copied()
+                .collect::<Vec<C::ScalarField>>();
+            let (mut A_I2, mut A_O2, mut S2) = (None, None, None);
+            rayon::scope(|s| {
+                // A_I = <a_L, G> + <a_R, H> + i_blinding * B_blinding
+                s.spawn(|_| {
+                    A_I2 = Some(
+                        C::Group::msm_unchecked(
+                            iter::once(&blinding)
+                                .chain(gens.G(n).skip(n1 as usize))
+                                .chain(gens.H(n).skip(n1 as usize))
+                                .copied()
+                                .collect::<Vec<C>>()
+                                .as_slice(),
+                            A_I2_scalars.as_slice(),
+                        )
+                        .into(),
+                    )
+                });
+                // A_O = <a_O, G> + o_blinding * B_blinding
+                s.spawn(|_| {
+                    A_O2 = Some(
+                        C::Group::msm_unchecked(
+                            iter::once(&blinding)
+                                .chain(gens.G(n).skip(n1 as usize))
+                                .copied()
+                                .collect::<Vec<C>>()
+                                .as_slice(),
+                            A_O2_scalars.as_slice(),
+                        )
+                        .into(),
+                    )
+                });
+                // S = <s_L, G> + <s_R, H> + s_blinding * B_blinding
+                s.spawn(|_| {
+                    S2 = Some(
+                        C::Group::msm_unchecked(
+                            iter::once(&blinding)
+                                .chain(gens.G(n).skip(n1 as usize))
+                                .chain(gens.H(n).skip(n1 as usize))
+                                .copied()
+                                .collect::<Vec<C>>()
+                                .as_slice(),
+                            S2_scalars.as_slice(),
+                        )
+                        .into(),
+                    )
+                });
+            });
+
+            match (A_I2, A_O2, S2) {
+                (Some(A_I2), Some(A_O2), Some(S2)) => (A_I2, A_O2, S2),
+                _ => {
+                    return Err(R1CSError::GadgetError {
+                        description: "Failed to compute commitments".into(),
+                    })
+                }
+            }
+        } else {
+            // Since we are using zero blinding factors and
+            // there are no variables to commit,
+            // the commitments _must_ be identity points,
+            // so we can hardcode them saving 3 mults+compressions.
+            (C::zero(), C::zero(), C::zero())
+        };
+        #[cfg(not(feature = "parallel"))]
         let (A_I2, A_O2, S2) = if has_2nd_phase_commitments {
             (
                 // A_I = <a_L, G> + <a_R, H> + i_blinding * B_blinding
@@ -895,8 +981,10 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
         //     log::debug!("prover wO = {:?}", &wO);
         // }
 
-        let mut l_poly = util::VecPoly::<C::ScalarField>::zero(n as usize, op_degree + 1);
-        let mut r_poly = util::VecPoly::<C::ScalarField>::zero(n as usize, op_degree + 1);
+        let mut l_poly =
+            util::VecPoly::<C::ScalarField>::zero(n as usize, inner_product_degree + 1);
+        let mut r_poly =
+            util::VecPoly::<C::ScalarField>::zero(n as usize, inner_product_degree + 1);
 
         let y_inv = y.inverse().ok_or_else(|| R1CSError::GadgetError {
             description: "y must be non-zero".into(),
@@ -915,13 +1003,14 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
             .chain(s_L2.iter())
             .zip(s_R1.iter().chain(s_R2.iter()));
 
-        debug_assert_eq!(op_degree % 2, 0, "op_degree must be even");
+        debug_assert_eq!(inner_product_degree % 2, 0, "op_degree must be even");
 
-        let mid_degree = op_degree / 2;
-        debug_assert_eq!(ops[0].0, mid_degree);
-        debug_assert_eq!(ops[0].1, mid_degree);
-        debug_assert_eq!(ops[1].0, op_degree);
-        debug_assert_eq!(ops[1].1, 0);
+        let mid_degree = inner_product_degree / 2;
+        debug_assert_eq!(1 + ncomm, mid_degree);
+        debug_assert_eq!(l_r_degrees[0].0, mid_degree);
+        debug_assert_eq!(l_r_degrees[0].1, mid_degree);
+        debug_assert_eq!(l_r_degrees[1].0, inner_product_degree);
+        debug_assert_eq!(l_r_degrees[1].1, 0);
 
         // The fixed generalized Bulletproofs uses op_degree = 2 * ncomm + 2.
         // The prefix of op_splits(op_degree) that we actually use is then:
@@ -1016,29 +1105,30 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
             debug_assert!(i < self.secrets.a_L.len());
 
             // a_L and a_R constraints:
-            //
-            // l_poly.1 = a_L + y^-n * (z * z^Q * W_R)
-            // r_poly.1 = y^n * a_R + (z * z^Q * W_L)
+            // Set both to mid_degree so that the product of these end up at inner_product_degree
+            // l_poly.mid_degree = a_L + y^-n * (z * z^Q * W_R)
+            // r_poly.mid_degree = y^n * a_R + (z * z^Q * W_L)
             l_poly.coeff_mut(mid_degree)[i] = self.secrets.a_L[i] + exp_y_inv[i] * wR[i];
             r_poly.coeff_mut(mid_degree)[i] = exp_y[i] * self.secrets.a_R[i] + wL[i];
 
             // a_O constraints:
-            //
-            // l_poly.2 = a_O
+            // Set these to inner_product_degree and 0 so that the product of these end up at inner_product_degree
+            // l_poly.inner_product_degree = a_O
             // r_poly.0 = (z * z^Q * W_O) - y^n
-            l_poly.coeff_mut(op_degree)[i] = self.secrets.a_O[i];
+            l_poly.coeff_mut(inner_product_degree)[i] = self.secrets.a_O[i];
             r_poly.coeff_mut(0)[i] = wO[i] - exp_y[i];
 
             // masks:
-            // l_poly.3 = s_L (mask)
-            l_poly.coeff_mut(op_degree + 1)[i] = *sl;
-            r_poly.coeff_mut(op_degree + 1)[i] = exp_y[i] * sr;
+            // Set both to inner_product_degree + 1 so that the product of these end up beyond inner_product_degree
+            // l_poly.(inner_product_degree+1) = s_L (mask)
+            l_poly.coeff_mut(inner_product_degree + 1)[i] = *sl;
+            r_poly.coeff_mut(inner_product_degree + 1)[i] = exp_y[i] * sr;
         }
 
         // veccom constraints
         for (j, w) in self.secrets.vec_open.iter().enumerate() {
             //
-            let (l_deg, r_deg) = veccom_ops[j];
+            let (l_deg, r_deg) = vec_com_degrees[j];
 
             // copy values to l_poly r_poly
             for i in 0..w.1.len() {
@@ -1049,8 +1139,8 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
             }
         }
 
-        let mut t_poly = util::VecPoly::inner_product(&l_poly, &r_poly);
-        debug_assert_eq!(t_poly.deg(), t_poly_degree(op_degree));
+        let mut t_poly = util::VecPoly::special_inner_product(&l_poly, &r_poly, mid_degree);
+        debug_assert_eq!(t_poly.deg(), t_poly_degree(inner_product_degree));
 
         // As per fixed bulletproofs draft, every omitted low-degree coefficient of t(X) is zero because
         // l_poly has no support below mid_degree. The omitted coefficient at op_degree is not
@@ -1058,7 +1148,7 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
         #[cfg(debug_assertions)]
         for d in 0..mid_degree {
             debug_assert_eq!(
-                t_poly.coeff_mut()[d],
+                t_poly.coeff()[d],
                 C::ScalarField::zero(),
                 "t_poly coefficient below mid should be zero"
             );
@@ -1068,19 +1158,19 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
 
         // create blinding poly for t-poly
         let mut t_blinding_poly = util::Poly::zero(t_poly.deg());
-        let transmitted_t_degrees = transmitted_t_degree_indices(op_degree);
-        let mut T = Vec::with_capacity(transmitted_t_degrees.len());
+        let comm_t_deg = committed_t_degrees(inner_product_degree);
+        let mut T = Vec::with_capacity(comm_t_deg.len());
 
         // Since the terms we care about are coefficient of degree `op_degree` in `t_poly`
         // and we already have commitments to it, no need of committing here.
-        t_blinding_poly.coeff_mut()[op_degree] = wV
+        t_blinding_poly.coeff_mut()[inner_product_degree] = wV
             .iter()
             .zip(self.secrets.v_open.iter())
             .map(|(c, (v_blinding, _))| *c * v_blinding)
             .sum();
 
         let transcript = self.transcript.borrow_mut();
-        for d in transmitted_t_degrees {
+        for d in comm_t_deg {
             let b = C::ScalarField::rand(rng);
             let T_d = self.pc_gens.commit(t_poly.coeff_mut()[d], b);
             t_blinding_poly.coeff_mut()[d] = b;
@@ -1094,7 +1184,7 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
 
         // calculate x^op_degree
         let mut op_x = C::ScalarField::one();
-        for _ in 0..op_degree {
+        for _ in 0..inner_product_degree {
             op_x *= x;
         }
 
@@ -1162,7 +1252,7 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
             t2 += delta;
 
             assert_eq!(
-                t_poly.coeff_mut()[op_degree],
+                t_poly.coeff_mut()[inner_product_degree],
                 t2,
                 "t_poly term check failed"
             );
@@ -1173,22 +1263,29 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
         let o_blinding = o_blinding1 + u * o_blinding2;
         let s_blinding = s_blinding1 + u * s_blinding2;
 
+        i_blinding1.zeroize();
+        o_blinding1.zeroize();
+        s_blinding1.zeroize();
+        i_blinding2.zeroize();
+        o_blinding2.zeroize();
+        s_blinding2.zeroize();
+
         //
         let mut e_terms: Vec<Option<C::ScalarField>> = vec![None; l_poly.deg() + 1];
 
         // special
-        debug_assert_eq!(ops[0].0, ops[0].1);
-        e_terms[ops[0].0] = Some(i_blinding); // aL || aR
-        e_terms[ops[1].0] = Some(o_blinding); // aO
+        debug_assert_eq!(l_r_degrees[0].0, l_r_degrees[0].1);
+        e_terms[l_r_degrees[0].0] = Some(i_blinding); // aL || aR
+        e_terms[l_r_degrees[1].0] = Some(o_blinding); // aO
 
         // veccom
         for j in 0..ncomm {
-            debug_assert!(e_terms[veccom_ops[j].0].is_none());
-            e_terms[veccom_ops[j].0] = Some(self.secrets.vec_open[j].0);
+            debug_assert!(e_terms[vec_com_degrees[j].0].is_none());
+            e_terms[vec_com_degrees[j].0] = Some(self.secrets.vec_open[j].0);
         }
 
         // blinding
-        e_terms[op_degree + 1] = Some(s_blinding); // sL || sR
+        e_terms[inner_product_degree + 1] = Some(s_blinding); // sL || sR
 
         // #[cfg(debug_assertions)]
         // {

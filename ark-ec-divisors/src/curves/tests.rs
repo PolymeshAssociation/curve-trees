@@ -1,5 +1,5 @@
 use crate::util::DirectGenerator;
-use crate::{DivisorCurve, DivisorPoly, ScalarDecomposition, new_divisor};
+use crate::{new_divisor_checked, DivisorCurve, DivisorPoly, ScalarDecomposition};
 use ark_ec::short_weierstrass::Projective;
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{AdditiveGroup, Field, PrimeField, Zero};
@@ -49,7 +49,7 @@ fn check_divisor<C: DivisorCurve, R: CryptoRngCore>(rng: &mut R, points: Vec<Pro
     let precomputation = C::interpolator_for_scalar_mul();
 
     // Create the divisor
-    let divisor = new_divisor::<C>(&points, precomputation.borrow()).unwrap();
+    let divisor = new_divisor_checked::<C>(&points, precomputation.borrow()).unwrap();
     let eval = |c: Projective<C>| {
         let (x, y) = to_xy::<C>(c).unwrap();
         divisor.eval(x, y)
@@ -95,7 +95,7 @@ fn test_divisor<C: DivisorCurve>() {
 
         let start_new_divisor = Instant::now();
         // Create the divisor
-        let divisor = new_divisor::<C>(&points, precomputation.borrow()).unwrap();
+        let divisor = new_divisor_checked::<C>(&points, precomputation.borrow()).unwrap();
         new_divisor_times.push(start_new_divisor.elapsed());
 
         // Perform the original check

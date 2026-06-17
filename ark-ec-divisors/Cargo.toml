@@ -1,7 +1,7 @@
 [package]
 name = "ark-ec-divisors"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
 ark-serialize = { workspace = true, default-features = false }
@@ -9,7 +9,7 @@ ark-ec = { workspace = true, default-features = false }
 ark-ff = { workspace = true, default-features = false }
 dock_crypto_utils = { workspace = true, default-features = false }
 rayon = {version = "1.5.3", default-features = false, optional = true }
-zeroize = { version = "1", features = ["zeroize_derive"] }
+zeroize.workspace = true
 rand_core = { version = "0.6", default-features = false }
 rand = { version = "0.8", default-features = false, optional = true }
 subtle = { version = "2", default-features = false }
@@ -22,7 +22,7 @@ ark-pallas = { workspace = true, optional = true }
 ark-vesta = { workspace = true, optional = true }
 ark-helios = { workspace = true, optional = true }
 ark-selene = { workspace = true, optional = true }
-spin = { version = "0.9", default-features = false, features = ["once"] }
+spin = { version = "0.9", default-features = false, features = ["once", "rwlock"] }
 generic-array = { version = "1", default-features = false, features = ["alloc"] }
 thiserror = { version = "2", default-features = false }
 

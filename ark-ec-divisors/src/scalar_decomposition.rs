@@ -1,12 +1,63 @@
 use crate::util::GeneratorMultiplesSource;
-use crate::{DivisorCurve, DivisorPoly, error::Error, new_divisor};
-use ark_ec::AdditiveGroup;
+use crate::{error::Error, new_divisor, DivisorCurve, DivisorPoly};
 use ark_ec::short_weierstrass::Projective;
+use ark_ec::AdditiveGroup;
 use ark_ff::{BigInteger, PrimeField};
 use ark_std::borrow::Borrow;
+use ark_std::collections::BTreeMap;
 use ark_std::{vec, vec::Vec};
+use core::any::TypeId;
+use spin::RwLock;
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq, ConstantTimeGreater};
 use zeroize::{Zeroize, ZeroizeOnDrop};
+
+/// Per-field cache of the modulus' little-endian coefficient decomposition (the bits of the
+/// modulus `p`, with index 0 possibly equal to `2`), keyed by the scalar field's `TypeId`.
+///
+/// This value depends only on the field — not on the scalar being decomposed — so it is computed
+/// once per field and reused across all [`ScalarDecomposition::new`] calls instead of being
+/// rebuilt every time. Keying by `TypeId` (`PrimeField: 'static`, so no extra bound is needed)
+/// keeps `ScalarDecomposition` decoupled from any curve/field-specific trait.
+///
+/// A `spin::RwLock` keeps this `no_std`/wasm32 friendly — it has the same atomic requirements as
+/// the `spin::Once` already used for the per-curve interpolator caches — and lets concurrent
+/// divisor construction read the cache without serializing.
+static MODULUS_DECOMPOSITION_CACHE: RwLock<BTreeMap<TypeId, Vec<u64>>> =
+    RwLock::new(BTreeMap::new());
+
+/// Returns the little-endian coefficient decomposition of `F`'s modulus, computing and caching it
+/// on first use. `num_bits` must be `F::MODULUS_BIT_SIZE` as a `usize`.
+///
+/// Whether the fast (cached) or slow (compute) path is taken depends only on whether this field
+/// has been seen before, never on the scalar, so this does not introduce scalar-dependent timing.
+fn modulus_decomposition<F: PrimeField>(num_bits: usize) -> Vec<u64> {
+    let key = TypeId::of::<F>();
+
+    // Fast path: shared read lock. After the first call for `F` this branch is always taken.
+    if let Some(decomposition) = MODULUS_DECOMPOSITION_CACHE.read().get(&key) {
+        return decomposition.clone();
+    }
+
+    // Slow path (first time this field is seen): decompose negative one (i.e. `p - 1`) ...
+    let mut decomposition_of_modulus = vec![0u64; num_bits];
+    let neg_one_bigint = (-F::ONE).into_bigint();
+    for (i, bit) in neg_one_bigint
+        .to_bits_le()
+        .into_iter()
+        .take(num_bits)
+        .enumerate()
+    {
+        decomposition_of_modulus[i] = u64::from(bit);
+    }
+    // ... then increment by one to get the decomposition of the modulus `p`.
+    decomposition_of_modulus[0] += 1;
+
+    // A benign race (two threads both computing on first use) just overwrites identical data.
+    MODULUS_DECOMPOSITION_CACHE
+        .write()
+        .insert(key, decomposition_of_modulus.clone());
+    decomposition_of_modulus
+}
 
 /// The decomposition of a scalar.
 ///
@@ -63,19 +114,9 @@ impl<F: PrimeField> ScalarDecomposition<F> {
                 less_than_num_bits =
                     less_than_num_bits | Choice::from(u8::from(scalar == F::from(i)));
             }
-            let mut decomposition_of_modulus = vec![0; num_bits_usize];
-            // Decompose negative one
-            let neg_one_bigint = (-F::ONE).into_bigint();
-            for (i, bit) in neg_one_bigint
-                .to_bits_le()
-                .into_iter()
-                .take(num_bits_usize)
-                .enumerate()
-            {
-                decomposition_of_modulus[i] = u64::from(bit);
-            }
-            // Increment it by one
-            decomposition_of_modulus[0] += 1;
+            // The modulus decomposition depends only on the field, so it is cached per field
+            // (keyed by `TypeId`) and reused across calls instead of being recomputed here.
+            let decomposition_of_modulus = modulus_decomposition::<F>(num_bits_usize);
 
             // Add the decomposition onto the decomposition of the modulus
             for i in 0..num_bits_usize {
@@ -232,9 +273,10 @@ impl<F: PrimeField> ScalarDecomposition<F> {
         }
 
         // Create a divisor out of the points
-        let res = new_divisor::<C>(&divisor_points, C::interpolator_for_scalar_mul().borrow())?;
+        let res = new_divisor::<C>(&divisor_points, C::interpolator_for_scalar_mul().borrow());
+        // zeroize regardless of success
         divisor_points.zeroize();
-        Ok(res)
+        res
     }
 }
 
@@ -277,7 +319,11 @@ mod tests {
 
     fn to_xy_helper<C: DivisorCurve>(p: Projective<C>) -> Option<(C::BaseField, C::BaseField)> {
         let a = p.into_affine();
-        if a.is_zero() { None } else { Some((a.x, a.y)) }
+        if a.is_zero() {
+            None
+        } else {
+            Some((a.x, a.y))
+        }
     }
 
     #[test]

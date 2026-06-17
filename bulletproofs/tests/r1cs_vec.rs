@@ -11,6 +11,7 @@ use ark_pallas::Affine;
 
 use bulletproofs::r1cs::*;
 use bulletproofs::{BulletproofGens, PedersenGens};
+use rand::thread_rng;
 
 mod veccom_twice {
     use super::*;
@@ -26,7 +27,7 @@ mod veccom_twice {
         // 1. Create a prover
         let mut prover = Prover::new(pc_gens, &mut transcript);
 
-        let mut rng = rand::thread_rng();
+        let mut rng = thread_rng();
 
         // empty vector commitment
         let v = vec![];
@@ -111,7 +112,7 @@ mod veccom_empty {
         // 1. Create a prover
         let mut prover = Prover::new(pc_gens, &mut transcript);
 
-        let mut rng = rand::thread_rng();
+        let mut rng = thread_rng();
 
         // empty vector commitment
         let v = vec![];
@@ -226,7 +227,7 @@ mod veccom_non_empty_do_nothing {
         // 1. Create a prover
         let mut prover = Prover::new(pc_gens, &mut transcript);
 
-        let mut rng = rand::thread_rng();
+        let mut rng = thread_rng();
 
         // commit to all inputs in a single commitment
         let h = C::ScalarField::rand(&mut rng);
@@ -377,7 +378,7 @@ mod veccom_non_trivial_linear {
         // 1. Create a prover
         let mut prover = Prover::new(pc_gens, &mut transcript);
 
-        let mut rng = rand::thread_rng();
+        let mut rng = thread_rng();
 
         // commit to all inputs in a single commitment
         let h = C::ScalarField::rand(&mut rng);
@@ -512,7 +513,7 @@ mod veccom_large_linear {
         // 1. Create a prover
         let mut prover = Prover::new(pc_gens, &mut transcript);
 
-        let mut rng = rand::thread_rng();
+        let mut rng = thread_rng();
 
         // commit to all inputs in a single commitment
         let mut fib: Vec<C::ScalarField> = vec![C::ScalarField::from(0u8); DIM];
@@ -609,7 +610,7 @@ mod veccom_mul_seperate {
         // 1. Create a prover
         let mut prover = Prover::new(pc_gens, &mut transcript);
 
-        let mut rng = rand::thread_rng();
+        let mut rng = thread_rng();
 
         // commit to all inputs in a single commitment
         let abc: Vec<C::ScalarField> = vec![];
@@ -708,7 +709,7 @@ mod veccom_mul {
         // 1. Create a prover
         let mut prover = Prover::new(pc_gens, &mut transcript);
 
-        let mut rng = rand::thread_rng();
+        let mut rng = thread_rng();
 
         // commit to all inputs in a single commitment
 
@@ -829,7 +830,7 @@ mod veccom_shuffle_randomized {
             transcript.merlin.append_u64(b"k", input.len() as u64);
 
             let mut prover = Prover::new(pc_gens, &mut transcript);
-            let mut rng = rand::thread_rng();
+            let mut rng = thread_rng();
 
             let (input_comm, input_vars) = prover.commit_vec(
                 input,
@@ -895,7 +896,7 @@ mod veccom_shuffle_randomized {
         let pc_gens = PedersenGens::<Affine>::default();
         let bp_gens = BulletproofGens::<Affine>::new(((2usize * K).next_power_of_two()) as u32, 1);
 
-        let mut rng = rand::thread_rng();
+        let mut rng = thread_rng();
         let input: Vec<Scalar> = (0..K).map(|_| Scalar::rand(&mut rng)).collect();
         let mut output = input.clone();
         output.shuffle(&mut rng);
@@ -909,5 +910,17 @@ mod veccom_shuffle_randomized {
         assert!(proof
             .verify_via_tuple(&pc_gens, &bp_gens, input_comm, output_comm)
             .is_ok());
+
+        // Output has one element replaced, so it's not a valid shuffle.
+        let mut bad_output = input.clone();
+        bad_output[0] = bad_output[0] + Scalar::from(1u64);
+        let (bad_proof, bad_input_comm, bad_output_comm) =
+            VecShuffleProof::prove(&pc_gens, &bp_gens, &input, &bad_output).unwrap();
+        assert!(bad_proof
+            .verify(&pc_gens, &bp_gens, bad_input_comm, bad_output_comm)
+            .is_err());
+        assert!(bad_proof
+            .verify_via_tuple(&pc_gens, &bp_gens, bad_input_comm, bad_output_comm)
+            .is_err());
     }
 }

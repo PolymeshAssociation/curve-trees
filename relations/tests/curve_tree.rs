@@ -231,7 +231,7 @@ fn test_curve_tree_inner<
                 &sr_proof_params,
             )
             .unwrap();
-        let rerandomized_leaf = path_commitments.get_rerandomized_leaf();
+        let rerandomized_leaf = path_commitments.get_rerandomized_leaf().unwrap();
         odd_verifier
             .verify(
                 &vesta_proof,
@@ -373,7 +373,7 @@ pub fn test_curve_tree_with_parameters_new<
                     &sr_proof_params,
                 )
                 .unwrap();
-            let rerandomized_leaf = path_commitments.get_rerandomized_leaf();
+            let rerandomized_leaf = path_commitments.get_rerandomized_leaf().unwrap();
             verify(
                 pallas_verifier,
                 vesta_verifier,
@@ -508,7 +508,7 @@ pub fn test_curve_tree_get_update<
                     &sr_proof_params,
                 )
                 .unwrap();
-            let rerandomized_leaf = path_commitments.get_rerandomized_leaf();
+            let rerandomized_leaf = path_commitments.get_rerandomized_leaf().unwrap();
             let vesta_res = vesta_verifier.verify(
                 &vesta_proof,
                 &sr_proof_params.odd_parameters().pc_gens,
@@ -784,7 +784,7 @@ pub fn check_combined_vs_common_root_proofs_with_parameters<
                 &sr_proof_params,
             )
             .unwrap();
-        rerandomized_leaves.push(path_commitments.get_rerandomized_leaf());
+        rerandomized_leaves.push(path_commitments.get_rerandomized_leaf().unwrap());
     }
 
     vesta_verifier
@@ -872,7 +872,7 @@ pub fn check_combined_vs_common_root_proofs_with_parameters<
     .unwrap();
     let rerandomized_leaves: Vec<_> = all_path_commitments
         .iter()
-        .map(|p| p.get_rerandomized_leaf())
+        .map(|p| p.get_rerandomized_leaf().unwrap())
         .collect();
 
     vesta_verifier
@@ -1370,7 +1370,7 @@ pub fn test_curve_tree_with_parameters_newer<
                 )
                 .unwrap();
 
-            let rerandomized_leaf = path_commitments.path.get_rerandomized_leaf();
+            let rerandomized_leaf = path_commitments.path.get_rerandomized_leaf().unwrap();
             verify(
                 pallas_verifier,
                 vesta_verifier,
@@ -1391,6 +1391,87 @@ pub fn test_curve_tree_with_parameters_newer<
                         * re_randomization_of_leaf)
             )
         }
+    }
+
+    // a leaf must be a correctly rerandomized member of the tree
+    {
+        let prove_then_verify = |path: &CurveTreeWitnessPath<L, P0, P1>,
+                                 tamper: &dyn Fn(
+            &mut SelectAndRerandomizePathWithDivisorComms<L, P0, P1>,
+        ),
+                                 rng: &mut rand::rngs::ThreadRng|
+         -> Result<(), R1CSError> {
+            let mut pp: Prover<_, Affine<P0>> = Prover::new(
+                &sr_proof_params.even_parameters().pc_gens,
+                MerlinTranscript::new(b"neg"),
+            );
+            let mut vp: Prover<_, Affine<P1>> = Prover::new(
+                &sr_proof_params.odd_parameters().pc_gens,
+                MerlinTranscript::new(b"neg"),
+            );
+            let (mut pc, _) = path
+                .select_and_rerandomize_prover_gadget_new::<_, Params0, Params1>(
+                    &mut pp,
+                    &mut vp,
+                    &sr_proof_params,
+                    rng,
+                )
+                .unwrap();
+            let (pproof, vproof) = prove(
+                pp,
+                vp,
+                &sr_proof_params.even_parameters().bp_gens,
+                &sr_proof_params.odd_parameters().bp_gens,
+                rng,
+            )
+            .unwrap();
+            tamper(&mut pc);
+            let mut pv = Verifier::new(MerlinTranscript::new(b"neg"));
+            let mut vv = Verifier::new(MerlinTranscript::new(b"neg"));
+            pc.select_and_rerandomize_verifier_gadget(&root, &mut pv, &mut vv, &sr_proof_params)
+                .unwrap();
+            verify(
+                pv,
+                vv,
+                &pproof,
+                &vproof,
+                &sr_proof_params.even_parameters().pc_gens,
+                &sr_proof_params.even_parameters().bp_gens,
+                &sr_proof_params.odd_parameters().pc_gens,
+                &sr_proof_params.odd_parameters().bp_gens,
+                rng,
+            )
+        };
+
+        // Leaf is not a member - change one leaf
+        let mut non_member = curve_tree.get_path_to_leaf_for_proof(0, 0).unwrap();
+        non_member
+            .odd_internal_nodes
+            .last_mut()
+            .unwrap()
+            .child_node_to_randomize = Affine::<P0>::rand(&mut rng);
+        assert!(
+            prove_then_verify(&non_member, &|_pc| {}, &mut rng).is_err(),
+            "a non-member leaf must be rejected"
+        );
+
+        // Leaf's blinding is wrong
+        let member = curve_tree.get_path_to_leaf_for_proof(0, 0).unwrap();
+        let extra = (sr_proof_params.even_parameters().pc_gens.B_blinding
+            * P0::ScalarField::rand(&mut rng))
+        .into_affine();
+        assert!(
+            prove_then_verify(
+                &member,
+                &|pc| {
+                    let leaf = pc.path.even_commitments.last_mut().unwrap();
+                    *leaf = (*leaf + extra).into_affine();
+                },
+                &mut rng,
+            )
+            .is_err(),
+            "a re-blinded rerandomized leaf must be rejected"
+        );
     }
 
     println!(
@@ -1592,7 +1673,7 @@ pub fn check_combined_vs_common_root_proofs_with_parameters_divisor<
                 &sr_proof_params,
             )
             .unwrap();
-        rerandomized_leaves.push(path_commitments.path.get_rerandomized_leaf());
+        rerandomized_leaves.push(path_commitments.path.get_rerandomized_leaf().unwrap());
     }
 
     verify(
@@ -1675,7 +1756,7 @@ pub fn check_combined_vs_common_root_proofs_with_parameters_divisor<
     ).unwrap();
     let rerandomized_leaves: Vec<_> = all_path_commitments
         .iter()
-        .map(|p| p.path.get_rerandomized_leaf())
+        .map(|p| p.path.get_rerandomized_leaf().unwrap())
         .collect();
 
     verify(
@@ -1745,15 +1826,9 @@ pub fn test_single_path_divisor_malformed_proof_inputs() {
     };
 
     let mut missing_root_child = valid_path_commitments.clone();
-    let expected_root_child_msg = match &root {
-        Root::Even(_) => {
-            missing_root_child.path.odd_commitments.clear();
-            "missing root child in odd_commitments for even root"
-        }
-        Root::Odd(_) => {
-            missing_root_child.path.even_commitments.clear();
-            "missing root child in even_commitments for odd root"
-        }
+    match &root {
+        Root::Even(_) => missing_root_child.path.odd_commitments.clear(),
+        Root::Odd(_) => missing_root_child.path.even_commitments.clear(),
     };
     let pallas_transcript = MerlinTranscript::new(b"malformed-single-path-root-child");
     let mut pallas_verifier = Verifier::new(pallas_transcript);
@@ -1767,18 +1842,12 @@ pub fn test_single_path_divisor_malformed_proof_inputs() {
             &sr_proof_params,
         )
         .unwrap_err();
-    assert_malformed(err, expected_root_child_msg);
+    assert_malformed(err, "missing root child commitment");
 
     let mut missing_root_divisor = valid_path_commitments.clone();
-    let expected_root_divisor_msg = match &root {
-        Root::Even(_) => {
-            missing_root_divisor.even_divisor_comms.clear();
-            "missing root divisor commitments for even side"
-        }
-        Root::Odd(_) => {
-            missing_root_divisor.odd_divisor_comms.clear();
-            "missing root divisor commitments for odd side"
-        }
+    match &root {
+        Root::Even(_) => missing_root_divisor.even_divisor_comms.clear(),
+        Root::Odd(_) => missing_root_divisor.odd_divisor_comms.clear(),
     };
     let pallas_transcript = MerlinTranscript::new(b"malformed-single-path-root-divisor");
     let mut pallas_verifier = Verifier::new(pallas_transcript);
@@ -1792,7 +1861,7 @@ pub fn test_single_path_divisor_malformed_proof_inputs() {
             &sr_proof_params,
         )
         .unwrap_err();
-    assert_malformed(err, expected_root_divisor_msg);
+    assert_malformed(err, "missing root divisor commitment");
 
     let mut missing_even_non_root_chain = valid_path_commitments.clone();
     missing_even_non_root_chain.path.even_commitments.clear();

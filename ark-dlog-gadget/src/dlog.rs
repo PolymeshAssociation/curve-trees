@@ -1,26 +1,28 @@
 use crate::error::Error;
 use crate::utils::{
-    CurveSpec, OnCurve, ScalarMulAndDivisor, incomplete_add_pub, inverse, on_curve,
+    incomplete_add_pub, inverse, on_curve, CurveSpec, OnCurve, ScalarMulAndDivisor,
 };
 use ark_ec::AffineRepr;
 use ark_ec_divisors::util::{DiscreteLogParameter, GeneratorMultiplesSource, GeneratorTable};
 use ark_ec_divisors::{DivisorCurve, DivisorPoly, ScalarDecomposition};
-use ark_ff::{BigInteger, PrimeField, batch_inversion};
+use ark_ff::{batch_inversion, BigInteger, PrimeField};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{boxed::Box, fmt::Debug, vec, vec::Vec};
+use bulletproofs::r1cs::{ConstraintSystem, LinearCombination, Prover, Variable, Verifier};
 use bulletproofs::BulletproofGens;
-use bulletproofs::r1cs::{
-    ConstraintSystem, LinearCombination, Prover, Variable, Verifier, constant,
-};
 use core::marker::PhantomData;
 use core::ops::{Add, Div, Sub};
 use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
-pub use generic_array::typenum::{Diff, Quot, Sum, U1, U2, Unsigned};
+pub use generic_array::typenum::{Diff, Quot, Sum, Unsigned, U1, U2};
 use generic_array::typenum::{U255, U256};
 pub use generic_array::{ArrayLength, GenericArray};
 use rand_core::CryptoRngCore;
+use zeroize::{Zeroize, ZeroizeOnDrop};
+
+// Move this file to divisors crate
 
 pub const DECOMPOSITION_SIZE: usize = 256;
+/// Maximum number of bits supported for the scalar (discrete log)
 pub const MAX_BITS_SUPPORTED: usize = 255;
 
 /// Derived parameters for a discrete logarithm proof.
@@ -86,7 +88,7 @@ pub struct Divisor<F: PrimeField, Parameters: DiscreteLogParameters> {
     ///
     /// x**1 is skipped as it's expected to be normalized to 1, and therefore constant, in order to
     /// ensure the divisor is non-zero (as necessary for the proof to be complete).
-    // Subtract 1 from the length due to skipping the coefficient for x**1
+    // Subtract 1 from the length due to skipping the coefficient for x**1 as its always 1.
     pub x_from_power_of_2: GenericArray<Variable<F>, Parameters::XCoefficientsMinusOne>,
     /// The constant term in the polynomial (alternatively, the coefficient for y**0 x**0).
     pub zero: Variable<F>,
@@ -120,6 +122,7 @@ pub struct PointsWithDlog<F: PrimeField, Parameters: DiscreteLogParameters> {
 pub struct DivisorComms<C: AffineRepr>(pub Vec<C>);
 
 /// Blindings for the combined dlog and divisor witnesses commitments.
+#[derive(Zeroize, ZeroizeOnDrop)]
 pub struct DivisorCommsBlindings<F: PrimeField>(pub Vec<F>);
 
 /// A struct containing a point used for the evaluation of a divisor.
@@ -219,13 +222,18 @@ pub struct ChallengedGenerator<F: PrimeField, Parameters: DiscreteLogParameters>
 );
 
 impl<F: PrimeField, Parameters: DiscreteLogParameters> PointWithDlog<F, Parameters> {
-    pub fn from_vars(
-        mut decomposition: Vec<Variable<F>>,
-        mut divisor: Vec<Variable<F>>,
-    ) -> Box<Self> {
-        let blind_x_var = decomposition.pop().unwrap();
-        let blind_y_var = divisor.pop().unwrap();
-        let dlog = GenericArray::<_, Parameters::ScalarBits>::from_slice(&decomposition).clone();
+    pub fn from_vars(decomposition: Vec<Variable<F>>, divisor: Vec<Variable<F>>) -> Box<Self> {
+        // x and y coordinates of the blinding point (s.B) and are put at the end of decomposition and divisor respectively to match Monero's implementation
+        let blind_x_var = decomposition[DECOMPOSITION_SIZE - 1];
+        let blind_y_var = divisor[DECOMPOSITION_SIZE - 1];
+
+        let dlog = GenericArray::<_, Parameters::ScalarBits>::from_slice(
+            &decomposition[0..Parameters::ScalarBits::USIZE],
+        )
+        .clone();
+
+        // divisor's layout is as
+        // [coefficient of y, coefficients of yx, coefficients of x^i from i>1, coefficient of 0 degree term]
 
         let mut cursor_start = 1;
         let mut cursor_end = cursor_start + Parameters::YxCoefficients::USIZE;
@@ -253,6 +261,146 @@ impl<F: PrimeField, Parameters: DiscreteLogParameters> PointWithDlog<F, Paramete
     }
 }
 
+impl<F: PrimeField, Parameters: DiscreteLogParameters> PointsWithDlog<F, Parameters> {
+    fn expected_vars_len(num_points: usize) -> usize {
+        // scalar decomposition + (x-coordinate per point) + (divisor coefficients per point)
+        MAX_BITS_SUPPORTED + num_points + (num_points * DECOMPOSITION_SIZE)
+    }
+
+    /// The number of variables should be the smallest multiple of `chunk_len` >= `Self::expected_vars_len`
+    fn padded_vars_len(num_points: usize, chunk_len: usize) -> Result<usize, Error> {
+        if chunk_len == 0 {
+            return Err(Error::ZeroChunkSize);
+        }
+
+        let expected_vars_len = Self::expected_vars_len(num_points);
+        let r = expected_vars_len % chunk_len;
+        Ok(if r == 0 {
+            expected_vars_len
+        } else {
+            expected_vars_len + chunk_len - r
+        })
+    }
+
+    pub fn from_vars(vars: Vec<Variable<F>>, num_points: usize) -> Self {
+        // The variables are structured as
+        // [<scalar decomposition>, <x-coordinates of all resulting points>, <divisor of i-th resulting point>, <y-coordinate of i-th resulting point>, <padding>]
+
+        // variables for scalar decomposition
+        let dlog = GenericArray::<_, Parameters::ScalarBits>::from_slice(
+            &vars[0..Parameters::ScalarBits::USIZE],
+        )
+        .clone();
+
+        // variables for x-coordinates of all resulting points
+        let result_x_start = MAX_BITS_SUPPORTED;
+        let result_x_end = result_x_start + num_points;
+        let result_xs: Vec<Variable<F>> = vars[result_x_start..result_x_end].to_vec();
+
+        let divisor_start = result_x_end;
+        let mut points = Vec::with_capacity(num_points);
+        let mut divisors = Vec::with_capacity(num_points);
+
+        for i in 0..num_points {
+            let div_block_start = divisor_start + i * DECOMPOSITION_SIZE;
+            let coeff_vars = &vars[div_block_start..div_block_start + DECOMPOSITION_SIZE];
+
+            let result_x_var = result_xs[i];
+            // y-coordinate of the i-th resulting point is after the divisor coefficients for that point
+            let result_y_var = coeff_vars[DECOMPOSITION_SIZE - 1];
+
+            // Extract variables for the divisor coefficients of the i-th resulting point.
+            let y = coeff_vars[0];
+            let mut cursor = 1;
+            let yx = GenericArray::<_, Parameters::YxCoefficients>::from_slice(
+                &coeff_vars[cursor..cursor + Parameters::YxCoefficients::USIZE],
+            )
+            .clone();
+            cursor += Parameters::YxCoefficients::USIZE;
+            let x_from_power_of_2 =
+                GenericArray::<_, Parameters::XCoefficientsMinusOne>::from_slice(
+                    &coeff_vars[cursor..cursor + Parameters::XCoefficientsMinusOne::USIZE],
+                )
+                .clone();
+            cursor += Parameters::XCoefficientsMinusOne::USIZE;
+            let zero = coeff_vars[cursor];
+
+            let divisor = Divisor {
+                y,
+                yx,
+                x_from_power_of_2,
+                zero,
+            };
+            points.push((result_x_var, result_y_var));
+            divisors.push(divisor);
+        }
+
+        PointsWithDlog {
+            points,
+            dlog,
+            divisors,
+        }
+    }
+
+    fn into_two(self) -> Result<[PointWithDlog<F, Parameters>; 2], Error> {
+        if self.points.len() != 2 {
+            return Err(Error::MismatchedSize(2, self.points.len()));
+        }
+        if self.divisors.len() != 2 {
+            return Err(Error::MismatchedSize(2, self.divisors.len()));
+        }
+
+        let PointsWithDlog {
+            points,
+            dlog,
+            divisors,
+        } = self;
+
+        let mut points = points.into_iter();
+        let mut divisors = divisors.into_iter();
+
+        let first = PointWithDlog {
+            point: points.next().unwrap(),
+            dlog: dlog.clone(),
+            divisor: divisors.next().unwrap(),
+        };
+        let second = PointWithDlog {
+            point: points.next().unwrap(),
+            dlog,
+            divisor: divisors.next().unwrap(),
+        };
+
+        Ok([first, second])
+    }
+}
+
+fn debug_assert_committed_vars<'a, F: PrimeField>(vars: impl IntoIterator<Item = &'a Variable<F>>) {
+    for variable in vars {
+        debug_assert!(
+            matches!(
+                variable,
+                Variable::VectorCommit(_, _) | Variable::Committed(_)
+            ),
+            "discrete log proofs requires all arguments belong to commitments",
+        );
+    }
+}
+
+fn debug_assert_committed_point_with_dlog<F: PrimeField, Parameters: DiscreteLogParameters>(
+    point: (Variable<F>, Variable<F>),
+    divisor: &Divisor<F, Parameters>,
+    dlog: Option<&GenericArray<Variable<F>, Parameters::ScalarBits>>,
+) {
+    let arg_iter = [point.0, point.1, divisor.y, divisor.zero];
+    let arg_iter = arg_iter.iter().chain(divisor.yx.iter());
+    let arg_iter = arg_iter.chain(divisor.x_from_power_of_2.iter());
+    debug_assert_committed_vars(arg_iter);
+
+    if let Some(dlog) = dlog {
+        debug_assert_committed_vars(dlog.iter());
+    }
+}
+
 fn divisor_challenge_eval<
     F: PrimeField,
     CS: ConstraintSystem<F>,
@@ -262,65 +410,84 @@ fn divisor_challenge_eval<
     divisor: &Divisor<F, Parameters>,
     challenge: &ChallengePoint<F, Parameters>,
 ) -> LinearCombination<F> {
+    // Build each LC with a single chaining iterators instead of repeated `lc + LinearCombination::from_iter([(var, w)])`
+    // additions. This is identical since LC addition just concatenates terms, but avoids allocating
+    // and freeing a temporary vec for every term
+
     // The evaluation of the divisor differentiated by y, further multiplied by p_0_n_0
     // Differentiation drops everything without a y coefficient, and drops what remains by a power
     // of y
     // (y**1 -> y**0, yx**i -> x**i)
     // This aligns with p_0_n_1  from `DivisorChallenge`
-    let mut p_0_n_1 = LinearCombination::from_iter([(divisor.y, challenge.p_0_n_0)]);
-    for (j, var) in divisor.yx.iter().enumerate() {
-        // This does not index by `j + 1` as x_p_0_n_0 omits x**0
-        p_0_n_1 = p_0_n_1 + LinearCombination::from_iter([(*var, challenge.x_p_0_n_0[j])]);
-    }
+    let p_0_n_1: LinearCombination<F> = core::iter::once((divisor.y, challenge.p_0_n_0))
+        .chain(
+            divisor
+                .yx
+                .iter()
+                .enumerate()
+                // This does not index by `j + 1` as x_p_0_n_0 omits x**0
+                .map(|(j, var)| (*var, challenge.x_p_0_n_0[j])),
+        )
+        .collect();
 
     // The evaluation of the divisor differentiated by x
     // This aligns with p_0_n_2 from `DivisorChallenge`
-    // The coefficient for x**1 is 1, so 1 becomes the new zero coefficient
-    let mut p_0_n_2 = constant(F::ONE);
-
-    // Handle the new y coefficient
-    p_0_n_2 = p_0_n_2 + LinearCombination::from_iter([(divisor.yx[0], challenge.y)]);
-
-    // Handle the new yx coefficients
-    for (j, yx) in divisor.yx.iter().enumerate().skip(1) {
-        // For the power which was shifted down, we multiply this coefficient
-        // 3 x**2 -> 2 * 3 x**1
-        let original_power_of_x = F::from((j + 1) as u64);
-        // `j - 1` so `j = 1` indexes yx[0] as yx[0] is the y x**1
-        // (yx omits y x**0)
-        let weight = original_power_of_x * challenge.yx[j - 1];
-        p_0_n_2 = p_0_n_2 + LinearCombination::from_iter([(*yx, weight)]);
-    }
-
-    // Handle the x coefficients
-    // We don't skip the first one as `x_from_power_of_2` already omits x**1
-    for (i, x) in divisor.x_from_power_of_2.iter().enumerate() {
-        // i + 2 as the paper expects i to start from 1 and be + 1, yet we start from 0
-        let original_power_of_x = F::from((i + 2) as u64);
-        // Still x[i] as x[0] is x**1
-        let weight = original_power_of_x * challenge.x[i];
-        p_0_n_2 = p_0_n_2 + LinearCombination::from_iter([(*x, weight)]);
-    }
+    let p_0_n_2: LinearCombination<F> =
+        // The coefficient for x**1 is 1, so 1 becomes the new zero coefficient
+        // (equivalent to `constant(F::ONE)`, i.e. Variable::One with weight 1)
+        core::iter::once((Variable::One(PhantomData), F::ONE))
+            // Handle the new y coefficient
+            .chain(core::iter::once((divisor.yx[0], challenge.y)))
+            // Handle the new yx coefficients
+            .chain(divisor.yx.iter().enumerate().skip(1).map(|(j, yx)| {
+                // For the power which was shifted down, we multiply this coefficient
+                // 3 x**2 -> 2 * 3 x**1
+                let original_power_of_x = F::from((j + 1) as u64);
+                // `j - 1` so `j = 1` indexes yx[0] as yx[0] is the y x**1
+                // (yx omits y x**0)
+                let weight = original_power_of_x * challenge.yx[j - 1];
+                (*yx, weight)
+            }))
+            // Handle the x coefficients
+            // We don't skip the first one as `x_from_power_of_2` already omits x**1
+            .chain(divisor.x_from_power_of_2.iter().enumerate().map(|(i, x)| {
+                // i + 2 as the paper expects i to start from 1 and be + 1, yet we start from 0
+                let original_power_of_x = F::from((i + 2) as u64);
+                // Still x[i] as x[0] is x**1
+                let weight = original_power_of_x * challenge.x[i];
+                (*x, weight)
+            }))
+            .collect();
 
     // p_0_n from `DivisorChallenge`
     let p_0_n = p_0_n_1 + p_0_n_2;
 
     // Evaluation of the divisor
     // p_0_d from `DivisorChallenge`
-    let mut p_0_d = LinearCombination::from_iter([(divisor.y, challenge.y)]);
-    for (var, c_yx) in divisor.yx.iter().zip(&challenge.yx) {
-        p_0_d = p_0_d + LinearCombination::from_iter([(*var, *c_yx)]);
-    }
-
-    for (i, var) in divisor.x_from_power_of_2.iter().enumerate() {
-        // This `i+1` is preserved, despite most not being as x omits x**0, as this assumes we
-        // start with `i=1`
-        p_0_d = p_0_d + LinearCombination::from_iter([(*var, challenge.x[i + 1])]);
-    }
-
-    // Adding x effectively adds a `1 x` term, ensuring the divisor isn't 0
-    p_0_d = p_0_d + LinearCombination::from_iter([(divisor.zero, F::ONE)]);
-    p_0_d = p_0_d + challenge.x[0];
+    let p_0_d: LinearCombination<F> = core::iter::once((divisor.y, challenge.y))
+        .chain(
+            divisor
+                .yx
+                .iter()
+                .zip(&challenge.yx)
+                .map(|(var, c_yx)| (*var, *c_yx)),
+        )
+        .chain(
+            divisor
+                .x_from_power_of_2
+                .iter()
+                .enumerate()
+                .map(|(i, var)| {
+                    // This `i+1` is preserved, despite most not being as x omits x**0, as this assumes we
+                    // start with `i=1`
+                    (*var, challenge.x[i + 1])
+                }),
+        )
+        // Adding the zero-degree divisor coefficient, ensuring the divisor isn't 0
+        .chain(core::iter::once((divisor.zero, F::ONE)))
+        .collect();
+    // Adding x effectively adds a `1 x` term (a constant scalar, not a Variable term)
+    let p_0_d = p_0_d + challenge.x[0];
 
     // Calculate the joint numerator
     // p_n from `DivisorChallenge`
@@ -541,24 +708,12 @@ pub fn discrete_log<F: PrimeField, CS: ConstraintSystem<F>, Parameters: Discrete
     } = point;
 
     // Ensure this is being safely called
-    let arg_iter = [point.0, point.1, divisor.y, divisor.zero];
-    let arg_iter = arg_iter.iter().chain(divisor.yx.iter());
-    let arg_iter = arg_iter.chain(divisor.x_from_power_of_2.iter());
-    let arg_iter = arg_iter.chain(dlog.iter());
-    for variable in arg_iter {
-        debug_assert!(
-            matches!(
-                variable,
-                Variable::VectorCommit(_, _) | Variable::Committed(_)
-            ),
-            "discrete log proofs requires all arguments belong to commitments",
-        );
-    }
+    debug_assert_committed_point_with_dlog(point, &divisor, Some(&dlog));
 
     constrain_challenge_eval(
         cs,
         curve,
-        dlog,
+        &dlog,
         point,
         divisor,
         challenge,
@@ -577,7 +732,7 @@ fn constrain_challenge_eval<
 >(
     cs: &mut CS,
     curve: &CurveSpec<F>,
-    dlog: GenericArray<Variable<F>, Parameters::ScalarBits>,
+    dlog: &GenericArray<Variable<F>, Parameters::ScalarBits>,
     point: (Variable<F>, Variable<F>),
     divisor: Divisor<F, Parameters>,
     challenge: &DiscreteLogChallenge<F, Parameters>,
@@ -603,7 +758,7 @@ fn constrain_challenge_eval<
     // We call this `bit` yet it's not constrained to being a bit
     // It's presumed to be yet may be malleated
     for (bit, weight) in dlog.into_iter().zip(&challenged_generator.0) {
-        rhs_eval = rhs_eval + LinearCombination::from_iter([(bit, *weight)]);
+        rhs_eval = rhs_eval + LinearCombination::from_iter([(*bit, *weight)]);
     }
 
     // Interpolate the output point
@@ -671,16 +826,78 @@ pub fn discrete_log_blinding_given_challenge<
     challenge: &DiscreteLogChallenge<F, Parameters>,
     challenged_T: &ChallengedGenerator<F, Parameters>,
 ) {
+    discrete_log_blinding_given_challenge_optional_curve_check(
+        cs,
+        original_point,
+        blind,
+        blinded_point,
+        curve,
+        challenge,
+        challenged_T,
+        true,
+    );
+}
+
+/// Same as [`discrete_log_blinding_given_challenge`] but skips the on-curve check on the original
+/// point. The caller must guarantee `original_point` is already constrained on-curve
+pub fn discrete_log_blinding_given_challenge_assume_on_curve<
+    F: PrimeField,
+    CS: ConstraintSystem<F>,
+    Parameters: DiscreteLogParameters,
+>(
+    cs: &mut CS,
+    original_point: (
+        impl Into<LinearCombination<F>>,
+        impl Into<LinearCombination<F>>,
+    ),
+    blind: PointWithDlog<F, Parameters>,
+    blinded_point: (F, F),
+    curve: &CurveSpec<F>,
+    challenge: &DiscreteLogChallenge<F, Parameters>,
+    challenged_T: &ChallengedGenerator<F, Parameters>,
+) {
+    discrete_log_blinding_given_challenge_optional_curve_check(
+        cs,
+        original_point,
+        blind,
+        blinded_point,
+        curve,
+        challenge,
+        challenged_T,
+        false,
+    );
+}
+
+fn discrete_log_blinding_given_challenge_optional_curve_check<
+    F: PrimeField,
+    CS: ConstraintSystem<F>,
+    Parameters: DiscreteLogParameters,
+>(
+    cs: &mut CS,
+    original_point: (
+        impl Into<LinearCombination<F>>,
+        impl Into<LinearCombination<F>>,
+    ),
+    blind: PointWithDlog<F, Parameters>,
+    blinded_point: (F, F),
+    curve: &CurveSpec<F>,
+    challenge: &DiscreteLogChallenge<F, Parameters>,
+    challenged_T: &ChallengedGenerator<F, Parameters>,
+    enforce_on_curve: bool,
+) {
     let o_x_lc = original_point.0.into();
     let o_y_lc = original_point.1.into();
     let (o_tilde_x, o_tilde_y) = blinded_point;
 
-    // Check O is on curve
     let O = OnCurve {
         x: o_x_lc,
         y: o_y_lc,
     };
-    on_curve(cs, O.clone(), &curve);
+    // `O` is on curve. For summed points this is implied by the curve checks on the summands, so the
+    // caller can skip re-deriving it.
+    if enforce_on_curve {
+        on_curve(cs, O.clone(), &curve);
+    }
 
     // Discrete log for o_blind
     let o_blind = discrete_log(cs, &curve, blind, challenge, challenged_T);
@@ -689,11 +906,11 @@ pub fn discrete_log_blinding_given_challenge<
     incomplete_add_pub(cs, (o_tilde_x, o_tilde_y), o_blind, O);
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Zeroize, ZeroizeOnDrop)]
 pub struct DivisorWitness<F: PrimeField, Parameters: DiscreteLogParameters> {
-    /// Decomposition of the scalar
+    /// Decomposition of the scalar in the fist 255 items of array, last item is the x-coordinate of the resulting point
     pub decomposition: GenericArray<F, U256>,
-    /// The divisor of the resulting point
+    /// The divisor of the resulting point in the fist 255 items of array, last item is the y-coordinate of the resulting point
     pub divisor: GenericArray<F, U256>,
     phantom: PhantomData<Parameters>,
 }
@@ -710,13 +927,13 @@ impl<F: PrimeField, Parameters: DiscreteLogParameters> DivisorWitness<F, Paramet
 
 /// When the same scalar is multiplied by multiple generators, we can use this for an efficient proof
 /// A possible usage would be for curve tree where each level uses a different generator but same blinding
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Zeroize, ZeroizeOnDrop)]
 pub struct DivisorWitnessMulti<F: PrimeField, Parameters: DiscreteLogParameters> {
     /// Decomposition of the scalar
     pub decomposition: GenericArray<F, U255>,
     /// x-coordinates of the resulting points
     pub result_xs: Vec<F>,
-    /// Divisors for the resulting points
+    /// Divisors for the resulting points. The last item in each array are the y-coordinates of the resulting points
     pub divisors: Vec<GenericArray<F, U256>>,
     phantom: PhantomData<Parameters>,
 }
@@ -754,6 +971,7 @@ pub fn create_divisor_and_decomposition<
     decomposition_vec.push(result_x);
 
     let decomposition = GenericArray::from_slice(&decomposition_vec).clone();
+    decomposition_vec.zeroize();
     let divisor = get_divisor_array::<F, Parameters>(&scalar_mul_and_divisor.divisor, result_y)?;
     Ok(Box::new(DivisorWitness::<F, Parameters>::new(
         decomposition,
@@ -761,47 +979,7 @@ pub fn create_divisor_and_decomposition<
     )))
 }
 
-/// Assumes `vars_dlog` and `vars_divisor` are of appropriate length.
-fn dlog_and_divisor_vars<F: PrimeField, Parameters: DiscreteLogParameters>(
-    mut vars_dlog: Vec<Variable<F>>,
-    mut vars_divisor: Vec<Variable<F>>,
-) -> Box<PointWithDlog<F, Parameters>> {
-    // x and y coordinates of the scalar multiplication result. By convention these are kept at the end
-    let blind_x_var = vars_dlog.pop().unwrap();
-    let blind_y_var = vars_divisor.pop().unwrap();
-
-    // Remove padding elements as they are 0s
-    while vars_dlog.len() > Parameters::ScalarBits::USIZE {
-        vars_dlog.pop().unwrap();
-    }
-    let dlog = GenericArray::<_, Parameters::ScalarBits>::from_slice(&vars_dlog).clone();
-
-    let mut cursor_start = 1;
-    let mut cursor_end = cursor_start + Parameters::YxCoefficients::USIZE;
-    let yx = GenericArray::<_, Parameters::YxCoefficients>::from_slice(
-        &vars_divisor[cursor_start..cursor_end],
-    )
-    .clone();
-    cursor_start = cursor_end;
-    cursor_end += Parameters::XCoefficientsMinusOne::USIZE;
-    let x_from_power_of_2 = GenericArray::<_, Parameters::XCoefficientsMinusOne>::from_slice(
-        &vars_divisor[cursor_start..cursor_end],
-    )
-    .clone();
-    let divisor = Divisor {
-        y: vars_divisor[0],
-        yx,
-        x_from_power_of_2,
-        zero: vars_divisor[cursor_end],
-    };
-
-    Box::new(PointWithDlog {
-        divisor,
-        dlog,
-        point: (blind_x_var, blind_y_var),
-    })
-}
-
+/// Prover flattens and commits to `DivisorWitness` into multiple chunks
 pub fn commit_witness_chunks_prover<
     F: PrimeField,
     C: AffineRepr<ScalarField = F>,
@@ -809,7 +987,7 @@ pub fn commit_witness_chunks_prover<
     Parameters: DiscreteLogParameters,
 >(
     rng: &mut R,
-    cs: &mut Prover<MerlinTranscript, C>,
+    prover: &mut Prover<MerlinTranscript, C>,
     divisor_witness: &DivisorWitness<F, Parameters>,
     chunk_len: usize,
     bp_gens: &BulletproofGens<C>,
@@ -821,6 +999,10 @@ pub fn commit_witness_chunks_prover<
     ),
     Error,
 > {
+    if chunk_len == 0 {
+        return Err(Error::ZeroChunkSize);
+    }
+
     // Combine scalar decomposition and divisor coefficients in single vector so they can be committed in chunks
     let combined_witness: Vec<F> = divisor_witness
         .decomposition
@@ -829,36 +1011,12 @@ pub fn commit_witness_chunks_prover<
         .chain(divisor_witness.divisor.as_slice().iter())
         .cloned()
         .collect();
-    if combined_witness.len() % chunk_len != 0 {
-        return Err(Error::WitnessChunkLengthMismatch(
-            combined_witness.len(),
-            chunk_len,
-        ));
-    }
 
-    let chunk_count = combined_witness.len() / chunk_len;
-    let mut commitments = Vec::with_capacity(chunk_count);
-    let mut blindings_vec = Vec::with_capacity(chunk_count);
-    // Single vector of variables corresponding to each digit in scalar decomposition and each divisor coefficient
-    let mut vars = Vec::with_capacity(combined_witness.len());
-
-    // Divide `combined_witness` into 1 or more chunks and commit each chunk
-    // Don't want to commit large vectors as they negatively impact perf, trading off proof size for time
-    for i in 0..chunk_count {
-        let chunk = &combined_witness[i * chunk_len..(i + 1) * chunk_len];
-        let blinding = F::rand(rng);
-        let (comm, vars_chunk) = cs.commit_vec(chunk, blinding, bp_gens);
-        commitments.push(comm);
-        blindings_vec.push(blinding);
-        vars.extend(vars_chunk);
-    }
-
-    let comms = DivisorComms(commitments);
-    let blindings = DivisorCommsBlindings(blindings_vec);
+    let (comms, blindings, mut vars) =
+        commit_to_witness_chunks(rng, prover, combined_witness, chunk_len, bp_gens)?;
 
     // Split vars back into dlog and divisor parts
-    let vars_dlog = vars[0..divisor_witness.decomposition.len()].to_vec();
-    let vars_divisor = vars[divisor_witness.decomposition.len()..].to_vec();
+    let vars_divisor = vars.split_off(divisor_witness.decomposition.len());
 
     #[cfg(debug_assertions)]
     {
@@ -871,17 +1029,18 @@ pub fn commit_witness_chunks_prover<
         }
     }
 
-    let point_with_dlog = dlog_and_divisor_vars(vars_dlog, vars_divisor);
+    let point_with_dlog = PointWithDlog::from_vars(vars, vars_divisor);
 
     Ok((comms, blindings, point_with_dlog))
 }
 
+/// Verifier flattens and commits to `DivisorWitness` into multiple chunks
 pub fn commit_witness_chunks_verifier<
     F: PrimeField,
     C: AffineRepr<ScalarField = F>,
     Parameters: DiscreteLogParameters,
 >(
-    cs: &mut Verifier<MerlinTranscript, C>,
+    verifier: &mut Verifier<MerlinTranscript, C>,
     comms: &DivisorComms<C>,
     chunk_len: usize,
 ) -> Result<Box<PointWithDlog<F, Parameters>>, Error> {
@@ -889,29 +1048,30 @@ pub fn commit_witness_chunks_verifier<
         return Err(Error::ZeroChunkSize);
     }
 
+    // Expects vars for decomposition of dlog and divisor coefficients
     let expected_vars_len = DECOMPOSITION_SIZE * 2;
     let mut vars = Vec::with_capacity(expected_vars_len);
 
     for comm in &comms.0 {
-        let chunk_vars = cs.commit_vec(chunk_len, *comm);
+        let chunk_vars = verifier.commit_vec(chunk_len, *comm);
         vars.extend(chunk_vars);
     }
-    // Allow padding
-    if vars.len() < expected_vars_len {
+
+    // Single-point witness layout is fixed, so extra commitments are malformed.
+    if vars.len() != expected_vars_len {
         return Err(Error::VerifierWitnessVarCountMismatch {
             got: vars.len(),
             expected: expected_vars_len,
         });
     }
 
-    let vars_dlog = vars[0..DECOMPOSITION_SIZE].to_vec();
-    let vars_divisor = vars[DECOMPOSITION_SIZE..].to_vec();
+    let vars_divisor = vars.split_off(DECOMPOSITION_SIZE);
 
-    Ok(dlog_and_divisor_vars(vars_dlog, vars_divisor))
+    Ok(PointWithDlog::from_vars(vars, vars_divisor))
 }
 
 /// Each generator in `generator_sources` is multiplied by the scalar `blinding`
-pub fn create_divisor_and_decomposition_multi_gen<
+pub fn create_divisor_and_decomposition_multi_point<
     F: PrimeField,
     C: DivisorCurve<BaseField = F>,
     Parameters: DiscreteLogParameters,
@@ -919,7 +1079,7 @@ pub fn create_divisor_and_decomposition_multi_gen<
     generator_sources: &[&GeneratorTable<F, Parameters>],
     blinding: C::ScalarField,
 ) -> Result<Box<DivisorWitnessMulti<F, Parameters>>, Error> {
-    let (scalar, decomposition_vec) =
+    let (scalar, mut decomposition_vec) =
         decompose_scalar::<C::ScalarField, C::BaseField, Parameters>(blinding)?;
 
     let mut result_xs = Vec::with_capacity(generator_sources.len());
@@ -936,6 +1096,7 @@ pub fn create_divisor_and_decomposition_multi_gen<
     }
 
     let decomposition = GenericArray::from_slice(&decomposition_vec).clone();
+    decomposition_vec.zeroize();
     Ok(Box::new(DivisorWitnessMulti::<F, Parameters>::new(
         decomposition,
         result_xs,
@@ -943,72 +1104,15 @@ pub fn create_divisor_and_decomposition_multi_gen<
     )))
 }
 
-/// Takes variables for resulting points and divisors and create the struct [`PointsWithDlog`].
-fn dlog_and_divisor_vars_multi<F: PrimeField, Parameters: DiscreteLogParameters>(
-    vars: Vec<Variable<F>>,
-    num_points: usize,
-) -> PointsWithDlog<F, Parameters> {
-    let dlog_bits = Parameters::ScalarBits::USIZE;
-    // Since the scalar is same in all multiplications (all points have same dlog), its decomposition is present only once
-    let dlog = GenericArray::<_, Parameters::ScalarBits>::from_slice(&vars[0..dlog_bits]).clone();
-
-    // Next get variables for x-coordinates of the resulting points
-    let result_xs: Vec<Variable<F>> =
-        vars[MAX_BITS_SUPPORTED..MAX_BITS_SUPPORTED + num_points].to_vec();
-
-    let divisor_start = MAX_BITS_SUPPORTED + num_points;
-    let divisor_block_size = DECOMPOSITION_SIZE;
-
-    let mut points = Vec::with_capacity(num_points);
-    let mut divisors = Vec::with_capacity(num_points);
-
-    for i in 0..num_points {
-        let div_block_start = divisor_start + i * divisor_block_size;
-        // Variables corresponding to the coefficients of the divisor polynomial for i-th point
-        let coeff_vars = &vars[div_block_start..div_block_start + divisor_block_size];
-
-        let result_x_var = result_xs[i];
-        let result_y_var = coeff_vars[divisor_block_size - 1];
-
-        let y = coeff_vars[0];
-        let mut cursor = 1;
-        let yx = GenericArray::<_, Parameters::YxCoefficients>::from_slice(
-            &coeff_vars[cursor..cursor + Parameters::YxCoefficients::USIZE],
-        )
-        .clone();
-        cursor += Parameters::YxCoefficients::USIZE;
-        let x_from_power_of_2 = GenericArray::<_, Parameters::XCoefficientsMinusOne>::from_slice(
-            &coeff_vars[cursor..cursor + Parameters::XCoefficientsMinusOne::USIZE],
-        )
-        .clone();
-        cursor += Parameters::XCoefficientsMinusOne::USIZE;
-        let zero = coeff_vars[cursor];
-
-        let divisor = Divisor {
-            y,
-            yx,
-            x_from_power_of_2,
-            zero,
-        };
-        points.push((result_x_var, result_y_var));
-        divisors.push(divisor);
-    }
-
-    PointsWithDlog {
-        points,
-        dlog,
-        divisors,
-    }
-}
-
-pub fn commit_witness_chunks_prover_multi_gen<
+/// Prover flattens and commits to `DivisorWitnessMulti` into multiple chunks
+pub fn commit_witness_chunks_prover_multi_point<
     F: PrimeField,
     C: AffineRepr<ScalarField = F>,
     R: CryptoRngCore,
     Parameters: DiscreteLogParameters,
 >(
     rng: &mut R,
-    cs: &mut Prover<MerlinTranscript, C>,
+    prover: &mut Prover<MerlinTranscript, C>,
     witness: &DivisorWitnessMulti<F, Parameters>,
     chunk_len: usize,
     bp_gens: &BulletproofGens<C>,
@@ -1020,16 +1124,14 @@ pub fn commit_witness_chunks_prover_multi_gen<
     ),
     Error,
 > {
+    if chunk_len == 0 {
+        return Err(Error::ZeroChunkSize);
+    }
+
     let num_points = witness.divisors.len();
-    // scalar decomposition + (x-coordinate per point) + (divisor coefficients per point)
-    let len = witness.decomposition.len() + num_points + num_points * DECOMPOSITION_SIZE;
+    let padded_len = PointsWithDlog::<F, Parameters>::padded_vars_len(num_points, chunk_len)?;
 
-    let padded_len = if len % chunk_len == 0 {
-        len
-    } else {
-        len + chunk_len - (len % chunk_len)
-    };
-
+    // [<scalar decomposition>, <x-coordinates of all resulting points>, <divisor of i-th resulting point>, <y-coordinate of i-th resulting point>, <padding>]
     let mut combined_witness = Vec::with_capacity(padded_len);
     combined_witness.extend_from_slice(witness.decomposition.as_slice());
     combined_witness.extend_from_slice(&witness.result_xs);
@@ -1038,38 +1140,16 @@ pub fn commit_witness_chunks_prover_multi_gen<
     }
     combined_witness.resize(padded_len, F::ZERO);
 
-    if combined_witness.len() % chunk_len != 0 {
-        return Err(Error::WitnessChunkLengthMismatch(
-            combined_witness.len(),
-            chunk_len,
-        ));
-    }
+    let (comms, blindings, vars) =
+        commit_to_witness_chunks(rng, prover, combined_witness, chunk_len, bp_gens)?;
 
-    let chunk_count = combined_witness.len() / chunk_len;
-    let mut commitments = Vec::with_capacity(chunk_count);
-    let mut blindings_vec = Vec::with_capacity(chunk_count);
-
-    // Single vector of variables corresponding to each digit in scalar decomposition and each divisor coefficient of all points
-    let mut vars = Vec::with_capacity(combined_witness.len());
-
-    // Divide `combined_witness` into 1 or more chunks and commit each chunk
-    for i in 0..chunk_count {
-        let chunk = &combined_witness[i * chunk_len..(i + 1) * chunk_len];
-        let blinding = F::rand(rng);
-        let (comm, vars_chunk) = cs.commit_vec(chunk, blinding, bp_gens);
-        commitments.push(comm);
-        blindings_vec.push(blinding);
-        vars.extend(vars_chunk);
-    }
-
-    let comms = DivisorComms(commitments);
-    let blindings = DivisorCommsBlindings(blindings_vec);
-    let points_with_dlog = dlog_and_divisor_vars_multi(vars, num_points);
+    let points_with_dlog = PointsWithDlog::from_vars(vars, num_points);
 
     Ok((comms, blindings, points_with_dlog))
 }
 
-pub fn commit_witness_chunks_verifier_multi_gen<
+/// Verifier flattens and commits to `DivisorWitnessMulti` into multiple chunks
+pub fn commit_witness_chunks_verifier_multi_point<
     F: PrimeField,
     C: AffineRepr<ScalarField = F>,
     Parameters: DiscreteLogParameters,
@@ -1079,31 +1159,28 @@ pub fn commit_witness_chunks_verifier_multi_gen<
     chunk_len: usize,
     num_generators: usize,
 ) -> Result<PointsWithDlog<F, Parameters>, Error> {
-    if chunk_len == 0 {
-        return Err(Error::ZeroChunkSize);
-    }
     let expected_vars_len =
-        MAX_BITS_SUPPORTED + num_generators + (num_generators * DECOMPOSITION_SIZE);
+        PointsWithDlog::<F, Parameters>::padded_vars_len(num_generators, chunk_len)?;
     let mut vars = Vec::with_capacity(expected_vars_len);
     for comm in &comms.0 {
         let chunk_vars = cs.commit_vec(chunk_len, *comm);
         vars.extend(chunk_vars);
     }
-    // Allow padding
-    if vars.len() < expected_vars_len {
+    // Multi-point witness layout is chunk padded, so extra commitments are malformed.
+    if vars.len() != expected_vars_len {
         return Err(Error::VerifierWitnessVarCountMismatch {
             got: vars.len(),
             expected: expected_vars_len,
         });
     }
-    Ok(dlog_and_divisor_vars_multi(vars, num_generators))
+    Ok(PointsWithDlog::from_vars(vars, num_generators))
 }
 
 /// Similar to [`discrete_log`] but proves that given points have the specified discrete logarithm over
 /// the specified generators.
 ///
 /// Returns an error if the number of divisors, points, or challenged generators don't match.
-pub fn discrete_log_multi_gen<
+pub fn discrete_log_multi_point<
     F: PrimeField,
     CS: ConstraintSystem<F>,
     Parameters: DiscreteLogParameters,
@@ -1133,41 +1210,19 @@ pub fn discrete_log_multi_gen<
     let n = divisors.len();
     let mut result_points = Vec::with_capacity(n);
 
-    for (i, ((point, divisor), challenged_generator)) in points
+    debug_assert_committed_vars(dlog.iter());
+
+    for ((point, divisor), challenged_generator) in points
         .into_iter()
         .zip(divisors.into_iter())
-        .into_iter()
-        .zip(challenged_generators.into_iter())
-        .enumerate()
+        .zip(challenged_generators.iter())
     {
-        let arg_iter = [point.0, point.1, divisor.y, divisor.zero];
-        let arg_iter = arg_iter.iter().chain(divisor.yx.iter());
-        let arg_iter = arg_iter.chain(divisor.x_from_power_of_2.iter());
-        for variable in arg_iter {
-            debug_assert!(
-                matches!(
-                    variable,
-                    Variable::VectorCommit(_, _) | Variable::Committed(_)
-                ),
-                "discrete log proofs requires all arguments belong to commitments",
-            );
-        }
-        if i == 0 {
-            for variable in dlog.iter() {
-                debug_assert!(
-                    matches!(
-                        variable,
-                        Variable::VectorCommit(_, _) | Variable::Committed(_)
-                    ),
-                    "discrete log proofs requires all arguments belong to commitments",
-                );
-            }
-        }
+        debug_assert_committed_point_with_dlog(point, &divisor, None);
 
         constrain_challenge_eval(
             cs,
             curve,
-            dlog.clone(),
+            &dlog,
             point,
             divisor,
             challenge,
@@ -1184,7 +1239,7 @@ pub fn discrete_log_multi_gen<
 
 /// For enforcing `original_points[i] + blinds[i].point = blinded_points[i]`. Each `blinds[i].point` has
 /// the same discrete log but with a different generator
-pub fn discrete_log_blinding_multi_gen<
+pub fn discrete_log_blinding_multi_point<
     F: PrimeField,
     CS: ConstraintSystem<F>,
     Parameters: DiscreteLogParameters,
@@ -1197,7 +1252,7 @@ pub fn discrete_log_blinding_multi_gen<
     tables: &[&GeneratorTable<F, Parameters>],
 ) -> Result<(), Error> {
     let (challenge, challenged_generators) = discrete_log_challenge(cs, curve, tables)?;
-    discrete_log_blinding_multi_gen_given_challenge(
+    discrete_log_blinding_multi_point_given_challenge(
         cs,
         original_points,
         blinds,
@@ -1208,7 +1263,7 @@ pub fn discrete_log_blinding_multi_gen<
     )
 }
 
-pub fn discrete_log_blinding_multi_gen_given_challenge<
+pub fn discrete_log_blinding_multi_point_given_challenge<
     F: PrimeField,
     CS: ConstraintSystem<F>,
     Parameters: DiscreteLogParameters,
@@ -1246,7 +1301,7 @@ pub fn discrete_log_blinding_multi_gen_given_challenge<
         .collect();
 
     let blind_on_curves =
-        discrete_log_multi_gen(cs, curve, blinds, challenge, challenged_generators)?;
+        discrete_log_multi_point(cs, curve, blinds, challenge, challenged_generators)?;
 
     for i in 0..n {
         incomplete_add_pub(
@@ -1270,10 +1325,11 @@ pub fn discrete_log_blinding_and_dlog<
     cs: &mut CS,
     original_point: (Variable<F>, Variable<F>),
     points_with_dlog: PointsWithDlog<F, Parameters>,
-    blinded_point: (F, F),
+    blinded_point: (F, F), // R
+    other_point: (F, F),   // S
     curve: &CurveSpec<F>,
     tables: &[&GeneratorTable<F, Parameters>; 2],
-) -> Result<OnCurve<F>, Error> {
+) -> Result<(), Error> {
     if tables.len() != 2 {
         return Err(Error::MismatchedSize(2, tables.len()));
     }
@@ -1290,6 +1346,7 @@ pub fn discrete_log_blinding_and_dlog<
         original_point,
         points_with_dlog,
         blinded_point,
+        other_point,
         curve,
         &challenge,
         &challenged_gen1,
@@ -1305,38 +1362,14 @@ pub fn discrete_log_blinding_and_dlog_given_challenge<
     cs: &mut CS,
     original_point: (Variable<F>, Variable<F>),
     points_with_dlog: PointsWithDlog<F, Parameters>,
-    blinded_point: (F, F),
+    blinded_point: (F, F), // R
+    other_point: (F, F),   // S
     curve: &CurveSpec<F>,
     challenge: &DiscreteLogChallenge<F, Parameters>,
     challenged_gen1: &ChallengedGenerator<F, Parameters>,
     challenged_gen2: &ChallengedGenerator<F, Parameters>,
-) -> Result<OnCurve<F>, Error> {
-    if points_with_dlog.points.len() != 2 {
-        return Err(Error::MismatchedSize(2, points_with_dlog.points.len()));
-    }
-    if points_with_dlog.divisors.len() != 2 {
-        return Err(Error::MismatchedSize(2, points_with_dlog.divisors.len()));
-    }
-
-    let PointsWithDlog {
-        mut points,
-        dlog,
-        mut divisors,
-    } = points_with_dlog;
-
-    // Extract the second point with dlog for discrete log relation
-    let blind2 = PointWithDlog {
-        point: points.pop().unwrap(),
-        dlog: dlog.clone(),
-        divisor: divisors.pop().unwrap(),
-    };
-
-    // Extract the first point with dlog for blinding relation
-    let blind1 = PointWithDlog {
-        point: points.pop().unwrap(),
-        dlog,
-        divisor: divisors.pop().unwrap(),
-    };
+) -> Result<(), Error> {
+    let [blind1, blind2] = points_with_dlog.into_two()?;
 
     // For R = P + gen_1 * b
     discrete_log_blinding_given_challenge(
@@ -1350,9 +1383,14 @@ pub fn discrete_log_blinding_and_dlog_given_challenge<
     );
 
     // For S = gen_2 * b
+    // result = -S
     let result = discrete_log(cs, curve, blind2, challenge, challenged_gen2);
 
-    Ok(result)
+    let OnCurve { x: s_x, y: s_y } = result;
+    // negative of a point has same x-coordinate but negative y-coordinate
+    cs.constrain(s_x - other_point.0);
+    cs.constrain(s_y + other_point.1);
+    Ok(())
 }
 
 /// The second returned value is a list containing the scalar's decomposition and padded with 0s until its length is MAX_BITS_SUPPORTED
@@ -1395,6 +1433,8 @@ fn get_divisor_array<F: PrimeField, Parameters: DiscreteLogParameters>(
         return Err(Error::DivisorWitnessLengthExceeded(witness_len));
     }
 
+    // divisor_witness will be set as
+    // [coefficient of y, coefficients of yx, coefficients of x^i from i>1, coefficient of 0 degree term, result_y]
     let mut divisor_witness = [F::ZERO; DECOMPOSITION_SIZE];
     divisor_witness[0] = divisor.y_coefficient;
 
@@ -1423,13 +1463,52 @@ fn get_divisor_array<F: PrimeField, Parameters: DiscreteLogParameters>(
     Ok(divisor)
 }
 
+/// Divide `combined_witness` into 1 or more chunks and commit each chunk
+/// Don't want to commit large vectors as they negatively impact perf, trading off proof size for time
+fn commit_to_witness_chunks<F: PrimeField, C: AffineRepr<ScalarField = F>, R: CryptoRngCore>(
+    rng: &mut R,
+    prover: &mut Prover<MerlinTranscript, C>,
+    mut combined_witness: Vec<F>,
+    chunk_len: usize,
+    bp_gens: &BulletproofGens<C>,
+) -> Result<(DivisorComms<C>, DivisorCommsBlindings<F>, Vec<Variable<F>>), Error> {
+    if combined_witness.len() % chunk_len != 0 {
+        return Err(Error::WitnessChunkLengthMismatch(
+            combined_witness.len(),
+            chunk_len,
+        ));
+    }
+
+    let chunk_count = combined_witness.len() / chunk_len;
+    let mut commitments = Vec::with_capacity(chunk_count);
+    let mut blindings_vec = Vec::with_capacity(chunk_count);
+
+    // Single vector of variables corresponding to each digit in scalar decomposition and each divisor coefficient of all points
+    let mut vars = Vec::with_capacity(combined_witness.len());
+
+    for i in 0..chunk_count {
+        let chunk = &combined_witness[i * chunk_len..(i + 1) * chunk_len];
+        let blinding = F::rand(rng);
+        let (comm, vars_chunk) = prover.commit_vec(chunk, blinding, bp_gens);
+        commitments.push(comm);
+        blindings_vec.push(blinding);
+        vars.extend(vars_chunk);
+    }
+
+    combined_witness.zeroize();
+
+    let comms = DivisorComms(commitments);
+    let blindings = DivisorCommsBlindings(blindings_vec);
+    Ok((comms, blindings, vars))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::utils::CurveSpec;
+    use ark_ec::short_weierstrass::Projective;
     use ark_ec::AffineRepr;
     use ark_ec::CurveGroup;
-    use ark_ec::short_weierstrass::Projective;
     use ark_serialize::CanonicalSerialize;
     use ark_std::UniformRand;
     use bulletproofs::r1cs::{Prover, Verifier};
@@ -1499,6 +1578,9 @@ mod tests {
         let mut missing_chunk = comms.clone();
         missing_chunk.0.pop();
 
+        let mut extra_chunk = comms.clone();
+        extra_chunk.0.push(comms.0[0]);
+
         let transcript = MerlinTranscript::new(b"malformed-dlog-verifier-short");
         let mut verifier = Verifier::new(transcript);
         let result = commit_witness_chunks_verifier::<_, _, PallasParams>(
@@ -1517,9 +1599,146 @@ mod tests {
             _ => panic!("expected verifier witness var count mismatch"),
         }
 
+        let transcript = MerlinTranscript::new(b"malformed-dlog-verifier-long");
+        let mut verifier = Verifier::new(transcript);
+        let result = commit_witness_chunks_verifier::<_, _, PallasParams>(
+            &mut verifier,
+            &extra_chunk,
+            vc_len,
+        );
+        match result {
+            Err(err) => match err {
+                Error::VerifierWitnessVarCountMismatch {
+                    got: _,
+                    expected: _,
+                } => (),
+                other => panic!("unexpected error variant: {other:?}"),
+            },
+            _ => panic!("expected verifier witness var count mismatch"),
+        }
+
         let transcript = MerlinTranscript::new(b"malformed-dlog-verifier-zero");
         let mut verifier = Verifier::new(transcript);
         let result = commit_witness_chunks_verifier::<_, _, PallasParams>(&mut verifier, &comms, 0);
+        match result {
+            Err(err) => assert!(matches!(err, Error::ZeroChunkSize)),
+            _ => panic!("expected zero chunk size error"),
+        }
+
+        let transcript = MerlinTranscript::new(b"malformed-dlog-prover-zero");
+        let mut prover = Prover::new(&pc_gens, transcript);
+        let result = commit_witness_chunks_prover::<_, _, _, PallasParams>(
+            &mut rng,
+            &mut prover,
+            &witness,
+            0,
+            &bp_gens,
+        );
+        match result {
+            Err(err) => assert!(matches!(err, Error::ZeroChunkSize)),
+            _ => panic!("expected zero chunk size error"),
+        }
+    }
+
+    #[test]
+    fn test_commit_witness_chunks_verifier_multi_point_rejects_malformed_commitments() {
+        let mut rng = StdRng::seed_from_u64(17);
+        let pc_gens = PedersenGens::<VestaAffine>::default();
+        let bp_gens = BulletproofGens::<VestaAffine>::new(1024, 1);
+        let generator1 = Projective::<PallasConfig>::rand(&mut rng);
+        let generator2 = Projective::<PallasConfig>::rand(&mut rng);
+        let generator_table1 =
+            GeneratorTable::<PallasBase, PallasParams>::new::<PallasConfig>(generator1);
+        let generator_table2 =
+            GeneratorTable::<PallasBase, PallasParams>::new::<PallasConfig>(generator2);
+        let generator_tables = [&generator_table1, &generator_table2];
+
+        let witness =
+            create_divisor_and_decomposition_multi_point::<_, PallasConfig, PallasParams>(
+                &generator_tables,
+                PallasScalar::rand(&mut rng),
+            )
+            .unwrap();
+
+        let vc_len = 64;
+
+        let transcript = MerlinTranscript::new(b"malformed-shared-dlog-prover");
+        let mut prover = Prover::new(&pc_gens, transcript);
+        let (comms, _, _) = commit_witness_chunks_prover_multi_point::<_, _, _, PallasParams>(
+            &mut rng,
+            &mut prover,
+            &witness,
+            vc_len,
+            &bp_gens,
+        )
+        .unwrap();
+
+        let mut missing_chunk = comms.clone();
+        missing_chunk.0.pop();
+
+        let mut extra_chunk = comms.clone();
+        extra_chunk.0.push(comms.0[0]);
+
+        let transcript = MerlinTranscript::new(b"malformed-shared-dlog-verifier-short");
+        let mut verifier = Verifier::new(transcript);
+        let result = commit_witness_chunks_verifier_multi_point::<_, _, PallasParams>(
+            &mut verifier,
+            &missing_chunk,
+            vc_len,
+            generator_tables.len(),
+        );
+        match result {
+            Err(err) => match err {
+                Error::VerifierWitnessVarCountMismatch {
+                    got: _,
+                    expected: _,
+                } => (),
+                other => panic!("unexpected error variant: {other:?}"),
+            },
+            _ => panic!("expected verifier witness var count mismatch"),
+        }
+
+        let transcript = MerlinTranscript::new(b"malformed-shared-dlog-verifier-long");
+        let mut verifier = Verifier::new(transcript);
+        let result = commit_witness_chunks_verifier_multi_point::<_, _, PallasParams>(
+            &mut verifier,
+            &extra_chunk,
+            vc_len,
+            generator_tables.len(),
+        );
+        match result {
+            Err(err) => match err {
+                Error::VerifierWitnessVarCountMismatch {
+                    got: _,
+                    expected: _,
+                } => (),
+                other => panic!("unexpected error variant: {other:?}"),
+            },
+            _ => panic!("expected verifier witness var count mismatch"),
+        }
+
+        let transcript = MerlinTranscript::new(b"malformed-shared-dlog-verifier-zero");
+        let mut verifier = Verifier::new(transcript);
+        let result = commit_witness_chunks_verifier_multi_point::<_, _, PallasParams>(
+            &mut verifier,
+            &comms,
+            0,
+            generator_tables.len(),
+        );
+        match result {
+            Err(err) => assert!(matches!(err, Error::ZeroChunkSize)),
+            _ => panic!("expected zero chunk size error"),
+        }
+
+        let transcript = MerlinTranscript::new(b"malformed-shared-dlog-prover-zero");
+        let mut prover = Prover::new(&pc_gens, transcript);
+        let result = commit_witness_chunks_prover_multi_point::<_, _, _, PallasParams>(
+            &mut rng,
+            &mut prover,
+            &witness,
+            0,
+            &bp_gens,
+        );
         match result {
             Err(err) => assert!(matches!(err, Error::ZeroChunkSize)),
             _ => panic!("expected zero chunk size error"),
@@ -1558,6 +1777,7 @@ mod tests {
             let mut verifying_times_0 = Vec::with_capacity(count);
             let mut verifying_times_00 = Vec::with_capacity(count);
             let mut proof_size = 0;
+            let mut wrong_test_data = None;
             for _ in 0..count {
                 // Create scalar o and compute o_blind = o.generator
                 let o = S::rand(&mut rng);
@@ -1623,6 +1843,16 @@ mod tests {
                     proof_size = proof.compressed_size()
                         + comms.compressed_size()
                         + comm_orig.compressed_size();
+                }
+
+                if wrong_test_data.is_none() {
+                    wrong_test_data = Some((
+                        proof.clone(),
+                        comm_orig.clone(),
+                        comms.clone(),
+                        o_tilde_x,
+                        o_tilde_y,
+                    ));
                 }
 
                 let start = Instant::now();
@@ -1691,6 +1921,86 @@ mod tests {
                 total_verify_00,
                 median_verify_00
             );
+
+            // verifier given incorrect o_tilde_x, o_tilde_y should fail
+            if let Some((
+                ref wrong_proof,
+                ref wrong_comm_orig,
+                ref wrong_comms,
+                wrong_o_tilde_x,
+                wrong_o_tilde_y,
+            )) = wrong_test_data
+            {
+                let transcript = MerlinTranscript::new(b"test");
+                let mut verifier = Verifier::new(transcript);
+
+                let mut vars_orig = verifier.commit_vec(2, *wrong_comm_orig);
+                let o_y_var = vars_orig.pop().unwrap();
+                let o_x_var = vars_orig.pop().unwrap();
+
+                let o_blind_claim = commit_witness_chunks_verifier::<_, _, Params>(
+                    &mut verifier,
+                    wrong_comms,
+                    vc_len,
+                )
+                .unwrap();
+
+                let wrong_o_tilde_x = wrong_o_tilde_x + B::ONE;
+
+                discrete_log_blinding(
+                    &mut verifier,
+                    (o_x_var, o_y_var),
+                    *o_blind_claim,
+                    (wrong_o_tilde_x, wrong_o_tilde_y),
+                    &curve,
+                    &[&generator_table],
+                )
+                .unwrap();
+
+                assert!(
+                    verifier.verify(wrong_proof, &pc_gens, &bp_gens).is_err(),
+                    "expected verification to fail with wrong o_tilde_x"
+                );
+            }
+
+            // Negative test: verifier given incorrect original_point (swapped x and y coords) should fail
+            if let Some((
+                ref wrong_proof,
+                ref wrong_comm_orig,
+                ref wrong_comms,
+                wrong_o_tilde_x,
+                wrong_o_tilde_y,
+            )) = wrong_test_data
+            {
+                let transcript = MerlinTranscript::new(b"test");
+                let mut verifier = Verifier::new(transcript);
+
+                let mut vars_orig = verifier.commit_vec(2, *wrong_comm_orig);
+                let o_y_var = vars_orig.pop().unwrap();
+                let o_x_var = vars_orig.pop().unwrap();
+
+                let o_blind_claim = commit_witness_chunks_verifier::<_, _, Params>(
+                    &mut verifier,
+                    wrong_comms,
+                    vc_len,
+                )
+                .unwrap();
+
+                discrete_log_blinding(
+                    &mut verifier,
+                    (o_y_var, o_x_var),
+                    *o_blind_claim,
+                    (wrong_o_tilde_x, wrong_o_tilde_y),
+                    &curve,
+                    &[&generator_table],
+                )
+                .unwrap();
+
+                assert!(
+                    verifier.verify(wrong_proof, &pc_gens, &bp_gens).is_err(),
+                    "expected verification to fail with wrong original_point"
+                );
+            }
         }
 
         let count = 5;
@@ -1827,6 +2137,11 @@ mod tests {
                 + comm_orig.compressed_size()
                 + all_divisor_commitments.compressed_size();
 
+            let wrong_proof = proof.clone();
+            let wrong_comm_orig = comm_orig.clone();
+            let wrong_divisor_comms = all_divisor_commitments.clone();
+            let wrong_tilde_points = all_o_tilde_points.clone();
+
             let start = Instant::now();
             let transcript = MerlinTranscript::new(b"test");
             let mut verifier = Verifier::new(transcript);
@@ -1879,6 +2194,52 @@ mod tests {
                 proving_time_00,
                 verifying_time_00
             );
+
+            // verifier given incorrect o_tilde point for one entry should fail
+            {
+                let transcript = MerlinTranscript::new(b"test");
+                let mut verifier = Verifier::new(transcript);
+
+                let mut all_o_blind_claims = Vec::new();
+
+                let vars_orig = verifier.commit_vec(2 * count, wrong_comm_orig);
+
+                for i in 0..count {
+                    let O_x_var = vars_orig[2 * i];
+                    let O_y_var = vars_orig[2 * i + 1];
+
+                    let o_blind_claim = commit_witness_chunks_verifier::<_, _, Params>(
+                        &mut verifier,
+                        &wrong_divisor_comms[i],
+                        vc_len,
+                    )
+                    .unwrap();
+                    all_o_blind_claims.push((o_blind_claim, O_x_var, O_y_var));
+                }
+
+                for (i, (o_blind_claim, o_x_var, o_y_var)) in
+                    all_o_blind_claims.into_iter().enumerate()
+                {
+                    let (mut o_tilde_x, o_tilde_y) = wrong_tilde_points[i];
+                    if i == 0 {
+                        o_tilde_x += B::ONE;
+                    }
+                    discrete_log_blinding(
+                        &mut verifier,
+                        (o_x_var, o_y_var),
+                        *o_blind_claim,
+                        (o_tilde_x, o_tilde_y),
+                        &curve,
+                        &[&generator_table],
+                    )
+                    .unwrap();
+                }
+
+                assert!(
+                    verifier.verify(&wrong_proof, &pc_gens, &bp_gens).is_err(),
+                    "expected verification to fail with wrong o_tilde_x"
+                );
+            }
         }
 
         let count = 4;
@@ -1917,7 +2278,6 @@ mod tests {
         ) {
             let mut rng = StdRng::seed_from_u64(0);
 
-            // Create curve spec: y^2 = x^3 + 5
             let curve = CurveSpec::<B> {
                 a: C::COEFF_A,
                 b: C::COEFF_B,
@@ -2020,6 +2380,11 @@ mod tests {
                 + comm_orig.compressed_size()
                 + all_divisor_commitments.compressed_size();
 
+            let wrong_proof = proof.clone();
+            let wrong_comm_orig = comm_orig.clone();
+            let wrong_divisor_comms = all_divisor_commitments.clone();
+            let wrong_tilde_points = all_o_tilde_points.clone();
+
             let start = Instant::now();
             let transcript = MerlinTranscript::new(b"test");
             let mut verifier = Verifier::new(transcript);
@@ -2077,6 +2442,57 @@ mod tests {
                 proving_time_00,
                 verifying_time_00
             );
+
+            // verifier given incorrect o_tilde point for one entry should fail
+            {
+                let transcript = MerlinTranscript::new(b"test");
+                let mut verifier = Verifier::new(transcript);
+
+                let mut all_o_blind_claims = Vec::new();
+
+                let vars_orig = verifier.commit_vec(2 * count, wrong_comm_orig);
+
+                for i in 0..count {
+                    let O_x_var = vars_orig[2 * i];
+                    let O_y_var = vars_orig[2 * i + 1];
+
+                    let o_blind_claim = commit_witness_chunks_verifier::<_, _, Params>(
+                        &mut verifier,
+                        &wrong_divisor_comms[i],
+                        vc_len,
+                    )
+                    .unwrap();
+                    all_o_blind_claims.push((o_blind_claim, O_x_var, O_y_var));
+                }
+
+                let (challenge, challenged_generators) =
+                    discrete_log_challenge(&mut verifier, &curve, &[&generator_table]).unwrap();
+                let mut challenged_generators = challenged_generators.into_iter();
+                let challenged_T = challenged_generators.next().unwrap();
+
+                for (i, (o_blind_claim, o_x_var, o_y_var)) in
+                    all_o_blind_claims.into_iter().enumerate()
+                {
+                    let (mut o_tilde_x, o_tilde_y) = wrong_tilde_points[i];
+                    if i == 0 {
+                        o_tilde_x += B::ONE;
+                    }
+                    discrete_log_blinding_given_challenge(
+                        &mut verifier,
+                        (o_x_var, o_y_var),
+                        *o_blind_claim,
+                        (o_tilde_x, o_tilde_y),
+                        &curve,
+                        &challenge,
+                        &challenged_T,
+                    );
+                }
+
+                assert!(
+                    verifier.verify(&wrong_proof, &pc_gens, &bp_gens).is_err(),
+                    "expected verification to fail with wrong o_tilde_x"
+                );
+            }
         }
 
         let count = 10;
@@ -2153,9 +2569,9 @@ mod tests {
                 prover.commit_vec(&all_o_coords, B::rand(&mut rng), &bp_gens);
 
             let witness =
-                create_divisor_and_decomposition_multi_gen::<_, C, Params>(&gen_table_refs, d)
+                create_divisor_and_decomposition_multi_point::<_, C, Params>(&gen_table_refs, d)
                     .unwrap();
-            let (comms, _, blinds) = commit_witness_chunks_prover_multi_gen::<_, _, _, Params>(
+            let (comms, _, blinds) = commit_witness_chunks_prover_multi_point::<_, _, _, Params>(
                 &mut rng,
                 &mut prover,
                 &witness,
@@ -2170,7 +2586,7 @@ mod tests {
                 .map(|i| (all_O_vars[2 * i], all_O_vars[2 * i + 1]))
                 .collect();
 
-            discrete_log_blinding_multi_gen(
+            discrete_log_blinding_multi_point(
                 &mut prover,
                 &original_point_vars,
                 blinds,
@@ -2187,12 +2603,17 @@ mod tests {
             let proof_size =
                 proof.compressed_size() + comm_orig.compressed_size() + comms.compressed_size();
 
+            let wrong_proof = proof.clone();
+            let wrong_comm_orig = comm_orig.clone();
+            let wrong_comms = comms.clone();
+            let wrong_all_o_tilde = all_o_tilde.clone();
+
             let start_v = Instant::now();
             let transcript = MerlinTranscript::new(b"shared-dlog");
             let mut verifier = Verifier::new(transcript);
 
             let vars_orig = verifier.commit_vec(2 * n, comm_orig);
-            let blinds = commit_witness_chunks_verifier_multi_gen::<_, _, Params>(
+            let blinds = commit_witness_chunks_verifier_multi_point::<_, _, Params>(
                 &mut verifier,
                 &comms,
                 vc_len,
@@ -2205,7 +2626,7 @@ mod tests {
                 .map(|i| (vars_orig[2 * i], vars_orig[2 * i + 1]))
                 .collect();
 
-            discrete_log_blinding_multi_gen(
+            discrete_log_blinding_multi_point(
                 &mut verifier,
                 &original_point_vars,
                 blinds,
@@ -2229,6 +2650,43 @@ mod tests {
                 commit_time_v,
                 constrain_time_v,
             );
+
+            // verifier given incorrect o_tilde point for one entry should fail
+            {
+                let transcript = MerlinTranscript::new(b"shared-dlog");
+                let mut verifier = Verifier::new(transcript);
+
+                let vars_orig = verifier.commit_vec(2 * n, wrong_comm_orig);
+                let blinds = commit_witness_chunks_verifier_multi_point::<_, _, Params>(
+                    &mut verifier,
+                    &wrong_comms,
+                    vc_len,
+                    n,
+                )
+                .unwrap();
+
+                let original_point_vars: Vec<(Variable<B>, Variable<B>)> = (0..n)
+                    .map(|i| (vars_orig[2 * i], vars_orig[2 * i + 1]))
+                    .collect();
+
+                let mut wrong_tilde = wrong_all_o_tilde;
+                wrong_tilde[0].0 += B::ONE;
+
+                discrete_log_blinding_multi_point(
+                    &mut verifier,
+                    &original_point_vars,
+                    blinds,
+                    &wrong_tilde,
+                    &curve,
+                    &gen_table_refs,
+                )
+                .unwrap();
+
+                assert!(
+                    verifier.verify(&wrong_proof, &pc_gens, &bp_gens).is_err(),
+                    "expected verification to fail with wrong o_tilde_x"
+                );
+            }
         }
 
         let count = 4;
@@ -2255,6 +2713,10 @@ mod tests {
 
     #[test]
     fn test_mixed_blinding_and_dlog() {
+        // For proving 2 relations as:
+        // R = P + gen_1 * b, R is revealed, P is not
+        // S = gen_2 * b, S is revealed
+        // Ensures that same b is used in both relations
         fn check<
             C: DivisorCurve<BaseField = B, ScalarField = S>,
             Params: DiscreteLogParameters,
@@ -2284,6 +2746,7 @@ mod tests {
             let mut proving_times = Vec::with_capacity(count);
             let mut verifying_times = Vec::with_capacity(count);
             let mut proof_size = 0;
+            let mut wrong_data = None;
 
             for _ in 0..count {
                 // Create scalar b
@@ -2293,14 +2756,14 @@ mod tests {
                 let P = Projective::<C>::rand(&mut rng);
                 let (p_x, p_y) = to_xy::<C>(P).unwrap();
 
-                // R = P + gen_1 * b, R is revealed
+                // R = P + gen_1 * b, R is revealed, P is not
                 let gen1_b = generator1 * b;
                 let R = P + gen1_b;
                 let (r_x, r_y) = to_xy::<C>(R).unwrap();
 
-                // S = gen_2 * b, which is revealed
+                // S = gen_2 * b, S is revealed
                 let S = generator2 * b;
-                let (minus_s_x, minus_s_y) = to_xy::<C>(-(S)).unwrap();
+                let (s_x, s_y) = to_xy::<C>(S).unwrap();
 
                 let start = Instant::now();
 
@@ -2312,14 +2775,14 @@ mod tests {
                 let p_y_var = vars_orig.pop().unwrap();
                 let p_x_var = vars_orig.pop().unwrap();
 
-                // Use multi_gen with 2 generators
+                // Use multi_point with 2 generators
                 let gen_tables = [&generator_table1, &generator_table2];
                 let witness =
-                    create_divisor_and_decomposition_multi_gen::<_, C, Params>(&gen_tables, -b)
+                    create_divisor_and_decomposition_multi_point::<_, C, Params>(&gen_tables, -b)
                         .unwrap();
 
                 let (comms, _, points_with_dlog) =
-                    commit_witness_chunks_prover_multi_gen::<_, _, _, Params>(
+                    commit_witness_chunks_prover_multi_point::<_, _, _, Params>(
                         &mut rng,
                         &mut prover,
                         &witness,
@@ -2328,18 +2791,16 @@ mod tests {
                     )
                     .unwrap();
 
-                let result_minus_s = discrete_log_blinding_and_dlog(
+                discrete_log_blinding_and_dlog(
                     &mut prover,
                     (p_x_var, p_y_var), // P
                     points_with_dlog,
                     (r_x, r_y), // R
+                    (s_x, s_y), // S
                     &curve,
                     &[&generator_table1, &generator_table2],
                 )
                 .unwrap();
-
-                assert_eq!(minus_s_x, prover.eval(&result_minus_s.x.into()));
-                assert_eq!(minus_s_y, prover.eval(&result_minus_s.y.into()));
 
                 let proof = prover.prove(&bp_gens).unwrap();
                 proving_times.push(start.elapsed());
@@ -2348,6 +2809,18 @@ mod tests {
                     proof_size = proof.compressed_size()
                         + comms.compressed_size()
                         + comm_orig.compressed_size();
+                }
+
+                if wrong_data.is_none() {
+                    wrong_data = Some((
+                        proof.clone(),
+                        comm_orig.clone(),
+                        comms.clone(),
+                        r_x,
+                        r_y,
+                        s_x,
+                        s_y,
+                    ));
                 }
 
                 let start = Instant::now();
@@ -2359,7 +2832,7 @@ mod tests {
                 let p_y_var = vars_p.pop().unwrap();
                 let p_x_var = vars_p.pop().unwrap();
 
-                let points_with_dlog = commit_witness_chunks_verifier_multi_gen::<_, _, Params>(
+                let points_with_dlog = commit_witness_chunks_verifier_multi_point::<_, _, Params>(
                     &mut verifier,
                     &comms,
                     vc_len,
@@ -2372,6 +2845,7 @@ mod tests {
                     (p_x_var, p_y_var), // P
                     points_with_dlog,
                     (r_x, r_y), // R
+                    (s_x, s_y), // S
                     &curve,
                     &[&generator_table1, &generator_table2],
                 )
@@ -2391,6 +2865,69 @@ mod tests {
         median proving time: {:?}, median verification time: {:?}",
                 median_prove, median_verify
             );
+
+            // verifier given incorrect blinded point R or incorrect point S should fail
+            if let Some((ref proof, ref comm_orig, ref comms, r_x, r_y, s_x, s_y)) = wrong_data {
+                let transcript = MerlinTranscript::new(b"test");
+                let mut verifier = Verifier::new(transcript);
+
+                let mut vars_p = verifier.commit_vec(2, *comm_orig);
+                let p_y_var = vars_p.pop().unwrap();
+                let p_x_var = vars_p.pop().unwrap();
+
+                let wrong_points_with_dlog = commit_witness_chunks_verifier_multi_point::<
+                    _,
+                    _,
+                    Params,
+                >(&mut verifier, comms, vc_len, 2)
+                .unwrap();
+
+                discrete_log_blinding_and_dlog(
+                    &mut verifier,
+                    (p_x_var, p_y_var),
+                    wrong_points_with_dlog,
+                    (r_x + B::ONE, r_y),
+                    (s_x, s_y), // S
+                    &curve,
+                    &[&generator_table1, &generator_table2],
+                )
+                .unwrap();
+
+                assert!(
+                    verifier.verify(proof, &pc_gens, &bp_gens).is_err(),
+                    "expected verification to fail with wrong r_x"
+                );
+
+                let transcript = MerlinTranscript::new(b"test");
+                let mut verifier = Verifier::new(transcript);
+
+                let mut vars_p = verifier.commit_vec(2, *comm_orig);
+                let p_y_var = vars_p.pop().unwrap();
+                let p_x_var = vars_p.pop().unwrap();
+
+                let wrong_points_with_dlog = commit_witness_chunks_verifier_multi_point::<
+                    _,
+                    _,
+                    Params,
+                >(&mut verifier, comms, vc_len, 2)
+                .unwrap();
+
+                discrete_log_blinding_and_dlog(
+                    &mut verifier,
+                    (p_x_var, p_y_var),
+                    wrong_points_with_dlog,
+                    (r_x, r_y),
+                    (s_x + B::ONE, s_y), // S
+                    &curve,
+                    &[&generator_table1, &generator_table2],
+                )
+                .unwrap();
+
+                assert!(
+                    verifier.verify(proof, &pc_gens, &bp_gens).is_err(),
+                    "expected verification to fail with wrong r_x"
+                );
+            }
         }
 
         let count = 4;

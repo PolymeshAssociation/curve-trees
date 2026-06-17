@@ -157,6 +157,10 @@ pub enum R1CSError {
     /// [`R1CSProof`](::r1cs::R1CSProof) fails.
     #[error("R1CSProof failed to verify with error: {0}")]
     VerificationErrorWithReason(String),
+
+    /// Occurs on an unmatched [`ProofError`].
+    #[error("A ProofError occurred")]
+    ProofError(ProofError),
 }
 
 impl From<ProofError> for R1CSError {
@@ -167,7 +171,7 @@ impl From<ProofError> for R1CSError {
             }
             ProofError::FormatError => R1CSError::FormatError,
             ProofError::VerificationError => R1CSError::VerificationError,
-            _ => panic!("unexpected error type in conversion"),
+            _ => R1CSError::ProofError(e),
         }
     }
 }

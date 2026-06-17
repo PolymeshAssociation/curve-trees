@@ -1,19 +1,20 @@
-use ark_ff::{PrimeField, batch_inversion};
+use crate::barycentric::Interpolator;
+use crate::error::Error;
+use crate::DivisorPoly;
+use ark_ff::{batch_inversion, PrimeField};
 use ark_std::{vec, vec::Vec};
 use core::ops::Div;
 use subtle::{Choice, ConditionallySelectable, CtOption};
-
-use crate::DivisorPoly;
-use crate::barycentric::Interpolator;
-use crate::error::Error;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// Evaluations of a polynomial at consecutive points.
 ///
 /// This represents a polynomial by storing its evaluations at points 0, 1, 2, ..., n-1
 /// rather than storing coefficients. This enables efficient pointwise operations.
-#[derive(Debug, Clone)]
-pub(super) struct Evals<F: PrimeField> {
+#[derive(Debug, Clone, Zeroize, ZeroizeOnDrop)]
+pub struct Evals<F: PrimeField> {
     evals: Vec<F>,
+    #[zeroize(skip)]
     degree: u16,
 }
 
@@ -36,11 +37,11 @@ impl<F: PrimeField> Evals<F> {
         Self::new(evals, 3)
     }
 
-    fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.evals.len()
     }
 
-    fn from_degree_1(coeff: F, constant: F, amount_of_evals: u16) -> Self {
+    fn from_degree_1(mut coeff: F, mut constant: F, amount_of_evals: u16) -> Self {
         let mut evals = Vec::with_capacity(amount_of_evals as usize);
         if amount_of_evals == 0 {
             return Evals { evals, degree: 1 };
@@ -50,11 +51,14 @@ impl<F: PrimeField> Evals<F> {
             evals.push(last_eval);
             last_eval += coeff;
         }
+        coeff.zeroize();
+        constant.zeroize();
         Self { evals, degree: 1 }
     }
 
-    fn from_degree_0(constant: F, evals: u16) -> Self {
+    fn from_degree_0(mut constant: F, evals: u16) -> Self {
         let evals = vec![constant; evals as usize];
+        constant.zeroize();
         Evals { evals, degree: 0 }
     }
 }
@@ -84,7 +88,7 @@ impl<F: PrimeField> SmallDivisor<F> {
 ///
 /// `A` and `B` are represented as a sufficient amount of evaluations from them to perform
 /// interpolation and recover them.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Zeroize, ZeroizeOnDrop)]
 pub(super) struct DivisorEvals<F: PrimeField> {
     a: Evals<F>,
     b: Evals<F>,
@@ -103,7 +107,7 @@ impl<F: PrimeField> Div<Evals<F>> for DivisorEvals<F> {
             .evals
             .iter_mut()
             .zip(self.b.evals.iter_mut())
-            .zip(rhs.evals)
+            .zip(rhs.evals.iter())
         {
             *a *= denom;
             *b *= denom;

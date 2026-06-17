@@ -134,16 +134,26 @@ pub fn multi_select_public_set<F: Field, Cs: RandomizableConstraintSystem<F>>(
     xs: Vec<LinearCombination<F>>,
     ys: &[F],
 ) -> Result<()> {
-    if xs.is_empty() {
-        return Err(Error::NeedNonZeroNumberOfIndices);
-    }
     if ys.is_empty() {
         return Err(Error::NeedNonZeroSetSize);
+    }
+    let poly = poly_from_roots::<F>(ys);
+    multi_select_public_set_given_poly(cs, xs, poly)
+}
+
+/// Same as [`multi_select_public_set`] but expects the polynomial whose roots are the public set
+/// elements. Useful when doing many checks over the same set
+pub fn multi_select_public_set_given_poly<F: Field, Cs: RandomizableConstraintSystem<F>>(
+    cs: &mut Cs,
+    xs: Vec<LinearCombination<F>>,
+    poly: DensePolynomial<F>,
+) -> Result<()> {
+    if xs.is_empty() {
+        return Err(Error::NeedNonZeroNumberOfIndices);
     }
 
     // Same idea as multi_select_public_set_ext_challenge
 
-    let poly = poly_from_roots::<F>(ys);
     Ok(cs.specify_randomized_constraints(move |cs| {
         let challenge = cs.challenge_scalar(b"challenge");
         construct_eval_random_linear_combination_poly(cs, xs, challenge, poly);

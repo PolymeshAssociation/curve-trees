@@ -2,13 +2,13 @@ use crate::error::Error;
 use ark_ff::PrimeField;
 use ark_std::{vec, vec::Vec};
 use core::ops::{Add, Mul, Neg, Sub};
-use zeroize::Zeroize;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// A structure representing a Polynomial with x^i, y^i, and y^i * x^j terms.
 ///
 /// This represents a polynomial in the form f(x, y) = A(x) - yB(x), where A and B
 /// are univariate polynomials in x, reduced modulo the curve equation y^2 = x^3 + Ax + B.
-#[derive(Clone, Debug, Zeroize, Eq)]
+#[derive(Clone, Debug, Eq, Zeroize, ZeroizeOnDrop)]
 pub struct DivisorPoly<F: PrimeField> {
     /// The coefficient for the `y^1` term.
     /// After reduction modulo `y^2 = x^3 + Ax + B`, only a single degree-1 `y` term remains.

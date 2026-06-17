@@ -114,7 +114,7 @@ fn bench_accumulator_with_parameters<
             rerandomization,
             &sr_params.even_parameters.bp_gens,
         );
-        assert_eq!(leaf_commitment, path.get_rerandomized_leaf()); // sanity check
+        assert_eq!(leaf_commitment, path.get_rerandomized_leaf().unwrap()); // sanity check
 
         select(
             &mut pallas_prover,
@@ -197,7 +197,8 @@ fn bench_accumulator_with_parameters<
                                             &mut vesta_verifier,
                                             &sr_proof_params,
                                         );
-                                        let rerandomized_leaf = path.get_rerandomized_leaf();
+                                        let rerandomized_leaf =
+                                            path.get_rerandomized_leaf().unwrap();
                                         let leaf_vars = pallas_verifier
                                             .commit_vec(leaf_width, rerandomized_leaf);
                                         select(
@@ -268,8 +269,10 @@ fn bench_accumulator_with_parameters<
                                         &sr_proof_params,
                                         &curve_tree,
                                     );
-                                    let leaf_vars = pallas_verifier
-                                        .commit_vec(leaf_width, path.get_rerandomized_leaf());
+                                    let leaf_vars = pallas_verifier.commit_vec(
+                                        leaf_width,
+                                        path.get_rerandomized_leaf().unwrap(),
+                                    );
                                     select(
                                         &mut pallas_verifier,
                                         LinearCombination::from(element),

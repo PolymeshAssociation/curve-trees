@@ -6,13 +6,14 @@
 
 extern crate alloc;
 
+use crate::msm::binary_scalar_mul_jsf_affine;
 use crate::util;
 use alloc::vec::Vec;
 use ark_ec::hashing::curve_maps::swu::SWUMap;
 use ark_ec::hashing::map_to_curve_hasher::MapToCurveBasedHasher;
 use ark_ec::hashing::HashToCurve;
 use ark_ec::short_weierstrass::{Affine as SWAffine, Projective as SWProjective, SWCurveConfig};
-use ark_ec::{AffineRepr, VariableBaseMSM};
+use ark_ec::AffineRepr;
 use ark_ff::{field_hashers::DefaultFieldHasher, PrimeField};
 use ark_helios::HeliosConfig;
 use ark_selene::SeleneConfig;
@@ -56,8 +57,9 @@ impl<C: AffineRepr> PedersenGens<C> {
     }
 
     /// Creates a Pedersen commitment using the value scalar and a blinding factor.
+    /// Note: `value` and `blinding` are secret, and this uses a variable-time scalar multiplication
     pub fn commit(&self, value: C::ScalarField, blinding: C::ScalarField) -> C {
-        C::Group::msm_unchecked(&[self.B, self.B_blinding], &[value, blinding]).into()
+        binary_scalar_mul_jsf_affine(&self.B, value, &self.B_blinding, blinding).into()
     }
 }
 

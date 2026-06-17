@@ -172,17 +172,15 @@ where
             .proof_dependent_scalars
             .into_iter()
             .map(|s| s * random_scalar);
-        let fps = vt
-            .proof_independent_scalars
-            .into_iter()
-            .map(|s| s * random_scalar);
 
         proof_point_scalars.extend(ps);
-        linear_combination = linear_combination
-            .iter()
-            .zip(fps)
-            .map(|(a, b)| *a + b)
-            .collect()
+
+        for (a, b) in linear_combination
+            .iter_mut()
+            .zip(vt.proof_independent_scalars.into_iter())
+        {
+            *a += b * random_scalar;
+        }
     }
 
     msm_check(

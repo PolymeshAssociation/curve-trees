@@ -434,6 +434,7 @@ pub struct InnerNode<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCu
     /// the ith `commitments_to_children` is the commitment to the `children` when using the ith set of generators.
     pub commitments_to_children: [Affine<P0>; M],
     pub children: Box<Children<L, M, P0, P1>>,
+    /// x-coordinates of each child node got by (node + delta).x
     // Storing as vector as this is causing stack overflow in some tests. Try "Box"ing the array
     // x_coord_children: [[P1::BaseField; L]; M],
     pub x_coord_children: Vec<[P1::BaseField; L]>,
