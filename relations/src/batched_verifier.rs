@@ -305,6 +305,7 @@ impl<
         child_delta: &Affine<P1>,
     ) -> Result<Vec<DlogItem<F0, Parameters>>> {
         let mut items = Vec::with_capacity(num_parent_levels);
+        let child_delta_scaled = *child_delta * P1::ScalarField::from(num_indices);
         for parent_index in 0..num_parent_levels {
             let child_index = if skip_root {
                 parent_index + 1
@@ -344,9 +345,7 @@ impl<
                 None,
             )?;
 
-            let shifted_rerandomized = (*child_commitment
-                + (*child_delta * P1::ScalarField::from(num_indices)))
-            .into_affine();
+            let shifted_rerandomized = (*child_commitment + child_delta_scaled).into_affine();
             let (x, y) = shifted_rerandomized.xy().ok_or(Error::PointCantBeZero)?;
 
             let p = commit_dlog_and_divisor::<_, _, Parameters>(verifier, divisor)?;

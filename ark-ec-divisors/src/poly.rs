@@ -120,7 +120,6 @@ impl<F: PrimeField> DivisorPoly<F> {
     /// Normalize the x coefficient to 1.
     ///
     /// Panics if there is no x coefficient to normalize or if it cannot be normalized to 1.
-    #[must_use]
     pub fn normalize_x_coefficient(self) -> Result<Self, Error> {
         let scalar = self.x_coefficients[0]
             .inverse()

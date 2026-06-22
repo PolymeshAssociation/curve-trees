@@ -621,7 +621,7 @@ $$
 
 with no $c_{k,R}$ term. So the high-right slot $r(X)[D-k]$ is left as zero. The committed witness is just $(c'_k, c_{k,L})$ -- the tuple `(vec_open[j].0, vec_open[j].1)` in the code.
 
-This change is consistent with monero's audit; soundness is preserved because $c_{k,R}$ does not appear in any constraint relation. Hiding is preserved because the masking vector $s_L$ (at slot $D+1$) provides per-coordinate hiding for $l(X)$ at evaluation time $x$. See `BULLETPROOFS_CRYPTO_AUDIT.md` ZK-1 for the detailed argument.
+This change is consistent with monero's audit; soundness is preserved because $c_{k,R}$ does not appear in any constraint relation. Hiding is preserved because the masking vector $s_L$ (at slot $D+1$) provides per-coordinate hiding for $l(X)$ at evaluation time $x$.
 
 ## $T$ polynomial commitments
 
@@ -641,11 +641,9 @@ $$
 
 and appends $T_d$ to the transcript with label `b"t_poly"` (preceded by the degree as a `u64` with label `b"t_poly degree"`).
 
-The transmitted-degree set is produced by `transmitted_t_degree_indices`.
-
 ## $\tau_x$ (the t-poly blinding evaluation)
 
-The prover defines a blinding polynomial $t\_blinding(X)$ of degree $t_poly_deg$:
+The prover defines a blinding polynomial $t\_blinding(X)$ of degree $t\_poly\_deg$:
 
 - $t\_blinding(X)[d] = b_d$ for $d \in T_{\text{xmit}}$ (random, set above);
 - $t\_blinding(X)[D] = \sum_i w_{V,i} \cdot v_{\text{blinding},i}$ (synthetic, matches what the verifier reconstructs at $d = D$);
@@ -665,7 +663,7 @@ $$
 
 where $i_{\text{blinding}} = i_{\text{blinding1}} + u \cdot i_{\text{blinding2}}$ and similarly for $o_{\text{blinding}}$, $s_{\text{blinding}}$ (two-phase extension; see below). The $\gamma_k = \text{vec_open}[j].0$ are the vector-commitment masks.
 
-This blinding cancels out the $B_{\text{blinding}}$ contribution of every commitment when the verifier reconstructs $P = \ell^T G + r^T H' + \mu \cdot B_{\text{blinding}}$.
+These weights are exactly the scalars the verifier applies to $A_I, A_O, S, C_k$ when reconstructing $P$ (next section). Since each commitment carries its blinding times $B_{\text{blinding}}$, the aggregate $B_{\text{blinding}}$ component of the reconstructed $P$ is precisely $\mu \cdot B_{\text{blinding}}$ -- matching the $\mu \cdot B_{\text{blinding}}$ term in $P = \ell^T G + r^T H' + \mu \cdot B_{\text{blinding}}$, so in the batched MSM the two appear as $+\mu$ and $-\mu$ and cancel (see "Why the $B_{\text{blinding}}$ coefficient balances").
 
 ## The 5-move protocol (uncompressed)
 
@@ -763,7 +761,7 @@ The verifier then runs `verification_scalars` to recover the IPP coefficients $s
 
 ## The two-phase extension
 
-The Polymesh fork supports a *two-phase* constraint system: phase 1 commits to multipliers known up front; phase 2 commits to extra multipliers allocated inside a randomized callback (after seeing a Fiat-Shamir challenge over the phase-1 commitments).
+This supports a *two-phase* constraint system: phase 1 commits to multipliers known up front; phase 2 commits to extra multipliers allocated inside a randomized callback (after seeing a Fiat-Shamir challenge over the phase-1 commitments).
 
 ### Witness split
 
@@ -777,13 +775,14 @@ The witness vectors are split:
 The prover commits each piece separately:
 
 $$
-A_I1 = <a_L^{(1)}, G[0..n_1]> + <a_R^{(1)}, H[0..n_1]> + i_blinding1 * B_blinding
-A_O1 = <a_O^{(1)}, G[0..n_1]>                          + o_blinding1 * B_blinding
-S1   = <s_L^{(1)}, G[0..n_1]> + <s_R^{(1)}, H[0..n_1]> + s_blinding1 * B_blinding
-
-A_I2 = <a_L^{(2)}, G[n_1..n]> + <a_R^{(2)}, H[n_1..n]> + i_blinding2 * B_blinding
-A_O2 = <a_O^{(2)}, G[n_1..n]>                          + o_blinding2 * B_blinding
-S2   = <s_L^{(2)}, G[n_1..n]> + <s_R^{(2)}, H[n_1..n]> + s_blinding2 * B_blinding
+\begin{aligned}
+A_{I1} &= \langle a_L^{(1)}, G_{[0..n_1]} \rangle + \langle a_R^{(1)}, H_{[0..n_1]} \rangle + i_{\text{blinding1}} \cdot B_{\text{blinding}} \\
+A_{O1} &= \langle a_O^{(1)}, G_{[0..n_1]} \rangle + o_{\text{blinding1}} \cdot B_{\text{blinding}} \\
+S_1    &= \langle s_L^{(1)}, G_{[0..n_1]} \rangle + \langle s_R^{(1)}, H_{[0..n_1]} \rangle + s_{\text{blinding1}} \cdot B_{\text{blinding}} \\[6pt]
+A_{I2} &= \langle a_L^{(2)}, G_{[n_1..n]} \rangle + \langle a_R^{(2)}, H_{[n_1..n]} \rangle + i_{\text{blinding2}} \cdot B_{\text{blinding}} \\
+A_{O2} &= \langle a_O^{(2)}, G_{[n_1..n]} \rangle + o_{\text{blinding2}} \cdot B_{\text{blinding}} \\
+S_2    &= \langle s_L^{(2)}, G_{[n_1..n]} \rangle + \langle s_R^{(2)}, H_{[n_1..n]} \rangle + s_{\text{blinding2}} \cdot B_{\text{blinding}}
+\end{aligned}
 $$
 
 $A_{I1}, A_{O1}, S_1$ are appended to the transcript *before* the randomized callbacks run (so the challenges sampled inside the callbacks depend on them). $A_{I2}, A_{O2}, S_2$ are appended after. If $n_2 = 0$, the phase-2 commitments are identity.
@@ -816,7 +815,7 @@ while self.size() > self.secrets.a_L.len() as u32 {
 let n_1 = self.size();
 ```
 
-After this loop, $n_1 \ge \max_k \dim(c_{k,L})$, so every vector commitment's value vector lives entirely in phase-1 coordinates. The verifier mirrors the same padding. See `BULLETPROOFS_CRYPTO_AUDIT.md` BP-A3 for why this invariant matters.
+After this loop, $n_1 \ge \max_k \dim(c_{k,L})$, so every vector commitment's value vector lives entirely in phase-1 coordinates. The verifier mirrors the same padding.
 
 ### Vector commitments do not split
 
@@ -961,7 +960,7 @@ The prover's transcript ordering lives in `prove_and_return_transcript_with_rng`
 
 The pieces described above correspond, by role, to:
 
-- the degree-schedule helpers `degrees` / `t_poly_degree` / `transmitted_t_degree_indices`;
+- the degree-schedule helpers `degrees` / `t_poly_degree` / `committed_t_degrees`;
 - the prover (polynomial construction, $T_d$ commitments, $\mu$, $\tau_x$);
 - the verifier (MSM scalars and points);
 - the inner-product argument (both the standalone `verify` form and the MSM form folded into the R1CS verifier);

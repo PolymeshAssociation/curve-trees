@@ -50,10 +50,18 @@ fn check_divisor<C: DivisorCurve, R: CryptoRngCore>(rng: &mut R, points: Vec<Pro
 
     // Create the divisor
     let divisor = new_divisor_checked::<C>(&points, precomputation.borrow()).unwrap();
+
     let eval = |c: Projective<C>| {
         let (x, y) = to_xy::<C>(c).unwrap();
         divisor.eval(x, y)
     };
+
+    for p in &points {
+        assert!(
+            eval(*p).is_zero(),
+            "divisor must vanish at every input point"
+        );
+    }
 
     // Decide challenges
     let c0 = Projective::<C>::rand(rng);
@@ -363,10 +371,12 @@ fn scalar_mul_divisor_correctness<C: DivisorCurve>() {
         let generator = Projective::<C>::rand(&mut rng);
 
         let mul_start = Instant::now();
-        let poly = decomposition
+        let (poly, result) = decomposition
             .scalar_mul_divisor(DirectGenerator::from(generator))
             .unwrap();
         scalar_mul_times.push(mul_start.elapsed());
+
+        assert_eq!(result, generator * scalar);
 
         // 1. Verify it vanishes at -(s * G)
         let neg_s_g = -(generator * scalar);
@@ -392,11 +402,12 @@ fn scalar_mul_divisor_correctness<C: DivisorCurve>() {
     let scalar_mul_median = scalar_mul_times[scalar_mul_times.len() / 2];
 
     println!(
-        "scalar_mul_divisor_correctness: ScalarDecomposition::new median {:?} ({} iterations), scalar_mul_divisor median {:?} ({} iterations)",
+        "scalar_mul_divisor_correctness: ScalarDecomposition::new median {:?} ({} iterations), \
+        scalar_mul_divisor median {:?} ({} iterations)",
         decomposition_median,
         decomposition_times.len(),
         scalar_mul_median,
-        scalar_mul_times.len()
+        scalar_mul_times.len(),
     );
 }
 

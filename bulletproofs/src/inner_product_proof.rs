@@ -237,6 +237,9 @@ impl<C: AffineRepr> InnerProductProof<C> {
         ),
         ProofError,
     > {
+        if self.L_vec.len() != self.R_vec.len() {
+            return Err(ProofError::VerificationError);
+        }
         let lg_n = self.L_vec.len();
         if lg_n >= 32 {
             // 4 billion multiplications should be enough for anyone

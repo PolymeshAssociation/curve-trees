@@ -91,7 +91,8 @@ impl<F: PrimeField> VecPoly<F> {
         out
     }
 
-    pub fn special_inner_product(lhs: &Self, rhs: &Self, mid_degree: usize) -> Poly<F> {
+    /// Product of polynomials when some coefficients of `lhs` are known to be 0
+    pub fn special_product(lhs: &Self, rhs: &Self, mid_degree: usize) -> Poly<F> {
         let l_deg = lhs.deg();
         let r_deg = rhs.deg();
         debug_assert_eq!(l_deg, r_deg);
@@ -105,6 +106,7 @@ impl<F: PrimeField> VecPoly<F> {
             // input polynomials such that `l + r = d`
             for l in mid_degree..(d + 1) {
                 let r = d - l;
+                // lhs has 0 coefficients for degrees < mid_degree but not for degrees >= mid_degree
                 if l_deg >= l && r_deg >= r && (r <= mid_degree || r == r_deg) {
                     res.coeff_mut()[d] += inner_product(lhs.coeff(l), rhs.coeff(r));
                 }

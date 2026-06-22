@@ -600,11 +600,11 @@ fn range_proof_helper<C: AffineRepr>(v_val: u64, n: usize) -> Result<(), R1CSErr
 
     assert!(vt_clone.padded_n().is_ok());
 
-    vt_clone.proof_independent_scalars.drain(1..);
+    vt_clone.fixed_point_scalars.drain(1..);
     assert!(vt_clone.padded_n().is_err());
     assert!(verify_given_verification_tuple(vt_clone.clone(), &pc_gens, &bp_gens).is_err());
 
-    vt_clone.proof_independent_scalars.clear();
+    vt_clone.fixed_point_scalars.clear();
     assert!(vt_clone.padded_n().is_err());
     assert!(verify_given_verification_tuple(vt_clone, &pc_gens, &bp_gens).is_err());
 
@@ -683,8 +683,8 @@ fn test_batch_verify() {
         vt_rp.proof_dependent_scalars.len()
     );
     assert_ne!(
-        vt_ex.proof_independent_scalars.len(),
-        vt_rp.proof_independent_scalars.len()
+        vt_ex.fixed_point_scalars.len(),
+        vt_rp.fixed_point_scalars.len()
     );
 
     let res = RandomizedMultCheckerGuard::new_using_rng(&mut rng).with_err(

@@ -68,36 +68,28 @@ where
     R: FnMut(C::ScalarField) -> C::ScalarField,
 {
     let mut max_padded_n = 0;
-    let mut max_proof_dep_scalars = 0;
+    let mut num_proof_dep_scalars = 0;
     for vt in &verification_tuples {
         let padded_n = vt.padded_n()?;
         if padded_n > max_padded_n {
             max_padded_n = padded_n
         }
-        if vt.proof_dependent_scalars.len() > max_proof_dep_scalars {
-            max_proof_dep_scalars = vt.proof_dependent_scalars.len();
-        }
+        num_proof_dep_scalars += vt.proof_dependent_scalars.len();
     }
     let max_padded_n = max_padded_n as usize;
 
-    let mut proof_points = Vec::with_capacity(max_proof_dep_scalars * verification_tuples.len());
-    let mut proof_dependent_scalars =
-        Vec::with_capacity(max_proof_dep_scalars * verification_tuples.len());
+    let mut proof_points = Vec::with_capacity(num_proof_dep_scalars);
+    let mut proof_dependent_scalars = Vec::with_capacity(num_proof_dep_scalars);
     let mut linear_combination = vec![C::ScalarField::zero(); (2 * max_padded_n) + 2];
 
     let mut random_scalar = C::ScalarField::one();
 
     for mut vt in verification_tuples {
         let padded_n = vt.padded_n()? as usize;
-        let proof_dep_scalars = vt.proof_dependent_scalars.len();
 
-        // length of vt.proof_independent_scalars = 2 + 2*padded_n
+        // length of vt.fixed_point_scalars = 2 + 2*padded_n
 
         proof_points.append(&mut vt.proof_dependent_points);
-        // Padding
-        for _ in 0..(max_proof_dep_scalars - proof_dep_scalars) {
-            proof_points.push(C::zero());
-        }
 
         random_scalar = new_randomness_getter(random_scalar);
 
@@ -107,24 +99,20 @@ where
             .into_iter()
             .map(|s| s * random_scalar);
         proof_dependent_scalars.extend(ps);
-        // Padding
-        for _ in 0..(max_proof_dep_scalars - proof_dep_scalars) {
-            proof_dependent_scalars.push(C::ScalarField::zero());
-        }
 
         // For B and B_blinding
-        linear_combination[0] += random_scalar * vt.proof_independent_scalars[0];
-        linear_combination[1] += random_scalar * vt.proof_independent_scalars[1];
+        linear_combination[0] += random_scalar * vt.fixed_point_scalars[0];
+        linear_combination[1] += random_scalar * vt.fixed_point_scalars[1];
 
         // For G
         for i in 0..padded_n {
-            linear_combination[2 + i] += random_scalar * vt.proof_independent_scalars[2 + i];
+            linear_combination[2 + i] += random_scalar * vt.fixed_point_scalars[2 + i];
         }
 
         // For H
         for i in 0..padded_n {
             linear_combination[2 + max_padded_n + i] +=
-                random_scalar * vt.proof_independent_scalars[2 + padded_n + i];
+                random_scalar * vt.fixed_point_scalars[2 + padded_n + i];
         }
     }
 
@@ -153,7 +141,7 @@ where
     let (mut proof_points, mut proof_point_scalars, mut linear_combination) = (
         vt.proof_dependent_points,
         vt.proof_dependent_scalars,
-        vt.proof_independent_scalars,
+        vt.fixed_point_scalars,
     );
 
     let mut random_scalar = C::ScalarField::one();
@@ -177,7 +165,7 @@ where
 
         for (a, b) in linear_combination
             .iter_mut()
-            .zip(vt.proof_independent_scalars.into_iter())
+            .zip(vt.fixed_point_scalars.into_iter())
         {
             *a += b * random_scalar;
         }
@@ -236,14 +224,10 @@ pub fn add_verification_tuples_to_rmc_0<C: AffineRepr>(
         return Err(R1CSError::NoVerificationTuple);
     }
     let mut max_padded_n = 0;
-    let mut max_proof_dep_scalars = 0;
     for vt in &verification_tuples {
         let padded_n = vt.padded_n()?;
         if padded_n > max_padded_n {
             max_padded_n = padded_n
-        }
-        if vt.proof_dependent_scalars.len() > max_proof_dep_scalars {
-            max_proof_dep_scalars = vt.proof_dependent_scalars.len();
         }
     }
 
@@ -266,31 +250,26 @@ pub fn add_verification_tuples_to_rmc_0<C: AffineRepr>(
 
     for mut vt in verification_tuples {
         let padded_n = vt.padded_n()?;
-        let proof_dep_scalars = vt.proof_dependent_scalars.len();
 
-        // length of vt.proof_independent_scalars = 2 + 2*padded_n
+        // length of vt.fixed_point_scalars = 2 + 2*padded_n
 
         let b = vt
             .proof_dependent_points
             .into_iter()
-            .chain(iter::repeat(C::zero()).take(max_proof_dep_scalars - proof_dep_scalars))
             .chain(fixed_points.clone())
             .collect::<Vec<_>>();
 
-        let mut s = Vec::with_capacity(max_proof_dep_scalars + 2 * (max_padded_n as usize) + 2);
+        let mut s =
+            Vec::with_capacity(vt.proof_dependent_scalars.len() + 2 * (max_padded_n as usize) + 2);
         s.append(&mut vt.proof_dependent_scalars);
-        // Padding
-        for _ in 0..(max_proof_dep_scalars - proof_dep_scalars) {
-            s.push(C::ScalarField::zero());
-        }
 
         // For B and B_blinding
-        s.push(vt.proof_independent_scalars[0]);
-        s.push(vt.proof_independent_scalars[1]);
+        s.push(vt.fixed_point_scalars[0]);
+        s.push(vt.fixed_point_scalars[1]);
 
         // For G
         for i in 0..padded_n as usize {
-            s.push(vt.proof_independent_scalars[2 + i]);
+            s.push(vt.fixed_point_scalars[2 + i]);
         }
         // Padding for G
         for _ in 0..(max_padded_n - padded_n) {
@@ -299,7 +278,7 @@ pub fn add_verification_tuples_to_rmc_0<C: AffineRepr>(
 
         // For H
         for i in 0..padded_n {
-            s.push(vt.proof_independent_scalars[(2 + padded_n + i) as usize]);
+            s.push(vt.fixed_point_scalars[(2 + padded_n + i) as usize]);
         }
         // Padding for H
         for _ in 0..(max_padded_n - padded_n) {
@@ -307,11 +286,6 @@ pub fn add_verification_tuples_to_rmc_0<C: AffineRepr>(
         }
 
         debug_assert_eq!(b.len(), s.len());
-        // debug_assert_eq!(vt.proof_independent_scalars.len(), 0);
-        debug_assert_eq!(
-            s.len(),
-            max_proof_dep_scalars + 2 * (max_padded_n as usize) + 2
-        );
         rmc.add_many(b, &s, C::zero());
     }
     Ok(())

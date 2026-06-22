@@ -1139,7 +1139,7 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
             }
         }
 
-        let mut t_poly = util::VecPoly::special_inner_product(&l_poly, &r_poly, mid_degree);
+        let mut t_poly = util::VecPoly::special_product(&l_poly, &r_poly, mid_degree);
         debug_assert_eq!(t_poly.deg(), t_poly_degree(inner_product_degree));
 
         // As per fixed bulletproofs draft, every omitted low-degree coefficient of t(X) is zero because
@@ -1182,14 +1182,10 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
         let u = TranscriptProtocol::challenge_scalar::<C>(transcript, b"u");
         let x = TranscriptProtocol::challenge_scalar::<C>(transcript, b"x");
 
-        // calculate x^op_degree
-        let mut op_x = C::ScalarField::one();
-        for _ in 0..inner_product_degree {
-            op_x *= x;
-        }
-
         // #[cfg(debug_assertions)]
         // println!("prover: x = {}", x);
+
+        // Optimz: If large number of veccoms, precomputing powers of x once can help a bit
 
         let t_x = t_poly.eval(x);
         let t_x_blinding = t_blinding_poly.eval(x);
@@ -1274,7 +1270,6 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
         let mut e_terms: Vec<Option<C::ScalarField>> = vec![None; l_poly.deg() + 1];
 
         // special
-        debug_assert_eq!(l_r_degrees[0].0, l_r_degrees[0].1);
         e_terms[l_r_degrees[0].0] = Some(i_blinding); // aL || aR
         e_terms[l_r_degrees[1].0] = Some(o_blinding); // aO
 
@@ -1294,7 +1289,7 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
         //     }
         // }
 
-        // evaluate blinding
+        // evaluate blinding, e_blinding = <e_terms, [1, x, x^2, ...]>
         let mut e_blinding = C::ScalarField::zero();
         {
             let mut xn = C::ScalarField::one();
@@ -1324,9 +1319,6 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
             .zip(G_factors.iter())
             .map(|(y_inv, u_or_1)| y_inv * u_or_1)
             .collect::<Vec<_>>();
-
-        // TODO: check if missing \circ y^{-1} on the vec. comm part:
-        // everything in H_generators (r_vec) is mult. by y!
 
         let ipp_proof = InnerProductProof::create(
             transcript,

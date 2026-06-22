@@ -5,43 +5,30 @@ use ark_ec::AdditiveGroup;
 use ark_ff::{BigInteger, PrimeField};
 use ark_std::borrow::Borrow;
 use ark_std::collections::BTreeMap;
+use ark_std::sync::Arc;
 use ark_std::{vec, vec::Vec};
 use core::any::TypeId;
 use spin::RwLock;
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq, ConstantTimeGreater};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
-/// Per-field cache of the modulus' little-endian coefficient decomposition (the bits of the
-/// modulus `p`, with index 0 possibly equal to `2`), keyed by the scalar field's `TypeId`.
-///
-/// This value depends only on the field — not on the scalar being decomposed — so it is computed
-/// once per field and reused across all [`ScalarDecomposition::new`] calls instead of being
-/// rebuilt every time. Keying by `TypeId` (`PrimeField: 'static`, so no extra bound is needed)
-/// keeps `ScalarDecomposition` decoupled from any curve/field-specific trait.
-///
-/// A `spin::RwLock` keeps this `no_std`/wasm32 friendly — it has the same atomic requirements as
-/// the `spin::Once` already used for the per-curve interpolator caches — and lets concurrent
-/// divisor construction read the cache without serializing.
-static MODULUS_DECOMPOSITION_CACHE: RwLock<BTreeMap<TypeId, Vec<u64>>> =
+/// Per-field cache of the modulus' little-endian coefficient decomposition keyed by the scalar
+/// field's `TypeId`. This value depends only on the field so it is computed once per field and reused
+/// across all [`ScalarDecomposition::new`] calls.
+static MODULUS_DECOMPOSITION_CACHE: RwLock<BTreeMap<TypeId, Arc<[u64]>>> =
     RwLock::new(BTreeMap::new());
 
 /// Returns the little-endian coefficient decomposition of `F`'s modulus, computing and caching it
-/// on first use. `num_bits` must be `F::MODULUS_BIT_SIZE` as a `usize`.
-///
-/// Whether the fast (cached) or slow (compute) path is taken depends only on whether this field
-/// has been seen before, never on the scalar, so this does not introduce scalar-dependent timing.
-fn modulus_decomposition<F: PrimeField>(num_bits: usize) -> Vec<u64> {
+/// on first use.
+fn modulus_decomposition<F: PrimeField>(num_bits: usize) -> Arc<[u64]> {
     let key = TypeId::of::<F>();
 
-    // Fast path: shared read lock. After the first call for `F` this branch is always taken.
     if let Some(decomposition) = MODULUS_DECOMPOSITION_CACHE.read().get(&key) {
-        return decomposition.clone();
+        return Arc::clone(decomposition);
     }
 
-    // Slow path (first time this field is seen): decompose negative one (i.e. `p - 1`) ...
     let mut decomposition_of_modulus = vec![0u64; num_bits];
-    let neg_one_bigint = (-F::ONE).into_bigint();
-    for (i, bit) in neg_one_bigint
+    for (i, bit) in F::MODULUS
         .to_bits_le()
         .into_iter()
         .take(num_bits)
@@ -49,14 +36,12 @@ fn modulus_decomposition<F: PrimeField>(num_bits: usize) -> Vec<u64> {
     {
         decomposition_of_modulus[i] = u64::from(bit);
     }
-    // ... then increment by one to get the decomposition of the modulus `p`.
-    decomposition_of_modulus[0] += 1;
 
-    // A benign race (two threads both computing on first use) just overwrites identical data.
+    let decomposition: Arc<[u64]> = Arc::from(decomposition_of_modulus);
     MODULUS_DECOMPOSITION_CACHE
         .write()
-        .insert(key, decomposition_of_modulus.clone());
-    decomposition_of_modulus
+        .insert(key, Arc::clone(&decomposition));
+    decomposition
 }
 
 /// The decomposition of a scalar.
@@ -107,13 +92,12 @@ impl<F: PrimeField> ScalarDecomposition<F> {
         // The following algorithm only works if the value of the scalar exceeds num_bits
         // If it isn't, we increase it by the modulus such that it does exceed num_bits
         {
-            let mut less_than_num_bits = Choice::from(0);
-            for i in 0..num_bits {
-                // F does not implement ConstantTimeEq
-                // less_than_num_bits |= scalar.ct_eq(&F::from(i));
-                less_than_num_bits =
-                    less_than_num_bits | Choice::from(u8::from(scalar == F::from(i)));
-            }
+            // `scalar < num_bits` iff its canonical bigint is < num_bits. Same set as the old
+            // OR-over-{0..num_bits-1} of `scalar == F::from(i)`, but a few limb comparisons instead
+            // of num_bits Montgomery conversions.
+            let less_than_num_bits = Choice::from(u8::from(
+                scalar_bigint < <F as PrimeField>::BigInt::from(num_bits),
+            ));
             // The modulus decomposition depends only on the field, so it is cached per field
             // (keyed by `TypeId`) and reused across calls instead of being recomputed here.
             let decomposition_of_modulus = modulus_decomposition::<F>(num_bits_usize);
@@ -234,49 +218,53 @@ impl<F: PrimeField> ScalarDecomposition<F> {
     ///
     /// The divisor will interpolate $-(s \cdot G)$ with $d_i$ instances of $2^i \cdot G$.
     ///
-    /// This function executes in constant time with regards to the scalar.
-    ///
     /// This function MAY return an error if the interpolator is insufficient or if invalid arguments are provided.
     pub fn scalar_mul_divisor<C: DivisorCurve<ScalarField = F>>(
         &self,
         generator_source: impl GeneratorMultiplesSource<C>,
-    ) -> Result<DivisorPoly<C::BaseField>, Error> {
-        // 1 is used for the resulting point, NUM_BITS is used for the decomposition, and then we store
-        // one additional index in a usize for the points we shouldn't write at all (hence the +2)
-        // This check ensures MODULUS_BIT_SIZE + 2 fits in usize, which should always be true in practice
+    ) -> Result<(DivisorPoly<C::BaseField>, Projective<C>), Error> {
         let _ = usize::try_from(F::MODULUS_BIT_SIZE + 2)
             .expect("MODULUS_BIT_SIZE + 2 didn't fit in usize");
         let num_bits = u64::from(F::MODULUS_BIT_SIZE);
+
+        // divisor_points[0] = -s*G, divisor_points[1..].sum() = s*G, divisor_points.sum() = 0 (point)
+
+        // divisor_points[1..] are multiples of G listed out with their multiplicities so points of form
+        // 2^j * G repeated n number of times where n is the multiplicity
+        // eg, if num_bits = 4 and scalar = 12, decomposition could be [2, 1, 0, 1] written in little
+        // endian as 2*G + 1*(2G) + 0*(4G) + 1*(8G) = 12*G and 2+1+0+1 = 4. Now divisor_points[1..] =
+        // [G, G, 2G, 8G] (G appears twice because its multiplicity is 2)
+        // Similarly for scalar = 13, decomposition could be [1, 2, 0, 1] written in little
+        // endian as 1*G + 2*(2G) + 0*(4G) + 1*(8G) = 13*G and 1+2+0+1 = 4. Now divisor_points[1..] =
+        // [G, 2G, 2G, 8G] (2G appears twice because its multiplicity is 2)
         let mut divisor_points = vec![<Projective<C>>::ZERO; num_bits as usize + 1];
 
         let mut generator_iter = generator_source.iter();
-        let generator: Projective<C> = generator_iter.next().unwrap();
+        let mut generator_point: Projective<C> = generator_iter.next().unwrap();
 
-        // Write the inverse of the resulting point
-        // divisor_points[0] = -(generator * self.scalar)
-        divisor_points[0] = generator * (-self.scalar);
-        let mut generator_point: Projective<C> = generator;
-
-        // Write the decomposition
-        let mut write_above: u64 = 0;
+        // result = s*G
+        let mut result = <Projective<C>>::ZERO;
+        let mut pos = 1usize;
         for (j, coefficient) in self.decomposition.iter().enumerate() {
-            for i in 1..=num_bits {
-                if i > write_above {
-                    divisor_points[i as usize] = generator_point;
-                }
+            for _ in 0..*coefficient {
+                divisor_points[pos] = generator_point;
+                result += generator_point;
+                pos += 1;
             }
 
-            write_above += coefficient;
             if j < (self.decomposition.len() - 1) {
                 generator_point = generator_iter.next().unwrap();
             }
         }
+        // sum of coefficients is num_bits, so every slot 1..=num_bits was written exactly once.
+        debug_assert_eq!(pos, num_bits as usize + 1);
 
-        // Create a divisor out of the points
-        let res = new_divisor::<C>(&divisor_points, C::interpolator_for_scalar_mul().borrow());
-        // zeroize regardless of success
+        // divisor should contain the inverse of the resulting point
+        divisor_points[0] = -result;
+
+        let div = new_divisor::<C>(&divisor_points, C::interpolator_for_scalar_mul().borrow());
         divisor_points.zeroize();
-        res
+        div.map(|d| (d, result))
     }
 }
 
@@ -345,16 +333,18 @@ mod tests {
                 let decomposition = ScalarDecomposition::new(scalar).unwrap();
 
                 let start = Instant::now();
-                let divisor_direct = decomposition
+                let (divisor_direct, point_direct) = decomposition
                     .scalar_mul_divisor(DirectGenerator::from(generator))
                     .unwrap();
                 time_direct += start.elapsed();
 
                 let start = Instant::now();
-                let divisor_table = decomposition.scalar_mul_divisor::<C>(&table).unwrap();
+                let (divisor_table, point_table) =
+                    decomposition.scalar_mul_divisor::<C>(&table).unwrap();
                 time_table += start.elapsed();
 
                 assert_eq!(divisor_direct, divisor_table);
+                assert_eq!(point_direct, point_table);
             }
 
             println!(
@@ -430,10 +420,12 @@ mod tests {
                 let generator = Projective::<C>::rand(&mut rng);
 
                 let mul_start = Instant::now();
-                let poly = decomposition
+                let (poly, result) = decomposition
                     .scalar_mul_divisor(DirectGenerator::from(generator))
                     .unwrap();
                 scalar_mul_times.push(mul_start.elapsed());
+
+                assert_eq!(result, generator * scalar);
 
                 // Vanishes at -(s * G)
                 let neg_s_g = generator * (-scalar);

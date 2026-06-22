@@ -516,7 +516,6 @@ fn divisor_challenge_eval<
 ///
 /// This is part of `DiscreteLog` from `Discrete Log Proof`, specifically, the challenges and
 /// the calculations dependent solely on them
-#[allow(clippy::type_complexity)]
 pub fn discrete_log_challenge<
     F: PrimeField,
     CS: ConstraintSystem<F>,

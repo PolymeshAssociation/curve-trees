@@ -47,9 +47,9 @@ pub struct Verifier<T: BorrowMut<MerlinTranscript>, C: AffineRepr> {
     ///
     /// Because the `VerifierCS` only keeps the constraints
     /// themselves, it doesn't record the assignments (they're all
-    /// `Missing`), so the `num_vars` isn't kept implicitly in the
+    /// `Missing`), so the `num_multiplier` isn't kept implicitly in the
     /// variable assignments.
-    pub(crate) num_vars: usize,
+    pub(crate) num_multiplier: usize,
     pub(crate) V: Vec<C>,
 
     /// This list holds closures that will be called in the second phase of the protocol,
@@ -93,8 +93,8 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> ConstraintSystem<C::ScalarFi
         Variable<C::ScalarField>,
         Variable<C::ScalarField>,
     ) {
-        let var = self.num_vars;
-        self.num_vars += 1;
+        let var = self.num_multiplier;
+        self.num_multiplier += 1;
 
         // Create variables for l,r,o
         let l_var = Variable::MultiplierLeft(var);
@@ -116,8 +116,8 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> ConstraintSystem<C::ScalarFi
     ) -> Result<Variable<C::ScalarField>, R1CSError> {
         match self.pending_multiplier {
             None => {
-                let i = self.num_vars;
-                self.num_vars += 1;
+                let i = self.num_multiplier;
+                self.num_multiplier += 1;
                 self.pending_multiplier = Some(i);
                 Ok(Variable::MultiplierLeft(i))
             }
@@ -139,8 +139,8 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> ConstraintSystem<C::ScalarFi
         ),
         R1CSError,
     > {
-        let var = self.num_vars;
-        self.num_vars += 1;
+        let var = self.num_multiplier;
+        self.num_multiplier += 1;
 
         // Create variables for l,r,o
         let l_var = Variable::MultiplierLeft(var);
@@ -152,7 +152,7 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> ConstraintSystem<C::ScalarFi
 
     fn metrics(&self) -> Metrics {
         Metrics {
-            multipliers: self.num_vars,
+            multipliers: self.num_multiplier,
             constraints: self.constraints.len() + self.deferred_constraints.len(),
             phase_one_constraints: self.constraints.len(),
             phase_two_constraints: self.deferred_constraints.len(),
@@ -279,7 +279,7 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
         Verifier {
             vec_comms: Vec::new(),
             transcript,
-            num_vars: 0,
+            num_multiplier: 0,
             V: Vec::new(),
             constraints: Vec::new(),
             deferred_constraints: Vec::new(),
@@ -288,7 +288,7 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
     }
 
     pub fn size(&self) -> usize {
-        let mut n = self.num_vars;
+        let mut n = self.num_multiplier;
         for (_, dim) in self.vec_comms.iter() {
             n = core::cmp::max(*dim, n)
         }
@@ -366,7 +366,7 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
         Vec<Vec<C::ScalarField>>,
         C::ScalarField,
     ) {
-        let n = self.num_vars;
+        let n = self.num_multiplier;
         let m = self.V.len();
 
         let mut wL = vec![C::ScalarField::zero(); n];
@@ -507,7 +507,7 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
     {
         // pad
         let size = self.size();
-        while size > self.num_vars {
+        while size > self.num_multiplier {
             self.allocate_multiplier(None)?;
         }
 
@@ -636,18 +636,20 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
         let b = proof.ipp_proof.b;
 
         let y_inv = y.inverse().ok_or(R1CSError::VerificationError)?;
+        // [1, 1/y, 1/y^2, 1/y^3, ...]
         let y_inv_vec = util::exp_iter(y_inv)
             .take(padded_n)
             .collect::<Vec<C::ScalarField>>();
 
+        // [wR_i*1/y^i, ..., 0,0,..]
         let yneg_wR = wR
             .into_iter()
             .zip(y_inv_vec.iter())
             .map(|(wRi, exp_y_inv)| wRi * exp_y_inv)
-            .chain(iter::repeat(C::ScalarField::zero()).take(padded_n - self.num_vars))
+            .chain(iter::repeat(C::ScalarField::zero()).take(padded_n - self.num_multiplier))
             .collect::<Vec<C::ScalarField>>();
 
-        let delta = inner_product(&yneg_wR[0..self.num_vars], &wL);
+        let delta = inner_product(&yneg_wR[0..self.num_multiplier], &wL);
 
         let u_for_g = iter::repeat(C::ScalarField::one())
             .take(n1)
@@ -716,6 +718,9 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
         let xO = xs[degree_aO.0];
         let xS = xs[inner_product_degree + 1];
 
+        // "Split" the MSM in 2 parts, one part uses points dependent on the proof and other part's
+        // points are fixed generators G, H, B, B_blinding. There would only 1 MSM done eventually but
+        // this makes batching more efficient
         let vscalar = (0..ncomm).map(|j| xs[vec_com_degrees[j].0]);
         let vcomm = self.vec_comms.iter().copied().map(|(comm, _)| comm);
 
@@ -756,7 +761,7 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
         Ok(VerificationTuple {
             proof_dependent_points: proof_points,
             proof_dependent_scalars: proof_scalars,
-            proof_independent_scalars: fixed_point_scalars,
+            fixed_point_scalars,
         })
     }
 }
@@ -771,7 +776,7 @@ pub fn verify_given_verification_tuple<C: AffineRepr>(
     msm_check(
         verification_tuple.proof_dependent_points,
         verification_tuple.proof_dependent_scalars,
-        verification_tuple.proof_independent_scalars,
+        verification_tuple.fixed_point_scalars,
         padded_n,
         pc_gens,
         bp_gens,
@@ -788,7 +793,7 @@ pub fn add_verification_tuple_to_rmc<C: AffineRepr>(
     let VerificationTuple {
         proof_dependent_points,
         proof_dependent_scalars,
-        proof_independent_scalars,
+        fixed_point_scalars: proof_independent_scalars,
     } = verification_tuple;
     let (b, s) = bases_and_scalars(
         proof_dependent_points,
@@ -812,7 +817,7 @@ pub fn add_pre_randomized_verification_tuple_to_rmc<C: AffineRepr>(
     let VerificationTuple {
         proof_dependent_points,
         proof_dependent_scalars,
-        proof_independent_scalars,
+        fixed_point_scalars: proof_independent_scalars,
     } = verification_tuple;
     let (b, s) = bases_and_scalars(
         proof_dependent_points,
@@ -832,13 +837,15 @@ pub fn add_pre_randomized_verification_tuple_to_rmc<C: AffineRepr>(
 pub struct VerificationTuple<C: AffineRepr> {
     pub proof_dependent_points: Vec<C>,
     pub proof_dependent_scalars: Vec<C::ScalarField>,
-    pub proof_independent_scalars: Vec<C::ScalarField>,
+    pub fixed_point_scalars: Vec<C::ScalarField>,
 }
 
 impl<C: AffineRepr> VerificationTuple<C> {
+    /// Number of multipliers in the circuit which is same as the size of G (or H) vector used in
+    /// the MSM
     pub fn padded_n(&self) -> Result<u32, R1CSError> {
         let scalar_minus_g_and_h = self
-            .proof_independent_scalars
+            .fixed_point_scalars
             .len()
             .checked_sub(2)
             .ok_or_else(|| R1CSError::VerificationErrorWithReason("verification tuple is malformed: proof_independent_scalars must contain at least 2 elements".to_string()))?;

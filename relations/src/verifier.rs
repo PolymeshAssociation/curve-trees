@@ -172,13 +172,13 @@ impl<
                             "missing root child in odd_commitments for even root".to_string(),
                         )
                     })?;
-                    if path.even_divisor_comms.is_empty() {
-                        return Err(Error::MalformedProofInput(
+                    let root_divisor_comms = path.even_divisor_comms.first().ok_or_else(|| {
+                        Error::MalformedProofInput(
                             "missing root divisor commitments for even side".to_string(),
-                        ));
-                    }
+                        )
+                    })?;
                     re_randomized_children.push(child);
-                    even_node_comms.push(path.even_divisor_comms.clone());
+                    even_node_comms.push(root_divisor_comms);
                 }
 
                 Self::process_root_for_all::<Parameters0>(
@@ -207,13 +207,13 @@ impl<
                             "missing root child in even_commitments for odd root".to_string(),
                         )
                     })?;
-                    if path.odd_divisor_comms.is_empty() {
-                        return Err(Error::MalformedProofInput(
+                    let root_divisor_comms = path.odd_divisor_comms.first().ok_or_else(|| {
+                        Error::MalformedProofInput(
                             "missing root divisor commitments for odd side".to_string(),
-                        ));
-                    }
+                        )
+                    })?;
                     re_randomized_children.push(child);
-                    odd_node_comms.push(path.odd_divisor_comms.clone());
+                    odd_node_comms.push(root_divisor_comms);
                 }
 
                 SelectAndRerandomizePathWithDivisorComms::<L, P1, P0>::process_root_for_all::<
@@ -308,7 +308,7 @@ impl<
                 Box<PointWithDlog<F0, Parameters>>,
             )>,
         >,
-        node_comms: &[Vec<DivisorComms<Affine<P0>>>],
+        node_comms: &[&DivisorComms<Affine<P0>>],
     ) -> Result<()> {
         let num_paths = re_randomized_children.len();
         if node_comms.len() != num_paths {
@@ -341,14 +341,11 @@ impl<
                 .xy()
                 .ok_or(Error::PointCantBeZero)?;
 
-            let path_divisor_comms = node_comms
-                .get(path_idx)
-                .and_then(|comms| comms.get(0))
-                .ok_or_else(|| {
-                    Error::MalformedProofInput(
-                        "missing root divisor commitments for a path".to_string(),
-                    )
-                })?;
+            let path_divisor_comms = *node_comms.get(path_idx).ok_or_else(|| {
+                Error::MalformedProofInput(
+                    "missing root divisor commitments for a path".to_string(),
+                )
+            })?;
 
             let p = commit_dlog_and_divisor::<_, _, Parameters>(verifier, path_divisor_comms)?;
 
