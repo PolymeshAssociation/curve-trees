@@ -39,14 +39,12 @@
 //! verify(..., re_randomized, comms, parameters, &shared_dlog_indices)?;
 //! ```
 
-use crate::curve::{curve_check, PointRepresentation};
 use crate::error::Error;
-use crate::parameters::{SingleLayerProofParameters, SingleLayerProofParametersNew};
-use crate::prover::VC_LEN;
-use crate::rerandomize::re_randomize;
+use crate::parameters::SingleLayerProofParametersNew;
+use crate::prover::{estimate_divisor_chunk_len, ped_comm_estimated_mult_gates};
 use ark_dlog_gadget::dlog::{
-    commit_witness_chunks_prover, commit_witness_chunks_prover_multi_point,
-    commit_witness_chunks_verifier, commit_witness_chunks_verifier_multi_point,
+    commit_witness_chunks_given_chunk_len_verifier, commit_witness_chunks_prover,
+    commit_witness_chunks_prover_multi_point, commit_witness_chunks_verifier_multi_point,
     create_divisor_and_decomposition, create_divisor_and_decomposition_multi_point,
     discrete_log_blinding_and_dlog_given_challenge, discrete_log_blinding_given_challenge,
     discrete_log_challenge, DiscreteLogParameters, DivisorComms,
@@ -55,7 +53,7 @@ use ark_dlog_gadget::utils::CurveSpec;
 use ark_ec::short_weierstrass::{Affine, Projective, SWCurveConfig};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ec_divisors::DivisorCurve;
-use ark_ff::{Field, PrimeField};
+use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{
     cfg_iter,
@@ -63,7 +61,7 @@ use ark_std::{
     format,
     vec::Vec,
 };
-use bulletproofs::r1cs::{constant, ConstraintSystem, Prover, Variable, Verifier};
+use bulletproofs::r1cs::{ConstraintSystem, Prover, Variable, Verifier};
 use bulletproofs::BulletproofGens;
 use dock_crypto_utils::msm::multiply_field_elems_with_same_group_elem;
 use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
@@ -91,145 +89,6 @@ impl<P: SWCurveConfig> ReRandomizedPoints<P> {
     }
 }
 
-pub fn prove_naive<
-    Fb: PrimeField,
-    Fs: Field,
-    P0: SWCurveConfig<BaseField = Fb, ScalarField = Fs> + Copy,
-    P1: SWCurveConfig<BaseField = Fs, ScalarField = Fb> + Copy,
->(
-    prover: &mut Prover<MerlinTranscript, Affine<P0>>,
-    points: Vec<Affine<P1>>,
-    re_randomized_comm: &Affine<P0>,
-    blinding_of_comm: P0::ScalarField,
-    blindings_for_points: Vec<P1::ScalarField>,
-    parameters: &SingleLayerProofParameters<P1>,
-) -> Result<Vec<Affine<P1>>, Error> {
-    let size = points.len();
-    if blindings_for_points.len() != size {
-        return Err(Error::MismatchedSize(blindings_for_points.len(), size));
-    }
-
-    // This could be stored once and reused.
-    let points_plus_delta = cfg_iter!(points)
-        .map(|n| *n + parameters.sl_params.delta)
-        .collect::<Vec<_>>();
-    let points_plus_delta = Projective::normalize_batch(&points_plus_delta);
-    let x_coords = points_plus_delta.iter().map(|n| n.x).collect::<Vec<_>>();
-
-    // For each nested, re-randomization nested_r[i] = nested[i] + B_blinding * blindings[i]
-    let mut blinders = multiply_field_elems_with_same_group_elem(
-        parameters.sl_params.pc_gens.B_blinding.into_group(),
-        &blindings_for_points,
-    );
-    let re_randomized_points = (0..size)
-        .map(|i| points[i] + blinders[i])
-        .collect::<Vec<_>>();
-    let re_randomized_points = Projective::normalize_batch(&re_randomized_points);
-
-    Zeroize::zeroize(&mut blinders);
-
-    // Allocate commitment to all x-coordinates
-    let x_coord_vars =
-        prover.vars_for_committed_vec(re_randomized_comm, &x_coords, blinding_of_comm);
-
-    naive_gadget::<Fb, Fs, P0, P1, _>(
-        prover,
-        size,
-        x_coord_vars,
-        Some(points_plus_delta),
-        re_randomized_points.clone(),
-        Some(blindings_for_points),
-        parameters,
-    )?;
-    Ok(re_randomized_points)
-}
-
-pub fn verify_naive<
-    Fb: PrimeField,
-    Fs: Field,
-    P0: SWCurveConfig<BaseField = Fb, ScalarField = Fs> + Copy,
-    P1: SWCurveConfig<BaseField = Fs, ScalarField = Fb> + Copy,
->(
-    verifier: &mut Verifier<MerlinTranscript, Affine<P0>>,
-    re_randomized_comm: Affine<P0>,
-    re_randomized_points: Vec<Affine<P1>>,
-    parameters: &SingleLayerProofParameters<P1>,
-) -> Result<(), Error> {
-    let size = re_randomized_points.len();
-    // Commit to all x-coordinates
-    let x_coord_vars = verifier.commit_vec(size, re_randomized_comm);
-
-    naive_gadget::<Fb, Fs, P0, P1, _>(
-        verifier,
-        size,
-        x_coord_vars,
-        None,
-        re_randomized_points.clone(),
-        None,
-        parameters,
-    )
-}
-
-pub fn naive_gadget<
-    Fb: PrimeField,
-    Fs: Field,
-    P0: SWCurveConfig<BaseField = Fb, ScalarField = Fs> + Copy,
-    P1: SWCurveConfig<BaseField = Fs, ScalarField = Fb> + Copy,
-    CS: ConstraintSystem<Fs>,
->(
-    cs: &mut CS,
-    size: usize,
-    x_coord_vars: Vec<Variable<P1::BaseField>>,
-    points_plus_delta: Option<Vec<Affine<P1>>>,
-    re_randomized_points: Vec<Affine<P1>>,
-    blindings: Option<Vec<P1::ScalarField>>,
-    parameters: &SingleLayerProofParameters<P1>,
-) -> Result<(), Error> {
-    let points_plus_delta_xy = if let Some(n) = points_plus_delta {
-        n.into_iter()
-            .map(|n| (Some(n), Some(n.y)))
-            .collect::<Vec<_>>()
-    } else {
-        (0..size).map(|_| (None, None)).collect::<Vec<_>>()
-    };
-
-    let re_randomized_points_plus_delta = cfg_iter!(re_randomized_points)
-        .map(|n| *n + parameters.sl_params.delta)
-        .collect::<Vec<_>>();
-    let re_randomized_points_plus_delta =
-        Projective::normalize_batch(&re_randomized_points_plus_delta);
-
-    let blindings = if let Some(n) = blindings {
-        n.into_iter().map(|n| Some(n)).collect::<Vec<_>>()
-    } else {
-        (0..size).map(|_| None).collect::<Vec<_>>()
-    };
-
-    for i in 0..size {
-        // For each "point", check its x and y lie on the curve
-        let x_var = x_coord_vars[i];
-        let y_var = cs.allocate(points_plus_delta_xy[i].1)?;
-        // TODO: Can these be efficiently batch checked? No, since multiplications dominate the cost
-        curve_check(cs, x_var.into(), y_var.into(), P1::COEFF_A, P1::COEFF_B);
-
-        // Check that rerandomized_point_plus_delta = point_plus_delta + B_blinding * blindings[i]
-        re_randomize(
-            cs,
-            &parameters.tables,
-            PointRepresentation {
-                x: x_var.into(),
-                y: y_var.into(),
-                point: points_plus_delta_xy[i].0,
-            },
-            constant(re_randomized_points_plus_delta[i].x),
-            constant(re_randomized_points_plus_delta[i].y),
-            blindings[i],
-        )?;
-    }
-
-    Ok(())
-}
-
 const RE_RANDOMIZED_POINTS: &'static [u8; 20] = b"re_randomized_points";
 
 /// For indices in `shared_dlog_indices`, produces 2 re-randomized points using same blinding with different generators.
@@ -251,11 +110,16 @@ pub fn prove<
     parameters: &SingleLayerProofParametersNew<P1, Parameters>,
     bp_gens: &BulletproofGens<Affine<P0>>,
     shared_dlog_indices: BTreeSet<usize>,
+    a_l_estimate: Option<u16>,
 ) -> Result<(ReRandomizedPoints<P1>, Vec<DivisorComms<Affine<P0>>>), Error> {
     let size = points.len();
     if blindings_for_points.len() != size {
         return Err(Error::MismatchedSize(blindings_for_points.len(), size));
     }
+    let chunk_len = estimate_divisor_chunk_len::<Parameters>(a_l_estimate.map_or_else(
+        || ped_comm_estimated_mult_gates(size, shared_dlog_indices.len()),
+        |a| a as usize,
+    ));
 
     // This could be stored once and reused.
     let points_plus_delta = cfg_iter!(points)
@@ -323,14 +187,10 @@ pub fn prove<
                 &gen_table_refs,
                 -blindings_for_points[i],
             )?;
-            let (comm_divisor, _, blinds) = commit_witness_chunks_prover_multi_point::<
-                _,
-                _,
-                _,
-                Parameters,
-            >(
-                rng, prover, &witness, VC_LEN as usize, bp_gens
-            )?;
+            let (comm_divisor, _, blinds) =
+                commit_witness_chunks_prover_multi_point::<_, _, _, Parameters>(
+                    rng, prover, &witness, chunk_len, bp_gens,
+                )?;
             all_comms.push(comm_divisor);
             blinds_multi.insert(i, blinds);
         } else {
@@ -339,11 +199,7 @@ pub fn prove<
                 -blindings_for_points[i],
             )?;
             let (comm_divisor, _, blind) = commit_witness_chunks_prover::<_, _, _, Parameters>(
-                rng,
-                prover,
-                &witness,
-                VC_LEN as usize,
-                bp_gens,
+                rng, prover, &witness, chunk_len, bp_gens,
             )?;
             all_comms.push(comm_divisor);
             blinds_single.insert(i, blind);
@@ -412,12 +268,17 @@ pub fn verify<
     comms: Vec<DivisorComms<Affine<P0>>>,
     parameters: &SingleLayerProofParametersNew<P1, Parameters>,
     shared_dlog_indices: BTreeSet<usize>,
+    a_l_estimate: Option<u16>,
 ) -> Result<(), Error> {
     let size = re_randomized_points.len();
 
     if comms.len() != size {
         return Err(Error::MismatchedSize(comms.len(), size));
     }
+    let chunk_len = estimate_divisor_chunk_len::<Parameters>(a_l_estimate.map_or_else(
+        || ped_comm_estimated_mult_gates(size, shared_dlog_indices.len()),
+        |a| a as usize,
+    ));
 
     // Add delta to all re-randomized points
     let re_randomized_plus_delta: Vec<_> = re_randomized_points
@@ -445,17 +306,12 @@ pub fn verify<
     for (i, comm) in comms.iter().enumerate() {
         if shared_dlog_indices.contains(&i) {
             let blinds = commit_witness_chunks_verifier_multi_point::<_, _, Parameters>(
-                verifier,
-                comm,
-                VC_LEN as usize,
-                2,
+                verifier, comm, chunk_len, 2,
             )?;
             blinds_multi.insert(i, blinds);
         } else {
-            let blind = commit_witness_chunks_verifier::<_, _, Parameters>(
-                verifier,
-                comm,
-                VC_LEN as usize,
+            let blind = commit_witness_chunks_given_chunk_len_verifier::<_, _, Parameters>(
+                verifier, comm, chunk_len,
             )?;
             blinds_single.insert(i, blind);
         }
@@ -599,6 +455,7 @@ mod tests {
                 &odd_proof_params,
                 &sr_params.even_parameters.bp_gens,
                 shared_dlog_indices.clone(),
+                None,
             )
             .expect("Failed to prove");
 
@@ -615,6 +472,7 @@ mod tests {
             comms,
             &odd_proof_params,
             shared_dlog_indices.clone(),
+            None,
         );
 
         assert!(
@@ -758,6 +616,7 @@ mod tests {
                     &odd_proof_params,
                     &sr_params.even_parameters.bp_gens,
                     shared_dlog_indices.clone(),
+                    None,
                 )
                 .expect("Failed to prove");
 
@@ -778,6 +637,7 @@ mod tests {
                 comms,
                 &odd_proof_params,
                 shared_dlog_indices.clone(),
+                None,
             )
             .unwrap();
 
@@ -874,6 +734,7 @@ mod tests {
                     &odd_proof_params,
                     &sr_params.even_parameters.bp_gens,
                     shared_dlog_indices.clone(),
+                    None,
                 )
                 .expect("Failed to prove");
 
@@ -891,6 +752,7 @@ mod tests {
                 comms,
                 &odd_proof_params,
                 shared_dlog_indices.clone(),
+                None,
             )
             .unwrap();
 
@@ -987,6 +849,7 @@ mod tests {
                     &odd_proof_params,
                     &sr_params.even_parameters.bp_gens,
                     shared_dlog_indices.clone(),
+                    None,
                 )
                 .expect("Failed to prove");
 
@@ -1004,6 +867,7 @@ mod tests {
                 comms,
                 &odd_proof_params,
                 shared_dlog_indices.clone(),
+                None,
             )
             .unwrap();
 

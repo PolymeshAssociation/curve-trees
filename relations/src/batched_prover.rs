@@ -7,7 +7,10 @@ use crate::curve_tree::{
 };
 use crate::curve_tree_prover::WitnessNode;
 use crate::error::{Error, Result};
-use crate::prover::{constraints_for_dlogs_presummed, create_and_commit_divisor, DlogItem};
+use crate::prover::{
+    constraints_for_dlogs_presummed, create_and_commit_divisor, get_chunk_lengths,
+    tree_mult_gate_estimate, DlogItem,
+};
 use crate::select::{multi_select_public_set, select, select_public_set};
 use ark_dlog_gadget::dlog::{DiscreteLogParameters, DivisorComms, PointWithDlog};
 
@@ -46,6 +49,7 @@ impl<
         odd_prover: &mut Prover<MerlinTranscript, Affine<P1>>,
         parameters: &(impl SelRerandProofParametersRef<P0, P1, Parameters0, Parameters1> + Sync),
         rng: &mut R,
+        a_l_estimate: Option<(u16, u16)>,
     ) -> Result<(
         SelectAndRerandomizeMultiPathWithDivisorComms<L, M, P0, P1>,
         Vec<P0::ScalarField>,
@@ -72,6 +76,15 @@ impl<
 
         let root_is_even = self.root_is_even();
         let height = self.even_internal_nodes.len() + self.odd_internal_nodes.len();
+        // The children selected per level are summed into one divisor, so num_indices scales only the
+        // membership cost; each curve has its own level count.
+        let (even_chunk_len, odd_chunk_len) = get_chunk_lengths::<Parameters0, Parameters1>(
+            a_l_estimate,
+            (
+                tree_mult_gate_estimate(self.even_internal_nodes.len(), L, num_indices as usize),
+                tree_mult_gate_estimate(self.odd_internal_nodes.len(), L, num_indices as usize),
+            ),
+        );
 
         let mut even_node_divisors = Vec::new();
         let mut even_node_comms = Vec::new();
@@ -91,6 +104,7 @@ impl<
                         odd_rerandomized_sum_of_nodes[0],
                         odd_rerandomization_scalars[0],
                         odd_parameters,
+                        even_chunk_len,
                         &even_parameters.sl_params.bp_gens,
                     )?;
                 even_node_comms.push(divisor_comms);
@@ -108,6 +122,7 @@ impl<
                         even_rerandomized_sum_of_nodes[0],
                         even_rerandomization_scalars[0],
                         even_parameters,
+                        odd_chunk_len,
                         &odd_parameters.sl_params.bp_gens,
                     )?;
                 odd_node_comms.push(divisor_comms);
@@ -135,6 +150,8 @@ impl<
             &odd_rerandomization_scalars,
             &rerandomizations_of_selected,
             &rerandomization_scalars_of_selected,
+            even_chunk_len,
+            odd_chunk_len,
         )?;
         even_node_comms.extend(nr_even_comms);
         even_node_divisors.extend(nr_even_divisors);
@@ -189,6 +206,8 @@ impl<
         odd_rerandomization_scalars: &[F1],
         rerandomizations_of_selected: &[Affine<P0>],
         rerandomization_scalars_of_selected: &[F0],
+        even_chunk_len: usize,
+        odd_chunk_len: usize,
     ) -> Result<(
         Vec<DivisorComms<Affine<P0>>>,
         Vec<DlogItem<F0, Parameters0>>,
@@ -225,6 +244,7 @@ impl<
                     &even_rerandomized_sum_of_nodes[i],
                     even_rerandomization_scalars[i],
                     odd_parameters,
+                    even_chunk_len,
                     &even_parameters.sl_params.bp_gens,
                 )?;
             even_node_comms.push(divisor_comms);
@@ -249,6 +269,7 @@ impl<
                     &odd_rerandomized_sum_of_nodes[i],
                         odd_rerandomization_scalars[i],
                     even_parameters,
+                    odd_chunk_len,
                     &odd_parameters.sl_params.bp_gens,
                 )?;
                 odd_node_comms.push(divisor_comms);
@@ -338,6 +359,7 @@ impl<
                     odd_prover,
                     rerandomization_scalars_of_selected[i],
                     &even_parameters.table_b_blinding,
+                    odd_chunk_len,
                     &odd_parameters.sl_params.bp_gens,
                 )?;
 
@@ -363,6 +385,7 @@ impl<
         re_randomized_sum_of_children: Affine<P1>,
         child_re_randomization: F1,
         parameters: &SingleLayerProofParametersNew<P1, Parameters0>,
+        chunk_len: usize,
         bp_gens: &BulletproofGens<Affine<P0>>,
     ) -> Result<(
         LinearCombination<F0>,
@@ -406,6 +429,7 @@ impl<
             prover,
             child_re_randomization,
             &parameters.table_b_blinding,
+            chunk_len,
             bp_gens,
         )?;
         Ok((sum_x_var, sum_y_var, x, y, divisor_comms, p))
@@ -424,6 +448,7 @@ impl<
         parent_node: &Affine<P0>,
         parent_rerandomization_scalar: F0,
         parameters: &SingleLayerProofParametersNew<P1, Parameters0>,
+        chunk_len: usize,
         bp_gens: &BulletproofGens<Affine<P0>>,
     ) -> Result<(
         LinearCombination<F0>,
@@ -467,6 +492,7 @@ impl<
             prover,
             child_re_randomization,
             &parameters.table_b_blinding,
+            chunk_len,
             bp_gens,
         )?;
         Ok((sum_x_var, sum_y_var, x, y, divisor_comms, p))
@@ -484,6 +510,7 @@ impl<
         rerandomized_sums: &[Affine<P1>],
         rerandomization_scalars: &[F1],
         parameters: &SingleLayerProofParametersNew<P1, Parameters>,
+        chunk_len: usize,
         bp_gens: &BulletproofGens<Affine<P0>>,
     ) -> Result<(Vec<DivisorComms<Affine<P0>>>, Vec<DlogItem<F0, Parameters>>)> {
         let num_multi_paths = selected_children_per_mp.len();
@@ -539,6 +566,7 @@ impl<
                 prover,
                 rerandomization_scalars[mp_idx],
                 &parameters.table_b_blinding,
+                chunk_len,
                 bp_gens,
             )?;
             comms.push(divisor_comms);
@@ -571,6 +599,7 @@ impl<
         odd_prover: &mut Prover<MerlinTranscript, Affine<P1>>,
         parameters: &(impl SelRerandProofParametersRef<P0, P1, Parameters0, Parameters1> + Sync),
         rng: &mut R,
+        a_l_estimate: Option<(u16, u16)>,
     ) -> Result<(
         Vec<SelectAndRerandomizeMultiPathWithDivisorComms<L, M, P0, P1>>,
         Vec<Vec<P0::ScalarField>>, // leaf rerandomization scalars
@@ -586,6 +615,16 @@ impl<
         let root_is_even = multi_paths[0].root_is_even();
         let height =
             multi_paths[0].even_internal_nodes.len() + multi_paths[0].odd_internal_nodes.len();
+        // Divisors of every multi-path are committed on the same pair of provers, so size the chunks
+        // from the combined leaf count across all multi-paths, per curve.
+        let total_indices: usize = multi_paths.iter().map(|p| p.num_indices() as usize).sum();
+        let (even_chunk_len, odd_chunk_len) = get_chunk_lengths::<Parameters0, Parameters1>(
+            a_l_estimate,
+            (
+                tree_mult_gate_estimate(multi_paths[0].even_internal_nodes.len(), L, total_indices),
+                tree_mult_gate_estimate(multi_paths[0].odd_internal_nodes.len(), L, total_indices),
+            ),
+        );
 
         // All multi-paths must share the same root parity and respect the batch size.
         for p in &multi_paths {
@@ -701,6 +740,7 @@ impl<
                             odd_prover,
                             all_rerand_leaves_scalars[mp_idx][root_idx],
                             &even_parameters.table_b_blinding,
+                            odd_chunk_len,
                             &odd_parameters.sl_params.bp_gens,
                         )?;
                     odd_node_comms[mp_idx].push(divisor_comms);
@@ -743,6 +783,7 @@ impl<
                         &rerand_sums,
                         &rerand_scalars,
                         odd_parameters,
+                        even_chunk_len,
                         &even_parameters.sl_params.bp_gens,
                     )?;
                 for (i, (c, d)) in comms.into_iter().zip(divisors).enumerate() {
@@ -777,6 +818,7 @@ impl<
                         &rerand_sums,
                         &rerand_scalars,
                         even_parameters,
+                        odd_chunk_len,
                         &odd_parameters.sl_params.bp_gens,
                     )?;
                 for (i, (c, d)) in comms.into_iter().zip(divisors).enumerate() {
@@ -801,6 +843,8 @@ impl<
                     &all_odd_scalars[mp_idx],
                     &all_rerand_leaves[mp_idx],
                     &all_rerand_leaves_scalars[mp_idx],
+                    even_chunk_len,
+                    odd_chunk_len,
                 )?;
                 even_node_comms[mp_idx].extend(nrc_e);
                 even_node_divisors[mp_idx].extend(nrd_e);
@@ -1094,6 +1138,7 @@ mod tests {
                 &mut vesta_prover,
                 sr_proof_params,
                 rng,
+                None,
             )
             .unwrap();
         let (pallas_proof, vesta_proof) = prove(
@@ -1279,12 +1324,13 @@ mod tests {
                 VestaConfig,
                 PallasParams,
             >
-                .mock_safe(|rng, prover, randomization, table, bp_gens| {
+                .mock_safe(|rng, prover, randomization, table, chunk_len, bp_gens| {
                     MockResult::Continue((
                         rng,
                         prover,
                         randomization + PallasBase::one(),
                         table,
+                        chunk_len,
                         bp_gens,
                     ))
                 });

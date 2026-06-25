@@ -10,7 +10,7 @@ use ark_dlog_gadget::dlog::{
     commit_witness_chunks_prover, create_divisor_and_decomposition,
     discrete_log_blinding_given_challenge, discrete_log_blinding_given_challenge_assume_on_curve,
     discrete_log_challenge, ChallengedGenerator, DiscreteLogChallenge, DiscreteLogParameters,
-    DivisorComms, PointWithDlog,
+    DivisorComms, PointWithDlog, MIN_CHUNK_LEN,
 };
 use ark_dlog_gadget::utils::CurveSpec;
 use ark_ec::short_weierstrass::{Affine, SWCurveConfig};
@@ -27,8 +27,6 @@ use rand_chacha::ChaChaRng;
 use rand_core::CryptoRngCore;
 use zeroize::Zeroize;
 
-pub const VC_LEN: u16 = 256;
-
 #[derive(Clone)]
 pub enum RootDivisorComms<P0: SWCurveConfig + Copy, P1: SWCurveConfig + Copy> {
     Even(DivisorComms<Affine<P0>>),
@@ -43,6 +41,7 @@ impl<
         P1: DivisorCurve<BaseField = F0, ScalarField = F1> + Copy,
     > CurveTreeWitnessPath<L, P0, P1>
 {
+    /// a_l_estimate corresponds
     pub fn select_and_rerandomize_prover_gadget_new<
         R: CryptoRngCore,
         Parameters0: DiscreteLogParameters,
@@ -53,9 +52,19 @@ impl<
         odd_prover: &mut Prover<MerlinTranscript, Affine<P1>>,
         parameters: &(impl SelRerandProofParametersRef<P0, P1, Parameters0, Parameters1> + Sync),
         rng: &mut R,
+        a_l_estimate: Option<(u16, u16)>,
     ) -> Result<(SelectAndRerandomizePathWithDivisorComms<L, P0, P1>, F0)> {
         let even_parameters = parameters.even_parameters();
         let odd_parameters = parameters.odd_parameters();
+
+        // One divisor per level on each curve; each curve has its own level count.
+        let (even_chunk_len, odd_chunk_len) = get_chunk_lengths::<Parameters0, Parameters1>(
+            a_l_estimate,
+            (
+                tree_mult_gate_estimate(self.even_internal_nodes.len(), L, 1),
+                tree_mult_gate_estimate(self.odd_internal_nodes.len(), L, 1),
+            ),
+        );
 
         let (
             even_rerandomized_nodes,
@@ -86,6 +95,7 @@ impl<
                     odd_rerandomization_scalars[0],
                     &odd_parameters.table_b_blinding,
                     &odd_parameters.sl_params.delta,
+                    even_chunk_len,
                     &even_parameters.sl_params.bp_gens,
                 )?;
             even_node_divisors.push((x_var.into(), y_var.into(), x_rerand, y_rerand, p));
@@ -103,6 +113,7 @@ impl<
                     even_rerandomization_scalars[0],
                     &even_parameters.table_b_blinding,
                     &even_parameters.sl_params.delta,
+                    odd_chunk_len,
                     &odd_parameters.sl_params.bp_gens,
                 )?;
             odd_node_divisors.push((x_var.into(), y_var.into(), x_rerand, y_rerand, p));
@@ -121,6 +132,7 @@ impl<
                 &odd_rerandomization_scalars,
                 &odd_parameters.table_b_blinding,
                 &odd_parameters.sl_params.delta,
+                even_chunk_len,
                 &even_parameters.sl_params.bp_gens,
             )?;
             even_node_comms.extend(comms);
@@ -141,6 +153,7 @@ impl<
                     &even_rerandomization_scalars,
                     &even_parameters.table_b_blinding,
                     &even_parameters.sl_params.delta,
+                    odd_chunk_len,
                     &odd_parameters.sl_params.bp_gens,
                 )?;
             odd_node_comms.extend(comms);
@@ -199,6 +212,7 @@ impl<
         randomization: F1,
         blinding_base_table: &GeneratorTable<F0, Parameters>,
         delta: &Affine<P1>,
+        chunk_len: usize,
         bp_gens: &BulletproofGens<Affine<P0>>,
     ) -> Result<(
         Variable<F0>,
@@ -222,6 +236,7 @@ impl<
             prover,
             randomization,
             blinding_base_table,
+            chunk_len,
             bp_gens,
         )?;
         Ok((x, y, x_rerand, y_rerand, divisor_comms, p))
@@ -240,6 +255,7 @@ impl<
         child_randomization: F1,
         blinding_base_table: &GeneratorTable<F0, Parameters>,
         delta: &Affine<P1>,
+        chunk_len: usize,
         bp_gens: &BulletproofGens<Affine<P0>>,
     ) -> Result<(
         Variable<F0>,
@@ -261,6 +277,7 @@ impl<
             prover,
             child_randomization,
             blinding_base_table,
+            chunk_len,
             bp_gens,
         )?;
         Ok((x_var, y_var, x, y, divisor_comms, p))
@@ -280,6 +297,7 @@ impl<
         child_rerandomization_scalars: &[F1],
         blinding_base_table: &GeneratorTable<F0, Parameters>,
         delta: &Affine<P1>,
+        chunk_len: usize,
         bp_gens: &BulletproofGens<Affine<P0>>,
     ) -> Result<(Vec<DivisorComms<Affine<P0>>>, Vec<DlogItem<F0, Parameters>>)> {
         let mut comms = Vec::new();
@@ -301,6 +319,7 @@ impl<
                     child_rerandomization_scalars[index],
                     blinding_base_table,
                     delta,
+                    chunk_len,
                     bp_gens,
                 )?;
             comms.push(divisor_comms);
@@ -368,6 +387,7 @@ impl<
         odd_prover: &mut Prover<MerlinTranscript, Affine<P1>>,
         parameters: &(impl SelRerandProofParametersRef<P0, P1, Parameters0, Parameters1> + Sync),
         rng: &mut R,
+        a_l_estimate: Option<(u16, u16)>,
     ) -> Result<(
         Vec<SelectAndRerandomizePathWithDivisorComms<L, P0, P1>>,
         Vec<F0>,
@@ -377,6 +397,19 @@ impl<
 
         let num_paths = self.num_paths();
         let individual_paths = self.to_individual_paths();
+
+        // The paths are independent (not summed): each adds its own divisor per level on each curve,
+        // so the per-curve gate count scales with the number of paths.
+        let first = individual_paths.first();
+        let even_levels = first.map(|p| p.even_internal_nodes.len()).unwrap_or(0);
+        let odd_levels = first.map(|p| p.odd_internal_nodes.len()).unwrap_or(0);
+        let (even_chunk_len, odd_chunk_len) = get_chunk_lengths::<Parameters0, Parameters1>(
+            a_l_estimate,
+            (
+                num_paths * tree_mult_gate_estimate(even_levels, L, 1),
+                num_paths * tree_mult_gate_estimate(odd_levels, L, 1),
+            ),
+        );
 
         // Determine if root is even based on the RootChildren variant
         let root_is_even = matches!(&self.root_children, RootChildren::Even { .. });
@@ -436,6 +469,7 @@ impl<
                     &mut even_node_divisors,
                     delta,
                     bp_gens,
+                    even_chunk_len,
                     &odd_parameters.table_b_blinding,
                 )?;
             }
@@ -460,6 +494,7 @@ impl<
                     &mut odd_node_divisors,
                     delta,
                     bp_gens,
+                    odd_chunk_len,
                     &even_parameters.table_b_blinding,
                 )?;
             }
@@ -496,6 +531,7 @@ impl<
                     odd_rerandomization_scalars,
                     &odd_parameters.table_b_blinding,
                     &odd_parameters.sl_params.delta,
+                    even_chunk_len,
                     &even_parameters.sl_params.bp_gens,
                 )?;
             even_node_comms[path_idx].extend(even_comms);
@@ -514,6 +550,7 @@ impl<
                     even_rerandomization_scalars,
                     &even_parameters.table_b_blinding,
                     &even_parameters.sl_params.delta,
+                    odd_chunk_len,
                     &odd_parameters.sl_params.bp_gens,
                 )?;
             odd_node_comms[path_idx].extend(odd_comms);
@@ -566,6 +603,7 @@ impl<
         >,
         delta: Affine<P1>,
         bp_gens: &BulletproofGens<Affine<P0>>,
+        chunk_len: usize,
         table: &GeneratorTable<F0, Parameters>,
     ) -> Result<()> {
         // Each path's selected child + delta
@@ -609,6 +647,7 @@ impl<
                 prover,
                 randomization,
                 table,
+                chunk_len,
                 bp_gens,
             )?;
 
@@ -882,8 +921,10 @@ pub fn create_and_commit_divisor<
     prover: &mut Prover<MerlinTranscript, Affine<C0>>,
     randomization: F1,
     blinding_base_table: &GeneratorTable<F0, Params>,
+    chunk_len: usize,
     bp_gens: &BulletproofGens<Affine<C0>>,
 ) -> Result<(DivisorComms<Affine<C0>>, Box<PointWithDlog<F0, Params>>)> {
+    // The verifier derives `chunk_len` from the commitment count
     let (divisor_commitments, o_blind_claim) = {
         // Optimz: All divisors could be computed in parallel. And creating multiple divisors at once is faster
         let witness = create_divisor_and_decomposition::<F0, C1, Params>(
@@ -891,9 +932,59 @@ pub fn create_and_commit_divisor<
             -randomization,
         )?;
         let (divisor_commitments, _, vars_divisor) =
-            commit_witness_chunks_prover(rng, prover, &witness, VC_LEN as usize, bp_gens)?;
+            commit_witness_chunks_prover(rng, prover, &witness, chunk_len, bp_gens)?;
 
         (divisor_commitments, vars_divisor)
     };
     Ok((divisor_commitments, o_blind_claim))
+}
+
+/// Chunk length that keeps a single-point divisor commitment's proof dimension bounded by
+/// `estimated_mult_gates` multiplication gates. Must divide the witness length `2 * decomposition_size`
+pub fn estimate_divisor_chunk_len<Params: DiscreteLogParameters>(
+    estimated_mult_gates: usize,
+) -> usize {
+    let total = Params::decomposition_size() * 2;
+    // MIN_CHUNK_LEN <= target <= total
+    let target = estimated_mult_gates
+        .next_power_of_two()
+        .max(MIN_CHUNK_LEN)
+        .min(total);
+    // Largest chunk length <= target that divides total. If not, then look for smallest value > target
+    // that divides total.
+    (MIN_CHUNK_LEN..=target)
+        .rev()
+        .find(|c| total % c == 0)
+        .or_else(|| (target + 1..=total).find(|c| total % c == 0))
+        .unwrap_or(total)
+}
+
+/// Estimated multiplication-gate count contributed to one curve's prover
+pub fn tree_mult_gate_estimate(num_levels: usize, arity: usize, num_indices: usize) -> usize {
+    // num_indices * arity: the set-membership (select) cost of the selections at each level.
+    // + 20: the per-level cost of one divisor + dlog-blinding gadget plus its coordinate and
+    // curve-check gates. A summed/batched level has one divisor regardless of num_indices.
+    num_levels * (num_indices * arity + 20)
+}
+
+/// Estimated multiplication-gate count of the ped-comm gadget for `size` points, `num_shared` of
+/// which get a second re-randomization.
+pub fn ped_comm_estimated_mult_gates(size: usize, num_shared: usize) -> usize {
+    // Got this by running test and checking the number of multiplications
+    21 * size + 13 * num_shared
+}
+
+/// Per-curve divisor chunk lengths
+pub fn get_chunk_lengths<P0: DiscreteLogParameters, P1: DiscreteLogParameters>(
+    estimated_mult_gates: Option<(u16, u16)>,
+    default_a_l: (usize, usize),
+) -> (usize, usize) {
+    let (e, o) = match estimated_mult_gates {
+        Some((e, o)) => (e as usize, o as usize),
+        None => default_a_l,
+    };
+    (
+        estimate_divisor_chunk_len::<P0>(e),
+        estimate_divisor_chunk_len::<P1>(o),
+    )
 }

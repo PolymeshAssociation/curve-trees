@@ -99,6 +99,7 @@ fn bench_batched_curve_tree_with_varying_batch_size_new<const L: usize, const M:
                         &mut vesta_prover,
                         &*SRProofParamsNewPallasLeaf,
                         &mut rng,
+                        None,
                     )
                     .expect("Failed to prove batched select and rerandomize");
 
@@ -136,6 +137,7 @@ fn bench_batched_curve_tree_with_varying_batch_size_new<const L: usize, const M:
                     &mut vesta_prover,
                     &*SRProofParamsNewPallasLeaf,
                     &mut rng,
+                    None,
                 )
                 .expect("Failed to prove batched select and rerandomize");
 

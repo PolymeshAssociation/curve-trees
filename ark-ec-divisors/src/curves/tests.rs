@@ -113,9 +113,9 @@ fn test_divisor<C: DivisorCurve>() {
 
         total_times.push(start_total.elapsed());
 
-        assert!(C::ScalarField::MODULUS_BIT_SIZE < 256);
+        assert!(C::ScalarField::MODULUS_BIT_SIZE <= 256);
         let x_len = divisor.x_coefficients.len().saturating_sub(1);
-        assert!(x_len <= 127, "x-len={x_len}");
+        assert!(x_len <= 128, "x-len={x_len}");
 
         // Decide challenges
         let c0 = Projective::<C>::rand(&mut rng);
@@ -411,6 +411,103 @@ fn scalar_mul_divisor_correctness<C: DivisorCurve>() {
     );
 }
 
+/// Evaluate `LHS - RHS` of the log-derivative (Eagen) identity that `constrain_challenge_eval`
+/// enforces in-circuit, for a given (possibly tampered) `divisor` against the `points`
+/// whose principal divisor it claims to be, at the random line through `c0, c1, c2 = -(c0+c1)`.
+/// For the correct principal divisor the result is zero, for incorrect, its non-zero.
+fn logderiv_discrepancy<C: DivisorCurve>(
+    divisor: &DivisorPoly<C::BaseField>,
+    points: &[Projective<C>],
+    c0: Projective<C>,
+    c1: Projective<C>,
+) -> C::BaseField {
+    let c2 = -(c0 + c1);
+    let (slope, intercept) = slope_intercept::<C>(c0, c1);
+
+    // dx/dz helper polynomials (depend only on the slope and the curve, not on the divisor).
+    let dx_helper = DivisorPoly {
+        y_coefficient: C::BaseField::zero(),
+        yx_coefficients: vec![],
+        x_coefficients: vec![C::BaseField::zero(), C::BaseField::from(3u64)],
+        zero_coefficient: C::COEFF_A,
+    };
+    let dy_helper = DivisorPoly {
+        y_coefficient: C::BaseField::from(2u64),
+        yx_coefficients: vec![],
+        x_coefficients: vec![],
+        zero_coefficient: C::BaseField::zero(),
+    };
+    let dz_helper = (dy_helper.clone() * -slope) + &dx_helper;
+
+    let (ddx, ddy) = divisor.differentiate();
+    let lhs_at = |c: Projective<C>| {
+        let (x, y) = to_xy::<C>(c).unwrap();
+        let n_0 = (C::BaseField::from(3u64) * (x * x)) + C::COEFF_A;
+        let d_0 = (C::BaseField::from(2u64) * y).inverse().unwrap();
+        let p_0_n_0 = n_0 * d_0;
+        let fraction_1_n = (p_0_n_0 * ddy.eval(x, y)) + ddx.eval(x, y);
+        let fraction_1_d = divisor.eval(x, y);
+        let fraction_2_n = dy_helper.eval(x, y);
+        let fraction_2_d = dz_helper.eval(x, y);
+        fraction_1_n * fraction_2_n * (fraction_1_d * fraction_2_d).inverse().unwrap()
+    };
+    let lhs = lhs_at(c0) + lhs_at(c1) + lhs_at(c2);
+
+    let mut rhs = C::BaseField::zero();
+    for point in points {
+        let (x, y) = to_xy::<C>(*point).unwrap();
+        rhs += (intercept - (y - (slope * x))).inverse().unwrap();
+    }
+    lhs - rhs
+}
+
+fn tampered_divisor_breaks_identity<C: DivisorCurve>() {
+    let mut rng = StdRng::seed_from_u64(42);
+
+    // A set of points summing to identity, and its honest principal divisor.
+    let mut points = vec![];
+    for _ in 0..5 {
+        points.push(Projective::<C>::rand(&mut rng));
+    }
+    let sum = points.iter().copied().reduce(|a, b| a + b).unwrap();
+    points.push(-sum);
+
+    let precomputation = C::interpolator_for_scalar_mul();
+    let divisor = new_divisor_checked::<C>(&points, precomputation.borrow()).unwrap();
+
+    let c0 = Projective::<C>::rand(&mut rng);
+    let mut c1 = Projective::<C>::rand(&mut rng);
+    while c1 == c0 {
+        c1 = Projective::<C>::rand(&mut rng);
+    }
+
+    assert!(logderiv_discrepancy::<C>(&divisor, &points, c0, c1).is_zero());
+
+    // Wrong constant term
+    let mut t_zero = divisor.clone();
+    t_zero.zero_coefficient += C::BaseField::ONE;
+    assert!(!logderiv_discrepancy::<C>(&t_zero, &points, c0, c1).is_zero());
+
+    // Wrong x-coefficient
+    assert!(!divisor.x_coefficients.is_empty());
+    let mut t_x = divisor.clone();
+    let xi = t_x.x_coefficients.len() / 2;
+    t_x.x_coefficients[xi] += C::BaseField::ONE;
+    assert!(!logderiv_discrepancy::<C>(&t_x, &points, c0, c1).is_zero());
+
+    // Wrong yx-coefficient
+    if !divisor.yx_coefficients.is_empty() {
+        let mut t_yx = divisor.clone();
+        t_yx.yx_coefficients[0] += C::BaseField::ONE;
+        assert!(!logderiv_discrepancy::<C>(&t_yx, &points, c0, c1).is_zero());
+    }
+
+    // Wrong y-coefficient
+    let mut t_y = divisor.clone();
+    t_y.y_coefficient += C::BaseField::ONE;
+    assert!(!logderiv_discrepancy::<C>(&t_y, &points, c0, c1).is_zero());
+}
+
 /*#[cfg(feature = "ed25519")]
 #[test]
 fn test_divisor_ed25519() {
@@ -464,6 +561,7 @@ fn run_divisor_tests<C: DivisorCurve>() {
     test_divisor::<C>();
     decomposition_correctness::<C>();
     scalar_mul_divisor_correctness::<C>();
+    tampered_divisor_breaks_identity::<C>();
 }
 
 #[test]
@@ -489,4 +587,14 @@ fn test_divisor_selene() {
 #[test]
 fn test_divisor_wei25519() {
     run_divisor_tests::<ark_wei25519::Wei25519Config>();
+}
+
+#[test]
+fn test_divisor_secp256k1() {
+    run_divisor_tests::<ark_secp256k1::Config>();
+}
+
+#[test]
+fn test_divisor_secq256k1() {
+    run_divisor_tests::<ark_secq256k1::Config>();
 }

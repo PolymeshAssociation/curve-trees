@@ -526,7 +526,8 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
         n as u32
     }
 
-    pub fn number_of_constraints(&self) -> usize {
+    /// The number of multiply gates allocated so far
+    pub fn num_multipliers(&self) -> usize {
         self.secrets.a_L.len()
     }
 

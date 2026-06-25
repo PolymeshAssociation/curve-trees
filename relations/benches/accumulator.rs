@@ -125,7 +125,7 @@ fn bench_accumulator_with_parameters<
         if print {
             log::debug!(
                 "{prefix_string}_Constraints: {}",
-                pallas_prover.number_of_constraints() + vesta_prover.number_of_constraints()
+                pallas_prover.num_multipliers() + vesta_prover.num_multipliers()
             );
         }
         #[cfg(not(feature = "parallel"))]

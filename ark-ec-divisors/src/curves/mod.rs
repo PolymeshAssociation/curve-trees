@@ -19,6 +19,12 @@ pub mod selene;
 #[cfg(any(test, feature = "wei25519"))]
 pub mod wei25519;
 
+#[cfg(any(test, feature = "secp256k1"))]
+pub mod secp256k1;
+
+#[cfg(any(test, feature = "secq256k1"))]
+pub mod secq256k1;
+
 #[cfg(test)]
 mod tests;
 

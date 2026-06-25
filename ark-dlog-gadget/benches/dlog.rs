@@ -1,6 +1,6 @@
 use ark_dlog_gadget::dlog::{
-    commit_witness_chunks_prover, commit_witness_chunks_verifier, create_divisor_and_decomposition,
-    discrete_log_blinding, DiscreteLogParameters,
+    commit_witness_chunks_given_chunk_len_verifier, commit_witness_chunks_prover,
+    create_divisor_and_decomposition, discrete_log_blinding, DiscreteLogParameters,
 };
 use ark_dlog_gadget::utils::CurveSpec;
 use ark_ec::short_weierstrass::Projective;
@@ -234,7 +234,7 @@ fn bench_blinding_with_discrete_log_verify<C, Params, B, S, BP>(
                 let o_y_var = vars_orig.pop().unwrap();
                 let o_x_var = vars_orig.pop().unwrap();
 
-                let o_blind_claim = commit_witness_chunks_verifier::<_, _, Params>(
+                let o_blind_claim = commit_witness_chunks_given_chunk_len_verifier::<_, _, Params>(
                     &mut verifier,
                     &all_divisor_commitments[i],
                     vc_len,
@@ -470,7 +470,7 @@ fn bench_blinding_with_discrete_log_combined_verify<C, Params, B, S, BP>(
                 let o_x_var = vars_orig[2 * i + 0];
                 let o_y_var = vars_orig[2 * i + 1];
 
-                let o_blind_claim = commit_witness_chunks_verifier::<_, _, Params>(
+                let o_blind_claim = commit_witness_chunks_given_chunk_len_verifier::<_, _, Params>(
                     &mut verifier,
                     &all_divisor_commitments[i],
                     vc_len,

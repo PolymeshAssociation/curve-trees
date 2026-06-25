@@ -19,9 +19,8 @@ use relations::curve_tree::CurveTree;
 use relations::parameters::{
     SelRerandParameters, SelRerandProofParameters, SingleLayerProofParametersNew,
 };
-use relations::ped_comm_group_elems::{
-    prove as prove_new, prove_naive, verify as verify_new, verify_naive,
-};
+use relations::ped_comm_group_elems::{prove as prove_new, verify as verify_new};
+use relations::ped_comm_group_elems_naive::{prove_naive, verify_naive};
 use relations::utils::prove;
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, Instant};
@@ -349,6 +348,7 @@ pub fn check<
             &odd_proof_params,
             &sr_params.even_parameters.bp_gens,
             shared_dlog_indices.clone(),
+            None,
         )
         .expect("Failed to prove");
 
@@ -416,6 +416,7 @@ pub fn check<
                 comms,
                 &odd_proof_params,
                 shared_dlog_indices.clone(),
+                None,
             )
             .expect("Failed to verify");
 

@@ -14,16 +14,15 @@ use core::marker::PhantomData;
 use core::ops::{Add, Div, Sub};
 use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
 pub use generic_array::typenum::{Diff, Quot, Sum, Unsigned, U1, U2};
-use generic_array::typenum::{U255, U256};
 pub use generic_array::{ArrayLength, GenericArray};
 use rand_core::CryptoRngCore;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 // Move this file to divisors crate
 
-pub const DECOMPOSITION_SIZE: usize = 256;
-/// Maximum number of bits supported for the scalar (discrete log)
-pub const MAX_BITS_SUPPORTED: usize = 255;
+/// Smallest chunk size a verifier will accept when deriving the chunk length of a single-point
+/// divisor commitment. Caps the number of commitments at `decomposition_size * 2 / MIN_CHUNK_LEN`.
+pub const MIN_CHUNK_LEN: usize = 32;
 
 /// Derived parameters for a discrete logarithm proof.
 ///
@@ -44,6 +43,12 @@ pub trait DiscreteLogParameters: DiscreteLogParameter {
     /// This is the number of points in a divisor (the number of bits in a scalar, plus one),
     /// ceiling division by two, minus two.
     type YxCoefficients: ArrayLength;
+
+    /// Length of one flat decomposition/divisor array: the scalar's bits or the divisor's
+    /// coefficients, plus one slot for x or y coordinate of the resulting point.
+    fn decomposition_size() -> usize {
+        Self::ScalarBits::USIZE + 1
+    }
 }
 
 /// XCoefficients = (ScalarBits + 1) / 2
@@ -205,7 +210,6 @@ impl<F: PrimeField, Parameters: DiscreteLogParameters> ChallengePoint<F, Paramet
 ///
 /// This challenge must be sampled after writing the commitments to the transcript. This challenge
 /// is reusable across various divisors.
-// #[derive(Debug)]
 pub struct DiscreteLogChallenge<F: PrimeField, Parameters: DiscreteLogParameters> {
     c0: Box<ChallengePoint<F, Parameters>>,
     c1: Box<ChallengePoint<F, Parameters>>,
@@ -221,38 +225,46 @@ pub struct ChallengedGenerator<F: PrimeField, Parameters: DiscreteLogParameters>
     GenericArray<F, Parameters::ScalarBits>,
 );
 
+impl<F: PrimeField, Parameters: DiscreteLogParameters> Divisor<F, Parameters> {
+    fn from_vars(vars: &[Variable<F>]) -> Self {
+        // divisor's layout is as
+        // [coefficient of y, coefficients of yx, coefficients of x^i from i>1, coefficient of 0 degree term]
+        let y = vars[0];
+        let mut cursor = 1;
+        let yx = GenericArray::<_, Parameters::YxCoefficients>::from_slice(
+            &vars[cursor..cursor + Parameters::YxCoefficients::USIZE],
+        )
+        .clone();
+        cursor += Parameters::YxCoefficients::USIZE;
+        let x_from_power_of_2 = GenericArray::<_, Parameters::XCoefficientsMinusOne>::from_slice(
+            &vars[cursor..cursor + Parameters::XCoefficientsMinusOne::USIZE],
+        )
+        .clone();
+        cursor += Parameters::XCoefficientsMinusOne::USIZE;
+        let zero = vars[cursor];
+
+        Divisor {
+            y,
+            yx,
+            x_from_power_of_2,
+            zero,
+        }
+    }
+}
+
 impl<F: PrimeField, Parameters: DiscreteLogParameters> PointWithDlog<F, Parameters> {
     pub fn from_vars(decomposition: Vec<Variable<F>>, divisor: Vec<Variable<F>>) -> Box<Self> {
-        // x and y coordinates of the blinding point (s.B) and are put at the end of decomposition and divisor respectively to match Monero's implementation
-        let blind_x_var = decomposition[DECOMPOSITION_SIZE - 1];
-        let blind_y_var = divisor[DECOMPOSITION_SIZE - 1];
+        // x and y coordinates of the blinding point (s.B) are at the end of decomposition and divisor respectively to match Monero's implementation
+        let last = Parameters::ScalarBits::USIZE;
+        let blind_x_var = decomposition[last];
+        let blind_y_var = divisor[last];
 
         let dlog = GenericArray::<_, Parameters::ScalarBits>::from_slice(
             &decomposition[0..Parameters::ScalarBits::USIZE],
         )
         .clone();
 
-        // divisor's layout is as
-        // [coefficient of y, coefficients of yx, coefficients of x^i from i>1, coefficient of 0 degree term]
-
-        let mut cursor_start = 1;
-        let mut cursor_end = cursor_start + Parameters::YxCoefficients::USIZE;
-        let yx = GenericArray::<_, Parameters::YxCoefficients>::from_slice(
-            &divisor[cursor_start..cursor_end],
-        )
-        .clone();
-        cursor_start = cursor_end;
-        cursor_end += Parameters::XCoefficientsMinusOne::USIZE;
-        let x_from_power_of_2 = GenericArray::<_, Parameters::XCoefficientsMinusOne>::from_slice(
-            &divisor[cursor_start..cursor_end],
-        )
-        .clone();
-        let divisor = Divisor {
-            y: divisor[0],
-            yx,
-            x_from_power_of_2,
-            zero: divisor[cursor_end],
-        };
+        let divisor = Divisor::from_vars(&divisor);
         Box::new(PointWithDlog {
             divisor,
             dlog,
@@ -263,8 +275,8 @@ impl<F: PrimeField, Parameters: DiscreteLogParameters> PointWithDlog<F, Paramete
 
 impl<F: PrimeField, Parameters: DiscreteLogParameters> PointsWithDlog<F, Parameters> {
     fn expected_vars_len(num_points: usize) -> usize {
-        // scalar decomposition + (x-coordinate per point) + (divisor coefficients per point)
-        MAX_BITS_SUPPORTED + num_points + (num_points * DECOMPOSITION_SIZE)
+        // scalar decomposition + (x-coordinate per point) + (divisor coefficients + y per point)
+        Parameters::ScalarBits::USIZE + num_points + (num_points * Parameters::decomposition_size())
     }
 
     /// The number of variables should be the smallest multiple of `chunk_len` >= `Self::expected_vars_len`
@@ -293,7 +305,7 @@ impl<F: PrimeField, Parameters: DiscreteLogParameters> PointsWithDlog<F, Paramet
         .clone();
 
         // variables for x-coordinates of all resulting points
-        let result_x_start = MAX_BITS_SUPPORTED;
+        let result_x_start = Parameters::ScalarBits::USIZE;
         let result_x_end = result_x_start + num_points;
         let result_xs: Vec<Variable<F>> = vars[result_x_start..result_x_end].to_vec();
 
@@ -301,36 +313,18 @@ impl<F: PrimeField, Parameters: DiscreteLogParameters> PointsWithDlog<F, Paramet
         let mut points = Vec::with_capacity(num_points);
         let mut divisors = Vec::with_capacity(num_points);
 
+        let block = Parameters::decomposition_size();
         for i in 0..num_points {
-            let div_block_start = divisor_start + i * DECOMPOSITION_SIZE;
-            let coeff_vars = &vars[div_block_start..div_block_start + DECOMPOSITION_SIZE];
+            let div_block_start = divisor_start + i * block;
+            let coeff_vars = &vars[div_block_start..div_block_start + block];
 
             let result_x_var = result_xs[i];
             // y-coordinate of the i-th resulting point is after the divisor coefficients for that point
-            let result_y_var = coeff_vars[DECOMPOSITION_SIZE - 1];
+            let result_y_var = coeff_vars[Parameters::ScalarBits::USIZE];
 
             // Extract variables for the divisor coefficients of the i-th resulting point.
-            let y = coeff_vars[0];
-            let mut cursor = 1;
-            let yx = GenericArray::<_, Parameters::YxCoefficients>::from_slice(
-                &coeff_vars[cursor..cursor + Parameters::YxCoefficients::USIZE],
-            )
-            .clone();
-            cursor += Parameters::YxCoefficients::USIZE;
-            let x_from_power_of_2 =
-                GenericArray::<_, Parameters::XCoefficientsMinusOne>::from_slice(
-                    &coeff_vars[cursor..cursor + Parameters::XCoefficientsMinusOne::USIZE],
-                )
-                .clone();
-            cursor += Parameters::XCoefficientsMinusOne::USIZE;
-            let zero = coeff_vars[cursor];
+            let divisor = Divisor::from_vars(&coeff_vars);
 
-            let divisor = Divisor {
-                y,
-                yx,
-                x_from_power_of_2,
-                zero,
-            };
             points.push((result_x_var, result_y_var));
             divisors.push(divisor);
         }
@@ -907,15 +901,18 @@ fn discrete_log_blinding_given_challenge_optional_curve_check<
 
 #[derive(Debug, Clone, Zeroize, ZeroizeOnDrop)]
 pub struct DivisorWitness<F: PrimeField, Parameters: DiscreteLogParameters> {
-    /// Decomposition of the scalar in the fist 255 items of array, last item is the x-coordinate of the resulting point
-    pub decomposition: GenericArray<F, U256>,
-    /// The divisor of the resulting point in the fist 255 items of array, last item is the y-coordinate of the resulting point
-    pub divisor: GenericArray<F, U256>,
+    /// Decomposition of the scalar in the first `ScalarBits` slots, last slot is the x-coordinate of the resulting point
+    pub decomposition: GenericArray<F, Sum<Parameters::ScalarBits, U1>>,
+    /// Divisor coefficients in the first `ScalarBits` slots, last slot is the y-coordinate of the resulting point
+    pub divisor: GenericArray<F, Sum<Parameters::ScalarBits, U1>>,
     phantom: PhantomData<Parameters>,
 }
 
 impl<F: PrimeField, Parameters: DiscreteLogParameters> DivisorWitness<F, Parameters> {
-    pub fn new(decomposition: GenericArray<F, U256>, divisor: GenericArray<F, U256>) -> Self {
+    pub fn new(
+        decomposition: GenericArray<F, Sum<Parameters::ScalarBits, U1>>,
+        divisor: GenericArray<F, Sum<Parameters::ScalarBits, U1>>,
+    ) -> Self {
         Self {
             decomposition,
             divisor,
@@ -929,19 +926,19 @@ impl<F: PrimeField, Parameters: DiscreteLogParameters> DivisorWitness<F, Paramet
 #[derive(Debug, Clone, Zeroize, ZeroizeOnDrop)]
 pub struct DivisorWitnessMulti<F: PrimeField, Parameters: DiscreteLogParameters> {
     /// Decomposition of the scalar
-    pub decomposition: GenericArray<F, U255>,
+    pub decomposition: GenericArray<F, Parameters::ScalarBits>,
     /// x-coordinates of the resulting points
     pub result_xs: Vec<F>,
     /// Divisors for the resulting points. The last item in each array are the y-coordinates of the resulting points
-    pub divisors: Vec<GenericArray<F, U256>>,
+    pub divisors: Vec<GenericArray<F, Sum<Parameters::ScalarBits, U1>>>,
     phantom: PhantomData<Parameters>,
 }
 
 impl<F: PrimeField, Parameters: DiscreteLogParameters> DivisorWitnessMulti<F, Parameters> {
     pub fn new(
-        decomposition: GenericArray<F, U255>,
+        decomposition: GenericArray<F, Parameters::ScalarBits>,
         result_xs: Vec<F>,
-        divisors: Vec<GenericArray<F, U256>>,
+        divisors: Vec<GenericArray<F, Sum<Parameters::ScalarBits, U1>>>,
     ) -> Self {
         Self {
             decomposition,
@@ -1017,24 +1014,13 @@ pub fn commit_witness_chunks_prover<
     // Split vars back into dlog and divisor parts
     let vars_divisor = vars.split_off(divisor_witness.decomposition.len());
 
-    #[cfg(debug_assertions)]
-    {
-        // -1 since last element is zero
-        for i in Parameters::ScalarBits::USIZE..(DECOMPOSITION_SIZE - 1) {
-            debug_assert!(
-                divisor_witness.decomposition[i].is_zero(),
-                "dlog padding should be zero"
-            );
-        }
-    }
-
     let point_with_dlog = PointWithDlog::from_vars(vars, vars_divisor);
 
     Ok((comms, blindings, point_with_dlog))
 }
 
 /// Verifier flattens and commits to `DivisorWitness` into multiple chunks
-pub fn commit_witness_chunks_verifier<
+pub fn commit_witness_chunks_given_chunk_len_verifier<
     F: PrimeField,
     C: AffineRepr<ScalarField = F>,
     Parameters: DiscreteLogParameters,
@@ -1048,7 +1034,7 @@ pub fn commit_witness_chunks_verifier<
     }
 
     // Expects vars for decomposition of dlog and divisor coefficients
-    let expected_vars_len = DECOMPOSITION_SIZE * 2;
+    let expected_vars_len = Parameters::decomposition_size() * 2;
     let mut vars = Vec::with_capacity(expected_vars_len);
 
     for comm in &comms.0 {
@@ -1064,9 +1050,35 @@ pub fn commit_witness_chunks_verifier<
         });
     }
 
-    let vars_divisor = vars.split_off(DECOMPOSITION_SIZE);
+    let vars_divisor = vars.split_off(Parameters::decomposition_size());
 
     Ok(PointWithDlog::from_vars(vars, vars_divisor))
+}
+
+/// Like [`commit_witness_chunks_given_chunk_len_verifier`] but recovers the chunk length from the number of
+/// commitments instead of taking it as input. The single-point witness is always
+/// `2 * decomposition_size` long, so `chunk_len = 2 * decomposition_size / comms.len()`.
+pub fn commit_witness_chunks_verifier<
+    F: PrimeField,
+    C: AffineRepr<ScalarField = F>,
+    Parameters: DiscreteLogParameters,
+>(
+    verifier: &mut Verifier<MerlinTranscript, C>,
+    comms: &DivisorComms<C>,
+) -> Result<Box<PointWithDlog<F, Parameters>>, Error> {
+    let total = Parameters::decomposition_size() * 2;
+    let n = comms.0.len();
+    if n == 0 || total % n != 0 {
+        return Err(Error::InvalidDivisorCommitmentCount { got: n, total });
+    }
+    let chunk_len = total / n;
+    if chunk_len < MIN_CHUNK_LEN {
+        return Err(Error::TooManyDivisorCommitments {
+            got: n,
+            max: total / MIN_CHUNK_LEN,
+        });
+    }
+    commit_witness_chunks_given_chunk_len_verifier(verifier, comms, chunk_len)
 }
 
 /// Each generator in `generator_sources` is multiplied by the scalar `blinding`
@@ -1156,10 +1168,10 @@ pub fn commit_witness_chunks_verifier_multi_point<
     cs: &mut Verifier<MerlinTranscript, C>,
     comms: &DivisorComms<C>,
     chunk_len: usize,
-    num_generators: usize,
+    num_points: usize,
 ) -> Result<PointsWithDlog<F, Parameters>, Error> {
     let expected_vars_len =
-        PointsWithDlog::<F, Parameters>::padded_vars_len(num_generators, chunk_len)?;
+        PointsWithDlog::<F, Parameters>::padded_vars_len(num_points, chunk_len)?;
     let mut vars = Vec::with_capacity(expected_vars_len);
     for comm in &comms.0 {
         let chunk_vars = cs.commit_vec(chunk_len, *comm);
@@ -1172,7 +1184,7 @@ pub fn commit_witness_chunks_verifier_multi_point<
             expected: expected_vars_len,
         });
     }
-    Ok(PointsWithDlog::from_vars(vars, num_generators))
+    Ok(PointsWithDlog::from_vars(vars, num_points))
 }
 
 /// Similar to [`discrete_log`] but proves that given points have the specified discrete logarithm over
@@ -1392,29 +1404,22 @@ pub fn discrete_log_blinding_and_dlog_given_challenge<
     Ok(())
 }
 
-/// The second returned value is a list containing the scalar's decomposition and padded with 0s until its length is MAX_BITS_SUPPORTED
+/// The second returned value is the scalar's bit decomposition, length `ScalarBits`.
 fn decompose_scalar<S: PrimeField, B: PrimeField, Parameters: DiscreteLogParameters>(
     blinding: S,
 ) -> Result<(ScalarDecomposition<S>, Vec<B>), Error> {
-    // TODO: This is not general and wont support fields over 255 bits
     let scalar = ScalarDecomposition::new(blinding)?;
     let dlog_bits = Parameters::ScalarBits::USIZE;
-    if dlog_bits > MAX_BITS_SUPPORTED {
-        return Err(Error::UnsupportedScalarBits(dlog_bits));
-    }
 
     let dlog = scalar.decomposition();
     if dlog.len() != dlog_bits {
         return Err(Error::DecompositionLengthMismatch(dlog.len(), dlog_bits));
     }
 
-    // Allocating size DECOMPOSITION_SIZE to store the x-coordinate of the result as well
-    let mut decomposition = Vec::with_capacity(DECOMPOSITION_SIZE);
+    // Leaves room for the single-point caller to append the result's x-coordinate.
+    let mut decomposition = Vec::with_capacity(Parameters::decomposition_size());
     for i in 0..dlog_bits {
         decomposition.push(B::from(dlog[i]));
-    }
-    while decomposition.len() < MAX_BITS_SUPPORTED {
-        decomposition.push(B::ZERO);
     }
 
     Ok((scalar, decomposition))
@@ -1423,18 +1428,18 @@ fn decompose_scalar<S: PrimeField, B: PrimeField, Parameters: DiscreteLogParamet
 fn get_divisor_array<F: PrimeField, Parameters: DiscreteLogParameters>(
     divisor: &DivisorPoly<F>,
     result_y: F,
-) -> Result<GenericArray<F, U256>, Error> {
+) -> Result<GenericArray<F, Sum<Parameters::ScalarBits, U1>>, Error> {
     let yx_expected_len = Parameters::YxCoefficients::USIZE;
     let x_expected_len = Parameters::XCoefficients::USIZE;
 
     let witness_len = 1 + yx_expected_len + (x_expected_len - 1) + 1;
-    if witness_len >= DECOMPOSITION_SIZE {
+    if witness_len >= Parameters::decomposition_size() {
         return Err(Error::DivisorWitnessLengthExceeded(witness_len));
     }
 
     // divisor_witness will be set as
     // [coefficient of y, coefficients of yx, coefficients of x^i from i>1, coefficient of 0 degree term, result_y]
-    let mut divisor_witness = [F::ZERO; DECOMPOSITION_SIZE];
+    let mut divisor_witness = GenericArray::<F, Sum<Parameters::ScalarBits, U1>>::default();
     divisor_witness[0] = divisor.y_coefficient;
 
     if divisor.yx_coefficients.len() > yx_expected_len {
@@ -1456,10 +1461,9 @@ fn get_divisor_array<F: PrimeField, Parameters: DiscreteLogParameters>(
 
     divisor_witness[1 + yx_expected_len + x_expected_len - 1] = divisor.zero_coefficient;
 
-    divisor_witness[DECOMPOSITION_SIZE - 1] = result_y;
+    divisor_witness[Parameters::ScalarBits::USIZE] = result_y;
 
-    let divisor = GenericArray::from_array(divisor_witness);
-    Ok(divisor)
+    Ok(divisor_witness)
 }
 
 /// Divide `combined_witness` into 1 or more chunks and commit each chunk
@@ -1532,6 +1536,12 @@ mod tests {
     use ark_ec_divisors::curves::wei25519::Wei25519Params;
     use ark_wei25519::{Fq as Wei25519Fq, Fr as Wei25519Fr, Wei25519Config};
 
+    use ark_ec_divisors::curves::secp256k1::Secp256k1Params;
+    use ark_secp256k1::{Affine as SecpAffine, Config as SecpConfig, Fq as SecpFq, Fr as SecpFr};
+
+    use ark_ec_divisors::curves::secq256k1::Secq256k1Params;
+    use ark_secq256k1::{Affine as SecqAffine, Config as SecqConfig, Fq as SecqFq, Fr as SecqFr};
+
     type PallasBase = Fq;
     type PallasScalar = Fr;
 
@@ -1540,6 +1550,12 @@ mod tests {
 
     type Wei25519Base = Wei25519Fq;
     type Wei25519Scalar = Wei25519Fr;
+
+    // secp/secq form a cycle: each reuses the other's field types (secq's Fr is secp's Fq).
+    type SecpBase = SecpFq;
+    type SecpScalar = SecpFr;
+    type SecqBase = SecqFq;
+    type SecqScalar = SecqFr;
 
     fn to_xy<C: DivisorCurve>(p: Projective<C>) -> Option<(C::BaseField, C::BaseField)> {
         let aff = p.into_affine();
@@ -1563,7 +1579,7 @@ mod tests {
 
         let vc_len = 64;
 
-        let transcript = MerlinTranscript::new(b"malformed-dlog-prover");
+        let transcript = MerlinTranscript::new(b"malformed-dlog");
         let mut prover = Prover::new(&pc_gens, transcript);
         let (comms, _, _) = commit_witness_chunks_prover::<_, _, _, PallasParams>(
             &mut rng,
@@ -1580,9 +1596,9 @@ mod tests {
         let mut extra_chunk = comms.clone();
         extra_chunk.0.push(comms.0[0]);
 
-        let transcript = MerlinTranscript::new(b"malformed-dlog-verifier-short");
+        let transcript = MerlinTranscript::new(b"malformed-dlog");
         let mut verifier = Verifier::new(transcript);
-        let result = commit_witness_chunks_verifier::<_, _, PallasParams>(
+        let result = commit_witness_chunks_given_chunk_len_verifier::<_, _, PallasParams>(
             &mut verifier,
             &missing_chunk,
             vc_len,
@@ -1598,9 +1614,9 @@ mod tests {
             _ => panic!("expected verifier witness var count mismatch"),
         }
 
-        let transcript = MerlinTranscript::new(b"malformed-dlog-verifier-long");
+        let transcript = MerlinTranscript::new(b"malformed-dlog");
         let mut verifier = Verifier::new(transcript);
-        let result = commit_witness_chunks_verifier::<_, _, PallasParams>(
+        let result = commit_witness_chunks_given_chunk_len_verifier::<_, _, PallasParams>(
             &mut verifier,
             &extra_chunk,
             vc_len,
@@ -1616,15 +1632,19 @@ mod tests {
             _ => panic!("expected verifier witness var count mismatch"),
         }
 
-        let transcript = MerlinTranscript::new(b"malformed-dlog-verifier-zero");
+        let transcript = MerlinTranscript::new(b"malformed-dlog");
         let mut verifier = Verifier::new(transcript);
-        let result = commit_witness_chunks_verifier::<_, _, PallasParams>(&mut verifier, &comms, 0);
+        let result = commit_witness_chunks_given_chunk_len_verifier::<_, _, PallasParams>(
+            &mut verifier,
+            &comms,
+            0,
+        );
         match result {
             Err(err) => assert!(matches!(err, Error::ZeroChunkSize)),
             _ => panic!("expected zero chunk size error"),
         }
 
-        let transcript = MerlinTranscript::new(b"malformed-dlog-prover-zero");
+        let transcript = MerlinTranscript::new(b"malformed-dlog");
         let mut prover = Prover::new(&pc_gens, transcript);
         let result = commit_witness_chunks_prover::<_, _, _, PallasParams>(
             &mut rng,
@@ -1637,6 +1657,62 @@ mod tests {
             Err(err) => assert!(matches!(err, Error::ZeroChunkSize)),
             _ => panic!("expected zero chunk size error"),
         }
+    }
+
+    #[test]
+    fn test_commit_witness_chunks_verifier_derived() {
+        let mut rng = StdRng::seed_from_u64(7);
+        let pc_gens = PedersenGens::<VestaAffine>::default();
+        let bp_gens = BulletproofGens::<VestaAffine>::new(512, 1);
+        let generator = Projective::<PallasConfig>::rand(&mut rng);
+        let generator_table =
+            GeneratorTable::<PallasBase, PallasParams>::new::<PallasConfig>(generator);
+        let witness = create_divisor_and_decomposition::<_, PallasConfig, PallasParams>(
+            &generator_table,
+            PallasScalar::rand(&mut rng),
+        )
+        .unwrap();
+
+        let commit = |rng: &mut StdRng, chunk_len| {
+            let transcript = MerlinTranscript::new(b"test");
+            let mut prover = Prover::new(&pc_gens, transcript);
+            commit_witness_chunks_prover::<_, _, _, PallasParams>(
+                rng,
+                &mut prover,
+                &witness,
+                chunk_len,
+                &bp_gens,
+            )
+            .unwrap()
+            .0
+        };
+
+        // Verifier derives the chunk length from the commitment count for any chunking the prover used.
+        for chunk_len in [128usize, 256] {
+            let comms = commit(&mut rng, chunk_len);
+            let transcript = MerlinTranscript::new(b"test");
+            let mut verifier = Verifier::new(transcript);
+            commit_witness_chunks_verifier::<_, _, PallasParams>(&mut verifier, &comms).unwrap();
+        }
+
+        // Chunk length below the minimum (too many commitments) is rejected.
+        let comms = commit(&mut rng, 16);
+        let transcript = MerlinTranscript::new(b"test");
+        let mut verifier = Verifier::new(transcript);
+        assert!(matches!(
+            commit_witness_chunks_verifier::<_, _, PallasParams>(&mut verifier, &comms),
+            Err(Error::TooManyDivisorCommitments { .. })
+        ));
+
+        // A commitment count that does not divide the witness length is rejected.
+        let mut comms = commit(&mut rng, 128);
+        comms.0.pop();
+        let transcript = MerlinTranscript::new(b"test");
+        let mut verifier = Verifier::new(transcript);
+        assert!(matches!(
+            commit_witness_chunks_verifier::<_, _, PallasParams>(&mut verifier, &comms),
+            Err(Error::InvalidDivisorCommitmentCount { .. })
+        ));
     }
 
     #[test]
@@ -1661,7 +1737,7 @@ mod tests {
 
         let vc_len = 64;
 
-        let transcript = MerlinTranscript::new(b"malformed-shared-dlog-prover");
+        let transcript = MerlinTranscript::new(b"malformed-shared-dlog");
         let mut prover = Prover::new(&pc_gens, transcript);
         let (comms, _, _) = commit_witness_chunks_prover_multi_point::<_, _, _, PallasParams>(
             &mut rng,
@@ -1678,7 +1754,7 @@ mod tests {
         let mut extra_chunk = comms.clone();
         extra_chunk.0.push(comms.0[0]);
 
-        let transcript = MerlinTranscript::new(b"malformed-shared-dlog-verifier-short");
+        let transcript = MerlinTranscript::new(b"malformed-shared-dlog");
         let mut verifier = Verifier::new(transcript);
         let result = commit_witness_chunks_verifier_multi_point::<_, _, PallasParams>(
             &mut verifier,
@@ -1697,7 +1773,7 @@ mod tests {
             _ => panic!("expected verifier witness var count mismatch"),
         }
 
-        let transcript = MerlinTranscript::new(b"malformed-shared-dlog-verifier-long");
+        let transcript = MerlinTranscript::new(b"malformed-shared-dlog");
         let mut verifier = Verifier::new(transcript);
         let result = commit_witness_chunks_verifier_multi_point::<_, _, PallasParams>(
             &mut verifier,
@@ -1716,7 +1792,7 @@ mod tests {
             _ => panic!("expected verifier witness var count mismatch"),
         }
 
-        let transcript = MerlinTranscript::new(b"malformed-shared-dlog-verifier-zero");
+        let transcript = MerlinTranscript::new(b"malformed-shared-dlog");
         let mut verifier = Verifier::new(transcript);
         let result = commit_witness_chunks_verifier_multi_point::<_, _, PallasParams>(
             &mut verifier,
@@ -1729,7 +1805,7 @@ mod tests {
             _ => panic!("expected zero chunk size error"),
         }
 
-        let transcript = MerlinTranscript::new(b"malformed-shared-dlog-prover-zero");
+        let transcript = MerlinTranscript::new(b"malformed-shared-dlog");
         let mut prover = Prover::new(&pc_gens, transcript);
         let result = commit_witness_chunks_prover_multi_point::<_, _, _, PallasParams>(
             &mut rng,
@@ -1757,6 +1833,13 @@ mod tests {
             vc_len: usize,
         ) {
             let mut rng = StdRng::seed_from_u64(0);
+            // Curves whose witness length (2 * decomposition_size) isn't a multiple of the
+            // benchmark's vc_len need a valid divisor instead.
+            let vc_len = if (2 * Params::decomposition_size()) % vc_len == 0 {
+                vc_len
+            } else {
+                Params::decomposition_size()
+            };
 
             let curve = CurveSpec::<B> {
                 a: C::COEFF_A,
@@ -1863,9 +1946,12 @@ mod tests {
                 let o_y_var = vars_orig.pop().unwrap();
                 let o_x_var = vars_orig.pop().unwrap();
 
-                let o_blind_claim =
-                    commit_witness_chunks_verifier::<_, _, Params>(&mut verifier, &comms, vc_len)
-                        .unwrap();
+                let o_blind_claim = commit_witness_chunks_given_chunk_len_verifier::<_, _, Params>(
+                    &mut verifier,
+                    &comms,
+                    vc_len,
+                )
+                .unwrap();
 
                 verifying_times_00.push(start.elapsed());
 
@@ -1937,7 +2023,7 @@ mod tests {
                 let o_y_var = vars_orig.pop().unwrap();
                 let o_x_var = vars_orig.pop().unwrap();
 
-                let o_blind_claim = commit_witness_chunks_verifier::<_, _, Params>(
+                let o_blind_claim = commit_witness_chunks_given_chunk_len_verifier::<_, _, Params>(
                     &mut verifier,
                     wrong_comms,
                     vc_len,
@@ -1978,7 +2064,7 @@ mod tests {
                 let o_y_var = vars_orig.pop().unwrap();
                 let o_x_var = vars_orig.pop().unwrap();
 
-                let o_blind_claim = commit_witness_chunks_verifier::<_, _, Params>(
+                let o_blind_claim = commit_witness_chunks_given_chunk_len_verifier::<_, _, Params>(
                     &mut verifier,
                     wrong_comms,
                     vc_len,
@@ -2022,6 +2108,12 @@ mod tests {
         check::<Wei25519Config, Wei25519Params, Wei25519Base, Wei25519Scalar, SeleneAffine>(
             count, vc_len,
         );
+
+        println!("Testing secp256k1");
+        check::<SecpConfig, Secp256k1Params, SecpBase, SecpScalar, SecqAffine>(count, vc_len);
+
+        println!("Testing secq256k1");
+        check::<SecqConfig, Secq256k1Params, SecqBase, SecqScalar, SecpAffine>(count, vc_len);
     }
 
     #[test]
@@ -2037,6 +2129,13 @@ mod tests {
             vc_len: usize,
         ) {
             let mut rng = StdRng::seed_from_u64(0);
+            // Curves whose witness length (2 * decomposition_size) isn't a multiple of the
+            // benchmark's vc_len need a valid divisor instead.
+            let vc_len = if (2 * Params::decomposition_size()) % vc_len == 0 {
+                vc_len
+            } else {
+                Params::decomposition_size()
+            };
 
             let curve = CurveSpec::<B> {
                 a: C::COEFF_A,
@@ -2153,7 +2252,7 @@ mod tests {
                 let O_x_var = vars_orig[2 * i];
                 let O_y_var = vars_orig[2 * i + 1];
 
-                let o_blind_claim = commit_witness_chunks_verifier::<_, _, Params>(
+                let o_blind_claim = commit_witness_chunks_given_chunk_len_verifier::<_, _, Params>(
                     &mut verifier,
                     &all_divisor_commitments[i],
                     vc_len,
@@ -2207,12 +2306,13 @@ mod tests {
                     let O_x_var = vars_orig[2 * i];
                     let O_y_var = vars_orig[2 * i + 1];
 
-                    let o_blind_claim = commit_witness_chunks_verifier::<_, _, Params>(
-                        &mut verifier,
-                        &wrong_divisor_comms[i],
-                        vc_len,
-                    )
-                    .unwrap();
+                    let o_blind_claim =
+                        commit_witness_chunks_given_chunk_len_verifier::<_, _, Params>(
+                            &mut verifier,
+                            &wrong_divisor_comms[i],
+                            vc_len,
+                        )
+                        .unwrap();
                     all_o_blind_claims.push((o_blind_claim, O_x_var, O_y_var));
                 }
 
@@ -2261,6 +2361,12 @@ mod tests {
         check::<Wei25519Config, Wei25519Params, Wei25519Base, Wei25519Scalar, SeleneAffine>(
             count, vc_len,
         );
+
+        println!("Testing secp256k1");
+        check::<SecpConfig, Secp256k1Params, SecpBase, SecpScalar, SecqAffine>(count, vc_len);
+
+        println!("Testing secq256k1");
+        check::<SecqConfig, Secq256k1Params, SecqBase, SecqScalar, SecpAffine>(count, vc_len);
     }
 
     #[test]
@@ -2276,6 +2382,13 @@ mod tests {
             vc_len: usize,
         ) {
             let mut rng = StdRng::seed_from_u64(0);
+            // Curves whose witness length (2 * decomposition_size) isn't a multiple of the
+            // benchmark's vc_len need a valid divisor instead.
+            let vc_len = if (2 * Params::decomposition_size()) % vc_len == 0 {
+                vc_len
+            } else {
+                Params::decomposition_size()
+            };
 
             let curve = CurveSpec::<B> {
                 a: C::COEFF_A,
@@ -2396,7 +2509,7 @@ mod tests {
                 let O_x_var = vars_orig[2 * i];
                 let O_y_var = vars_orig[2 * i + 1];
 
-                let o_blind_claim = commit_witness_chunks_verifier::<_, _, Params>(
+                let o_blind_claim = commit_witness_chunks_given_chunk_len_verifier::<_, _, Params>(
                     &mut verifier,
                     &all_divisor_commitments[i],
                     vc_len,
@@ -2455,12 +2568,13 @@ mod tests {
                     let O_x_var = vars_orig[2 * i];
                     let O_y_var = vars_orig[2 * i + 1];
 
-                    let o_blind_claim = commit_witness_chunks_verifier::<_, _, Params>(
-                        &mut verifier,
-                        &wrong_divisor_comms[i],
-                        vc_len,
-                    )
-                    .unwrap();
+                    let o_blind_claim =
+                        commit_witness_chunks_given_chunk_len_verifier::<_, _, Params>(
+                            &mut verifier,
+                            &wrong_divisor_comms[i],
+                            vc_len,
+                        )
+                        .unwrap();
                     all_o_blind_claims.push((o_blind_claim, O_x_var, O_y_var));
                 }
 
@@ -2708,6 +2822,12 @@ mod tests {
         check::<Wei25519Config, Wei25519Params, Wei25519Base, Wei25519Scalar, SeleneAffine>(
             count, vc_len,
         );
+
+        println!("Testing secp256k1");
+        check::<SecpConfig, Secp256k1Params, SecpBase, SecpScalar, SecqAffine>(count, vc_len);
+
+        println!("Testing secq256k1");
+        check::<SecqConfig, Secq256k1Params, SecqBase, SecqScalar, SecpAffine>(count, vc_len);
     }
 
     #[test]
@@ -2727,6 +2847,13 @@ mod tests {
             vc_len: usize,
         ) {
             let mut rng = StdRng::seed_from_u64(0);
+            // Curves whose witness length (2 * decomposition_size) isn't a multiple of the
+            // benchmark's vc_len need a valid divisor instead.
+            let vc_len = if (2 * Params::decomposition_size()) % vc_len == 0 {
+                vc_len
+            } else {
+                Params::decomposition_size()
+            };
 
             let curve = CurveSpec::<B> {
                 a: C::COEFF_A,

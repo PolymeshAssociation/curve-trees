@@ -1,7 +1,7 @@
 use crate::curve_tree::{Root, SelectAndRerandomizePathWithDivisorComms};
 use crate::error::{Error, Result};
 use crate::parameters::SelRerandProofParametersRef;
-use crate::prover::{constraints_for_dlogs, select_non_root, select_root, DlogItem, VC_LEN};
+use crate::prover::{constraints_for_dlogs, select_non_root, select_root, DlogItem};
 use crate::select::multi_select_public_set;
 use ark_dlog_gadget::dlog::{
     commit_witness_chunks_verifier, DiscreteLogParameters, DivisorComms, PointWithDlog,
@@ -438,6 +438,5 @@ pub fn commit_dlog_and_divisor<
     verifier: &mut Verifier<MerlinTranscript, C>,
     divisor_commitments: &DivisorComms<C>,
 ) -> Result<Box<PointWithDlog<F, Parameters>>> {
-    commit_witness_chunks_verifier(verifier, divisor_commitments, VC_LEN as usize)
-        .map_err(Into::into)
+    commit_witness_chunks_verifier(verifier, divisor_commitments).map_err(Into::into)
 }

@@ -33,7 +33,9 @@ ark-helios = { workspace = true }
 ark-selene = { workspace = true }
 ark-wei25519 = { workspace = true }
 ark-curve25519 = { workspace = true }
-ark-ec-divisors = {path = "../ark-ec-divisors", features = ["default", "helios", "selene", "wei25519"]}
+ark-secp256k1 = { workspace = true }
+ark-secq256k1 = { workspace = true }
+ark-ec-divisors = {path = "../ark-ec-divisors", features = ["default", "helios", "selene", "wei25519", "secp256k1", "secq256k1"]}
 criterion = "0.8"
 
 [[bench]]

@@ -48,4 +48,10 @@ pub enum Error {
     /// Verifier committed witness variables count mismatch.
     #[error("Verifier committed witness variable count mismatch: got {got}, expected {expected}")]
     VerifierWitnessVarCountMismatch { got: usize, expected: usize },
+    /// Number of divisor commitments does not evenly divide the witness length.
+    #[error("Invalid divisor commitment count: got {got}, total witness length {total}")]
+    InvalidDivisorCommitmentCount { got: usize, total: usize },
+    /// Too many divisor commitments (chunk length below the minimum).
+    #[error("Too many divisor commitments: got {got}, max {max}")]
+    TooManyDivisorCommitments { got: usize, max: usize },
 }

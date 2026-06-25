@@ -36,6 +36,7 @@ use relations::parameters::{
     SelRerandParameters, SelRerandParametersRef, SelRerandProofParameters,
     SelRerandProofParametersNew,
 };
+use relations::prover::estimate_divisor_chunk_len;
 use relations::utils::verify;
 
 type PallasParameters = PallasConfig;
@@ -1326,6 +1327,7 @@ pub fn test_curve_tree_with_parameters_newer<
                 &mut vesta_prover,
                 &sr_proof_params,
                 &mut rng,
+                None,
             )
             .unwrap();
 
@@ -1415,6 +1417,7 @@ pub fn test_curve_tree_with_parameters_newer<
                     &mut vp,
                     &sr_proof_params,
                     rng,
+                    None,
                 )
                 .unwrap();
             let (pproof, vproof) = prove(
@@ -1640,6 +1643,7 @@ pub fn check_combined_vs_common_root_proofs_with_parameters_divisor<
                 &mut vesta_prover,
                 &sr_proof_params,
                 &mut rng,
+                None,
             )
             .unwrap();
         path_commitments_list.push(path_commitments);
@@ -1724,6 +1728,7 @@ pub fn check_combined_vs_common_root_proofs_with_parameters_divisor<
             &mut vesta_prover,
             &sr_proof_params,
             &mut rng,
+            None,
         )
         .unwrap();
 
@@ -1817,6 +1822,7 @@ pub fn test_single_path_divisor_malformed_proof_inputs() {
             &mut vesta_prover,
             &sr_proof_params,
             &mut rng,
+            None,
         )
         .unwrap();
 
@@ -1878,4 +1884,78 @@ pub fn test_single_path_divisor_malformed_proof_inputs() {
         )
         .unwrap_err();
     assert_malformed(err, "even_commitments must contain at least one element");
+}
+
+#[test]
+fn test_curve_tree_divisor_chunk_len_calculation() {
+    // Pallas total = 2 * (255 + 1) = 512, divisors are powers of two.
+    assert_eq!(estimate_divisor_chunk_len::<PallasParams>(104), 128);
+    assert_eq!(estimate_divisor_chunk_len::<PallasParams>(156), 256);
+    assert_eq!(estimate_divisor_chunk_len::<PallasParams>(1), 32);
+    assert_eq!(estimate_divisor_chunk_len::<PallasParams>(1000), 512);
+
+    let mut rng = thread_rng();
+    let sr_proof_params =
+        SelRerandProofParametersNew::<PallasConfig, VestaConfig, PallasParams, VestaParams>::new(
+            1 << 11,
+            1 << 11,
+        )
+        .unwrap();
+    let set = (0..8)
+        .map(|_| Affine::<PallasConfig>::rand(&mut rng))
+        .collect::<Vec<_>>();
+    let curve_tree =
+        CurveTree::<32, 1, PallasConfig, VestaConfig>::from_leaves(&set, &sr_proof_params, Some(4));
+    let root = curve_tree.root_node();
+    let path = curve_tree.get_path_to_leaf_for_proof(0, 0).unwrap();
+
+    // The gadget picks the chunk length itself and the verifier derives it from the proof.
+    let mut pallas_prover: Prover<_, Affine<PallasConfig>> = Prover::new(
+        &sr_proof_params.even_parameters().pc_gens,
+        MerlinTranscript::new(b"chunk_len"),
+    );
+    let mut vesta_prover: Prover<_, Affine<VestaConfig>> = Prover::new(
+        &sr_proof_params.odd_parameters().pc_gens,
+        MerlinTranscript::new(b"chunk_len"),
+    );
+    let (path_commitments, _) = path
+        .select_and_rerandomize_prover_gadget_new::<_, PallasParams, VestaParams>(
+            &mut pallas_prover,
+            &mut vesta_prover,
+            &sr_proof_params,
+            &mut rng,
+            None,
+        )
+        .unwrap();
+    let (pallas_proof, vesta_proof) = prove(
+        pallas_prover,
+        vesta_prover,
+        &sr_proof_params.even_parameters().bp_gens,
+        &sr_proof_params.odd_parameters().bp_gens,
+        &mut rng,
+    )
+    .unwrap();
+
+    let mut pallas_verifier = Verifier::new(MerlinTranscript::new(b"chunk_len"));
+    let mut vesta_verifier = Verifier::new(MerlinTranscript::new(b"chunk_len"));
+    path_commitments
+        .select_and_rerandomize_verifier_gadget(
+            &root,
+            &mut pallas_verifier,
+            &mut vesta_verifier,
+            &sr_proof_params,
+        )
+        .unwrap();
+    verify(
+        pallas_verifier,
+        vesta_verifier,
+        &pallas_proof,
+        &vesta_proof,
+        &sr_proof_params.even_parameters().pc_gens,
+        &sr_proof_params.even_parameters().bp_gens,
+        &sr_proof_params.odd_parameters().pc_gens,
+        &sr_proof_params.odd_parameters().bp_gens,
+        &mut rng,
+    )
+    .unwrap();
 }

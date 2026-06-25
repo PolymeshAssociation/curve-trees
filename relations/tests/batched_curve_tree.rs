@@ -1101,6 +1101,7 @@ pub fn test_batched_curve_tree_with_parameters_new<
             &mut vesta_prover,
             &sr_proof_params,
             &mut rng,
+            None,
         )
         .expect("Failed to prove batched select and rerandomize (divisor)");
 
@@ -1192,6 +1193,7 @@ pub fn test_batched_curve_tree_with_parameters_new<
                         &mut vp,
                         &sr_proof_params,
                         rng,
+                        None,
                     )
                     .unwrap();
                 let (pproof, vproof) = prove(
@@ -1288,6 +1290,7 @@ pub fn test_batched_divisor_malformed_proof_inputs() {
             &mut vesta_prover,
             &sr_proof_params,
             &mut rng,
+            None,
         )
         .unwrap();
 
@@ -1499,6 +1502,7 @@ pub fn check_optimized_multi_paths_divisor<
             &mut vesta_prover,
             &sr_proof_params,
             &mut rng,
+            None,
         )
         .expect("Failed to prove common-root batched select and rerandomize (divisor)");
     assert_eq!(path_commitments_list.len(), num_multi_paths);

@@ -392,14 +392,13 @@ pub fn inner_product<S: Field>(a: &[S], b: &[S]) -> S {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{affine_from_bytes_tai, util, BulletproofGens};
+    use ark_pallas::Affine;
+    use ark_std::rand::{prelude::StdRng, SeedableRng};
+    use ark_std::UniformRand;
     use test_log::test;
 
-    use ark_pallas::Affine;
-    use ark_std::UniformRand;
-
     type F = <Affine as AffineRepr>::ScalarField;
-
-    use crate::util;
 
     fn test_helper_create(n: usize) -> Result<(), ProofError> {
         use ark_std::rand::{prelude::StdRng, Rng, SeedableRng};
@@ -532,5 +531,71 @@ mod tests {
         let a = vec![F::from(1u64), F::from(2u64), F::from(3u64), F::from(4u64)];
         let b = vec![F::from(2u64), F::from(3u64), F::from(4u64), F::from(5u64)];
         assert_eq!(F::from(40u64), inner_product(&a, &b));
+    }
+
+    #[test]
+    fn input_validate_verifier() {
+        let proof = valid_ipp(4); // lg_n = 2
+        let mut bad = proof.clone();
+        bad.L_vec.push(bad.L_vec[0]); // L longer than R
+        let mut t = MerlinTranscript::new(b"test");
+        assert!(
+            bad.verification_scalars(4, &mut t).is_err(),
+            "unequal L_vec/R_vec lengths must be rejected"
+        );
+
+        // Both vectors extended consistently => lg_n grows, but the caller-fixed n
+        // stays 4, so `n != (1 << lg_n)` must be rejected.
+        let proof = valid_ipp(4);
+        let mut bad = proof.clone();
+        bad.L_vec.push(bad.L_vec[0]);
+        bad.R_vec.push(bad.R_vec[0]); // lg_n = 3, 1<<3 = 8 != 4
+        let mut t = MerlinTranscript::new(b"test");
+        assert!(bad.verification_scalars(4, &mut t).is_err());
+
+        // Reject truncated empty vectors
+        let proof = valid_ipp(4);
+
+        let mut shortened = proof.clone();
+        shortened.L_vec.pop();
+        shortened.R_vec.pop(); // lg_n = 1, 1<<1 = 2 != 4
+        let mut t = MerlinTranscript::new(b"test");
+        assert!(shortened.verification_scalars(4, &mut t).is_err());
+
+        let mut empty = proof;
+        empty.L_vec.clear();
+        empty.R_vec.clear(); // lg_n = 0, 1<<0 = 1 != 4
+        let mut t2 = MerlinTranscript::new(b"test");
+        assert!(empty.verification_scalars(4, &mut t2).is_err());
+
+        // lg_n >= 32 must be rejected before evaluating `1 << lg_n` (overflow guard),
+        // independent of the `n` the caller passes.
+        let proof = valid_ipp(4);
+        let mut bad = proof;
+        for _ in 0..32 {
+            bad.L_vec.push(bad.L_vec[0]);
+            bad.R_vec.push(bad.R_vec[0]);
+        }
+        // lg_n = 34 >= 32.
+        let mut t = MerlinTranscript::new(b"test");
+        assert!(bad.verification_scalars(1usize << 20, &mut t).is_err());
+    }
+
+    /// Build a valid inner-product proof of length `n`.
+    fn valid_ipp(n: usize) -> InnerProductProof<Affine> {
+        let mut rng = StdRng::from_seed([0u8; 32]);
+
+        let bp_gens = BulletproofGens::<Affine>::new(n as u32, 1);
+        let G: Vec<_> = bp_gens.share(0).G(n as u32).copied().collect();
+        let H: Vec<_> = bp_gens.share(0).H(n as u32).copied().collect();
+        let Q = affine_from_bytes_tai::<Affine>(b"test point").unwrap();
+
+        let a: Vec<_> = (0..n).map(|_| F::rand(&mut rng)).collect();
+        let b: Vec<_> = (0..n).map(|_| F::rand(&mut rng)).collect();
+        let G_factors: Vec<F> = iter::repeat(F::one()).take(n).collect();
+        let H_factors: Vec<F> = iter::repeat(F::one()).take(n).collect();
+
+        let mut t = MerlinTranscript::new(b"test");
+        InnerProductProof::create(&mut t, &Q, &G_factors, &H_factors, G, H, a, b).unwrap()
     }
 }
