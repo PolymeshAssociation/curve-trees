@@ -22,12 +22,15 @@ pub fn range_proof<F: Field, CS: ConstraintSystem<F>>(
         cs.constrain(o.into());
 
         // Enforce that a = 1 - b, so they both are 1 or 0.
-        cs.constrain(a + (b - constant(1u64)));
+        let mut lc = LinearCombination::from(a);
+        lc += b;
+        lc -= F::one();
+        cs.constrain(lc);
 
         // Add `-b_i*2^i` to the linear combination
         // in order to form the following constraint by the end of the loop:
         // v = Sum(b_i * 2^i, i = 0..n-1)
-        v = v - b * exp_2;
+        v -= b * exp_2;
 
         exp_2 = exp_2 + exp_2;
     }
@@ -45,7 +48,9 @@ pub fn public_difference<F: Field, CS: ConstraintSystem<F>>(
     b: LinearCombination<F>,
     c: u64,
 ) -> Result<(), R1CSError> {
-    cs.constrain(a - b - LinearCombination::from(F::from(c)));
+    let mut lc = a - b;
+    lc -= F::from(c);
+    cs.constrain(lc);
     Ok(())
 }
 

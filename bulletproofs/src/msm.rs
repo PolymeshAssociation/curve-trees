@@ -15,20 +15,13 @@ use core::ops::{AddAssign, SubAssign};
 
 /// Computes the joint sparse form (JSF) of two non-negative integers, given as
 /// little-endian `u64` limbs.
-///
-/// The result is a sequence of signed digit pairs `(u1, u2)`, each in
-/// `{-1, 0, 1}`, ordered from most significant to least significant, such that
-/// `k1 = sum_i u1_i * 2^i` and `k2 = sum_i u2_i * 2^i`. The JSF is the joint
-/// signed-binary representation of minimal weight: of any three consecutive
-/// positions at least one is `(0, 0)`, so on average only about half the
-/// positions are nonzero (versus three quarters for the plain bitwise pairing
-/// used by Shamir's trick). It is the recoding consumed by [`binary_scalar_mul_jsf`].
-///
-/// The returned sequence never starts with `(0, 0)` (the recoding stops once both values are
-/// exhausted) and is at most one digit longer than the bit length of `max(k1, k2)`.
-///
-/// Reference: Solinas, "Low-Weight Binary Representations for Pairs of
-/// Integers" (2001).
+/// The result is a sequence of signed digit pairs `(u1, u2)`, each in `{-1, 0, 1}`, ordered from
+/// most significant to least significant, such that `k1 = \sum_i{u1_i * 2^i}` and `k2 = \sum_i{u2_i * 2^i}`.
+/// The JSF is the joint signed-binary representation of minimal weight: of any three consecutive
+/// positions at least one is `(0, 0)`, so on average only about half the positions are nonzero
+/// The returned sequence never starts with `(0, 0)` and is at most one digit longer than the bit length
+/// of `max(k1, k2)`.
+/// Reference: Taken from Algorithm 3.50 of the book [Guide to Elliptic Curve Cryptography](http://tomlr.free.fr/Math%E9matiques/Math%20Complete/Cryptography/Guide%20to%20Elliptic%20Curve%20Cryptography%20-%20D.%20Hankerson,%20A.%20Menezes,%20S.%20Vanstone.pdf)
 pub fn joint_sparse_form(k1: &[u64], k2: &[u64]) -> Vec<(i8, i8)> {
     let len = k1.len().max(k2.len());
     let mut a = k1.to_vec();
@@ -39,8 +32,7 @@ pub fn joint_sparse_form(k1: &[u64], k2: &[u64]) -> Vec<(i8, i8)> {
     a.resize(len + 1, 0);
     b.resize(len + 1, 0);
 
-    // The JSF of an L-bit pair has at most L + 1 digits; sizing from the limb count keeps this
-    // fully dynamic in the scalar size while avoiding reallocation during the loop.
+    // The JSF of an L-bit pair has at most L + 1 digits
     let mut digits = Vec::with_capacity(len * 64 + 1);
     while !limbs_is_zero(&a) || !limbs_is_zero(&b) {
         let a_low = a[0];
@@ -65,8 +57,8 @@ pub fn joint_sparse_form(k1: &[u64], k2: &[u64]) -> Vec<(i8, i8)> {
         }
 
         digits.push((u1, u2));
-        // a := (a - u1) / 2, b := (b - u2) / 2. `a - u1` is even (a is odd
-        // whenever u1 != 0), so the halving is exact.
+        // a = (a - u1) / 2, b = (b - u2) / 2. `a - u1` is even (a is odd whenever u1 != 0), so the
+        // halving is exact.
         limbs_sub_signed_then_halve(&mut a, u1);
         limbs_sub_signed_then_halve(&mut b, u2);
     }
@@ -93,19 +85,10 @@ pub fn binary_scalar_mul_jsf<G: CurveGroup>(
     let sum = b1 + b2;
     let diff = b1 - b2;
     let digits = joint_sparse_form(k1.into_bigint().as_ref(), k2.into_bigint().as_ref());
-    // Projective bases: the single-base digits use full projective additions.
     jsf_fold(b1, b2, sum, diff, digits)
 }
 
-/// Computes `b1 * k1 + b2 * k2` from **affine** bases using the joint sparse form.
-///
-/// Identical recoding to [`binary_scalar_mul_jsf`], but the `(-1 or 1, 0)` / `(0, -1 or 1)` digits — about
-/// half of the nonzero positions — use mixed (projective += affine) additions, which are cheaper
-/// than full projective additions. The `b1 + b2` / `b1 - b2` table entries are kept projective:
-/// normalizing them would cost a field inversion each, defeating the purpose. (A caller folding
-/// many pairs in a batch can instead precompute all the pairs' sums/diffs and normalize them with
-/// a single batched inversion, making every addition mixed; that variant can be added when
-/// needed.)
+/// Computes `b1 * k1 + b2 * k2`. Identical to [`binary_scalar_mul_jsf`] but for affine points
 pub fn binary_scalar_mul_jsf_affine<C: AffineRepr>(
     b1: &C,
     k1: C::ScalarField,
@@ -120,21 +103,13 @@ pub fn binary_scalar_mul_jsf_affine<C: AffineRepr>(
 }
 
 /// Shared double-and-add core for the JSF double-scalar multiplication, driven by the precomputed
-/// MSB-first `digits` and the `sum = b1 + b2` / `diff = b1 - b2` table entries (always projective).
-///
-/// Generic over the single-base operand type `B`: with `B = G` (projective bases) the `(-1 or 1, 0)` /
-/// `(0, -1 or 1)` digits become full projective additions; with `B = G::Affine` (affine bases) they
-/// become mixed (`projective += affine`) additions. That base type is the *only* difference between
-/// the two public entry points — the recoding and control flow are identical.
+/// MSB-first `digits` and the `sum = b1 + b2` / `diff = b1 - b2` table entries.
 fn jsf_fold<G, B>(b1: B, b2: B, sum: G, diff: G, digits: Vec<(i8, i8)>) -> G
 where
     G: CurveGroup + AddAssign<B> + SubAssign<B>,
     B: Copy,
 {
-    // Apply one JSF digit to the accumulator. Used both to seed from the first digit and in the
-    // double-and-add loop, so the digit-to-table-entry mapping lives in exactly one place. The
-    // single-base arms (`b1`/`b2`) are full or mixed additions depending on `B`; the joint arms
-    // (`sum`/`diff`) are always projective.
+    // Apply one JSF digit to the accumulator.
     let apply = |res: &mut G, (u1, u2): (i8, i8)| match (u1, u2) {
         (1, 0) => *res += b1,
         (-1, 0) => *res -= b1,
@@ -150,8 +125,7 @@ where
 
     let mut digits = digits.into_iter();
     let mut res = match digits.next() {
-        // The digit sequence never starts with (0, 0), so seed from the first digit (applied to the
-        // identity) instead of doubling into the identity an extra time.
+        // The digit sequence never starts with (0, 0)
         Some(first) => {
             let mut res = G::ZERO;
             apply(&mut res, first);
@@ -205,7 +179,7 @@ fn limbs_is_zero(x: &[u64]) -> bool {
     x.iter().all(|&l| l == 0)
 }
 
-/// Sets `x := (x - d) / 2` for `d` in `{-1, 0, 1}`, treating `x` as a
+/// Sets `x = (x - d) / 2` for `d` in `{-1, 0, 1}`, treating `x` as a
 /// little-endian unsigned integer. `x` is odd whenever `d != 0`, so the result
 /// is exact.
 fn limbs_sub_signed_then_halve(x: &mut [u64], d: i8) {
@@ -385,14 +359,7 @@ mod tests {
         );
     }
 
-    /// Prints wall-clock timings comparing the 2-element `msm_unchecked`, Shamir's trick, and the
-    /// two JSF variants. Ignored by default; run in release with:
-    ///
-    /// ```text
-    /// cargo test --release -p bulletproofs msm::tests::timing_double_scalar_mul -- --ignored --nocapture
-    /// ```
     #[test]
-    #[ignore = "timing only; run in release with --ignored --nocapture"]
     fn timing_double_scalar_mul() {
         use ark_ec::VariableBaseMSM;
         use std::time::Instant;

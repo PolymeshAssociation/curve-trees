@@ -145,5 +145,7 @@ pub fn constrain_lc_with_scalar<F: Field, CS: ConstraintSystem<F>>(
     lc: LinearCombination<F>,
     scalar: F,
 ) {
-    cs.constrain(lc - LinearCombination::from(scalar));
+    let mut lc = lc;
+    lc -= scalar;
+    cs.constrain(lc);
 }

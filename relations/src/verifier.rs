@@ -380,7 +380,7 @@ impl<
 
     /// Verify the non-root levels of a single path, returning per-level dlog items. `skip_root` is
     /// true when the root lives on this parity (even/odd). `num_parent_levels` excludes the leaf on the even level.
-    fn verify_non_root_levels_on_curve<Parameters: DiscreteLogParameters>(
+    pub(crate) fn verify_non_root_levels_on_curve<Parameters: DiscreteLogParameters>(
         verifier: &mut Verifier<MerlinTranscript, Affine<P0>>,
         skip_root: bool,
         num_parent_levels: usize,

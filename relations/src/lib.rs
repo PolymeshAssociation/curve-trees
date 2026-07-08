@@ -53,4 +53,5 @@ pub mod ped_comm_group_elems;
 pub mod ped_comm_group_elems_naive;
 pub mod prover;
 pub mod verifier;
+pub mod verifier_common_root;
 // TODO: Rename generics types to be more descriptive

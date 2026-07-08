@@ -1,7 +1,7 @@
 use crate::error::{Error, Result};
 use ark_ff::Field;
 use ark_poly::univariate::DensePolynomial;
-use ark_std::vec::Vec;
+use ark_std::{marker::PhantomData, string::ToString, vec, vec::Vec};
 use bulletproofs::r1cs::*;
 use dock_crypto_utils::ff::powers;
 use dock_crypto_utils::poly::poly_from_roots;
@@ -17,7 +17,7 @@ pub fn select<F: Field, Cs: ConstraintSystem<F>>(
         xs.next().ok_or(Error::NeedNonZeroSetSize)? - x.clone();
     let mut product: LinearCombination<F> = first_factor;
     for xi in xs {
-        let (_, _, next_product) = cs.multiply(product, xi.clone() - x.clone());
+        let (_, _, next_product) = cs.multiply(product, xi - x.clone());
         product = next_product.into();
     }
     cs.constrain(product);
@@ -77,7 +77,7 @@ fn construct_random_linear_combination_product<F: Field, Cs: ConstraintSystem<F>
     for x_i in xs {
         let mut product_i: LinearCombination<F> = ys[0].clone() - x_i.clone();
         for y_i in &ys[1..] {
-            let (_, _, next_product) = cs.multiply(product_i.clone(), y_i.clone() - x_i.clone());
+            let (_, _, next_product) = cs.multiply(product_i, y_i.clone() - x_i.clone());
             product_i = next_product.into();
         }
         product = product + product_i * r;
@@ -110,22 +110,95 @@ pub fn select_public_set<F: Field, Cs: ConstraintSystem<F>>(
     if xs.is_empty() {
         return Err(Error::NeedNonZeroSetSize);
     }
-
     let poly = poly_from_roots::<F>(xs);
-    let mut eval: LinearCombination<F> = poly.coeffs[0].into();
-    let mut x_power = x.clone();
-    for i in 1..poly.coeffs.len() {
-        eval = eval + (x_power.clone() * poly.coeffs[i].clone());
-        // Prevents adding 1 more constraint
-        if i == (poly.coeffs.len() - 1) {
-            break;
-        }
-        let (_, _, o) = cs.multiply(x_power, x.clone());
-        x_power = o.into();
-    }
+    select_public_set_given_poly(cs, x, &poly)
+}
 
+/// Same as [`select_public_set`] but expects the polynomial whose roots are the public set
+/// elements. Useful when proving membership in the same public set across many proofs (e.g. the
+/// curve-tree root's children): the set polynomial is then built once and reused for every proof.
+pub fn select_public_set_given_poly<F: Field, Cs: ConstraintSystem<F>>(
+    cs: &mut Cs,
+    x: LinearCombination<F>,
+    poly: &DensePolynomial<F>,
+) -> Result<()> {
+    let eval = eval_poly_bsgs(cs, x, poly)?;
     cs.constrain(eval);
     Ok(())
+}
+
+fn eval_poly_bsgs<F: Field, Cs: ConstraintSystem<F>>(
+    cs: &mut Cs,
+    x: LinearCombination<F>,
+    poly: &DensePolynomial<F>,
+) -> Result<LinearCombination<F>> {
+    if poly.coeffs.is_empty() {
+        return Err(Error::NeedNonZeroSetSize);
+    }
+
+    let n = poly.coeffs.len();
+
+    // If x is a member of the set, it must be a root of the polynomial making it evaluate to 0.
+    // The naive approach is to all n powers of x given the polynomial p(X) = a_0 + a_1*X + ... + a_n*X^n
+    // which has n-1 multiplication gates and check that p(x) = 0.
+    // A better approach is to evaluate p(x) using baby step, giant step algorithm. The idea is to
+    // view p(X) as (a_0 + a_1*X + .. a_{m-1}*X^{m-1}) + X^m*(a_m + a_{m+1}*X + .. a_{2m-1}*X^{m-1}) + ...
+    // To evaluate p(x), first compute baby steps (x^2, ..., x^{m-1}}. To compute any of the higher
+    // powers, only the giant steps x^m, x^{2m}, , x^{3m}.. are needed. Its better because multiplication
+    // gates are only required to compute the baby steps and giant step and each giant step is also 1
+    // multiplication gate with last giant step and x^m
+
+    // m ≈ sqrt(n) baby steps (ceiling square root, works on wasm32 no_std by avoiding sqrt function)
+    let m = {
+        let mut s = 1usize;
+        while s * s < n {
+            s += 1;
+        }
+        s
+    };
+    // ceil(n / m) giant steps
+    let t = (n + m - 1) / m;
+
+    // Compute baby steps x^2, ..., x^{m-1}
+    let mut baby_steps = vec![LinearCombination::<F>::default(); m];
+    baby_steps[0] = Variable::One(PhantomData).into();
+    baby_steps[1] = x.clone();
+
+    for i in 2..m {
+        let (_, _, o) = cs.multiply(baby_steps[i - 1].clone(), x.clone());
+        baby_steps[i] = o.into();
+    }
+
+    // Compute giant step g = x^m only if its needed
+    let g = if t > 1 {
+        let (_, _, o) = cs.multiply(baby_steps[m - 1].clone(), x.clone());
+        o.into()
+    } else {
+        LinearCombination::default()
+    };
+
+    // Evaluate the blocks
+    // B_k = a_{i*m} + a_{i*m+1}*x + ... + a_{i*m+m-1}*x^{m-1}
+    let mut blocks = vec![LinearCombination::<F>::default(); t];
+    for i in 0..t {
+        for j in 0..m {
+            let idx = i * m + j;
+            if idx < n {
+                blocks[i] += baby_steps[j].clone() * poly.coeffs[idx];
+            }
+        }
+    }
+
+    // Combine blocks together using Horner's rule
+    // p(x) = B_0 + g * (B_1 + g * (B_2 + ... + g * B_{t-1}))
+    let mut eval = blocks[t - 1].clone();
+    for k in (0..t - 1).rev() {
+        let (_, _, o) = cs.multiply(eval, g.clone());
+        eval = blocks[k].clone();
+        eval += o;
+    }
+
+    Ok(eval)
 }
 
 /// Prove that the commitments in `xs` are subset of the values `ys`
@@ -156,7 +229,11 @@ pub fn multi_select_public_set_given_poly<F: Field, Cs: RandomizableConstraintSy
 
     Ok(cs.specify_randomized_constraints(move |cs| {
         let challenge = cs.challenge_scalar(b"challenge");
-        construct_eval_random_linear_combination_poly(cs, xs, challenge, poly);
+        construct_eval_random_linear_combination_poly(cs, xs, challenge, poly).map_err(|e| {
+            R1CSError::GadgetError {
+                description: e.to_string(),
+            }
+        })?;
         Ok(())
     })?)
 }
@@ -183,7 +260,7 @@ pub fn multi_select_public_set_ext_challenge<F: Field, Cs: ConstraintSystem<F>>(
     // Enforce p(x_1) + c.p(x_2) + c^2.p(x_3) + ... = 0 for each x_i in xs and c is the challenge
 
     let poly = poly_from_roots::<F>(ys);
-    construct_eval_random_linear_combination_poly(cs, xs, challenge, poly);
+    construct_eval_random_linear_combination_poly(cs, xs, challenge, poly)?;
     Ok(())
 }
 
@@ -192,26 +269,15 @@ fn construct_eval_random_linear_combination_poly<F: Field, Cs: ConstraintSystem<
     xs: Vec<LinearCombination<F>>,
     challenge: F,
     poly: DensePolynomial<F>,
-) {
+) -> Result<()> {
     let challenge_powers = powers(&challenge, xs.len() as u32);
-    // Sum of the constant term of random linear combination polynomial
-    let mut eval: LinearCombination<F> =
-        (poly.coeffs[0] * challenge_powers.iter().sum::<F>()).into();
-    // Evaluate the polynomial by adding terms of single degree in each iteration
-    let mut xs_powers = xs.clone();
-    for i in 1..poly.coeffs.len() {
-        let mut eval_i = xs_powers[0].clone();
-        for j in 1..challenge_powers.len() {
-            eval_i = eval_i + (xs_powers[j].clone() * challenge_powers[j]);
-        }
-        eval = eval + (eval_i * poly.coeffs[i]);
-        // Calculate the next power of each x_i for next degree term evaluation
-        for j in 0..challenge_powers.len() {
-            let (_, _, o) = cs.multiply(xs_powers[j].clone(), xs[j].clone());
-            xs_powers[j] = o.into();
-        }
+    let mut eval = LinearCombination::default();
+    for (j, x_j) in xs.into_iter().enumerate() {
+        let p_j = eval_poly_bsgs(cs, x_j, &poly)?;
+        eval = eval + (p_j * challenge_powers[j]);
     }
     cs.constrain(eval);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -564,6 +630,14 @@ mod tests {
 
             verifier.verify(&proof, pg, bpg).unwrap();
             println!("Verifier time {:?}", start.elapsed());
+
+            let mut transcript = MerlinTranscript::new(b"select");
+            let mut verifier = Verifier::new(&mut transcript);
+            let x_var = verifier.commit(x_comm);
+            let mut xs_wrong = xs.clone();
+            xs_wrong[index] = sample_non_member(&xs, &mut rng);
+            select_public_set(&mut verifier, x_var.into(), xs_wrong.as_slice()).unwrap();
+            assert!(verifier.verify(&proof, pg, bpg).is_err());
         }
 
         check(512, &pg, &bpg);
@@ -720,6 +794,43 @@ mod tests {
             check_multi_select_public(512, subset_size, true, false, &pg, &bpg);
         }
         check_multi_select_public(128, 4, false, false, &pg, &bpg);
+
+        {
+            let mut rng = rand::thread_rng();
+            let set_size = 512;
+            let subset_size = 4;
+            let ys: Vec<_> = iter::from_fn(|| Some(VestaScalar::rand(&mut rng)))
+                .take(set_size)
+                .collect();
+            let xs = sample_subset(ys.as_slice(), subset_size, true, &mut rng);
+
+            let mut transcript = MerlinTranscript::new(b"select");
+            let mut prover: Prover<_, VestaA> = Prover::new(&pg, &mut transcript);
+            let blinding_xs = PallasBase::rand(&mut rng);
+            let (xs_comm, xs_vars) = prover.commit_vec(xs.as_slice(), blinding_xs, &bpg);
+            multi_select_public_set(
+                &mut prover,
+                xs_vars.into_iter().map(|v| v.into()).collect(),
+                ys.as_slice(),
+            )
+            .unwrap();
+            let proof = prover.prove(&bpg).unwrap();
+
+            let mut ys_wrong = ys.clone();
+            let pos = ys_wrong.iter().position(|&y| y == xs[0]).unwrap();
+            ys_wrong[pos] = sample_non_member(&ys, &mut rng);
+
+            let mut transcript = MerlinTranscript::new(b"select");
+            let mut verifier = Verifier::new(&mut transcript);
+            let xs_vars = verifier.commit_vec(subset_size, xs_comm);
+            multi_select_public_set(
+                &mut verifier,
+                xs_vars.into_iter().map(|v| v.into()).collect(),
+                ys_wrong.as_slice(),
+            )
+            .unwrap();
+            assert!(verifier.verify(&proof, &pg, &bpg).is_err());
+        }
 
         let mut rng = rand::thread_rng();
         let mut transcript = MerlinTranscript::new(b"multi-select-public-empty");

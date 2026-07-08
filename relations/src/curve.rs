@@ -17,10 +17,11 @@ pub fn curve_check<F: Field, Cs: ConstraintSystem<F>>(
     let (_, _, y_squared) = cs.multiply(y.clone(), y);
 
     // x^3 + A*x + B - y^2 = 0
-    cs.constrain(
-        LinearCombination::<F>::from(x_cubed) + LinearCombination::<F>::from(x).scalar_mul(a) + b
-            - y_squared,
-    )
+    let mut lc = LinearCombination::<F>::from(x_cubed);
+    lc += x.scalar_mul(a);
+    lc += b;
+    lc -= y_squared;
+    cs.constrain(lc)
 }
 
 /// A point represented by variables corresponding to its affine coordinates and optionally the value of those,

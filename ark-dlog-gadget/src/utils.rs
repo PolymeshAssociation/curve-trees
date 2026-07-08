@@ -69,9 +69,8 @@ pub fn on_curve<F: PrimeField, Cs: ConstraintSystem<F>>(
     let (_, _, y_squared) = cs.multiply(y_lc.clone(), y_lc);
 
     // x^3 + A*x + B - y^2 = 0
-    cs.constrain(
-        LinearCombination::<F>::from(x_cubed) + x_lc.scalar_mul(curve.a) + curve.b - y_squared,
-    )
+    let c = x_lc.scalar_mul(curve.a) + curve.b - y_squared + x_cubed;
+    cs.constrain(c)
 }
 
 /// Incomplete public addition of an elliptic curve point.

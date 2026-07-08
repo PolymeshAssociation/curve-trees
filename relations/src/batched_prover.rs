@@ -26,7 +26,7 @@ use bulletproofs::r1cs::{ConstraintSystem, LinearCombination, Prover, Variable};
 use bulletproofs::BulletproofGens;
 use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
 use rand_core::CryptoRngCore;
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 impl<
         const L: usize,
@@ -645,8 +645,8 @@ impl<
         // Randomize the nodes of every multi-path.
         let mut all_even_sum = Vec::with_capacity(num_multi_paths);
         let mut all_odd_sum = Vec::with_capacity(num_multi_paths);
-        let mut all_even_scalars = Vec::with_capacity(num_multi_paths);
-        let mut all_odd_scalars = Vec::with_capacity(num_multi_paths);
+        let mut all_even_scalars = Zeroizing::new(Vec::with_capacity(num_multi_paths));
+        let mut all_odd_scalars = Zeroizing::new(Vec::with_capacity(num_multi_paths));
         let mut all_rerand_leaves = Vec::with_capacity(num_multi_paths);
         let mut all_rerand_leaves_scalars = Vec::with_capacity(num_multi_paths);
         for p in &multi_paths {
@@ -865,9 +865,6 @@ impl<
             leaf_divisors.into_iter().flatten(),
         )?;
 
-        all_even_scalars.zeroize();
-        all_odd_scalars.zeroize();
-
         // All six per-multi-path vecs have same length `num_multi_paths`
         debug_assert!([
             all_even_sum.len(),
@@ -984,15 +981,15 @@ pub fn batched_select_and_accumulate_non_root<
     };
 
     let chunk_size = all_children_x_coords.len() / (num_indices as usize);
-    let chunks: Vec<_> = all_children_x_coords.chunks_exact(chunk_size).collect();
+    let mut children = all_children_x_coords.into_iter();
 
-    for (i, chunk) in chunks.iter().enumerate() {
+    for i in 0..num_indices as usize {
         let ith_selected_witness = selected_children_plus_delta.map(|xy| xy[i]);
         let x_var = cs.allocate(ith_selected_witness.map(|xy| xy.x)).unwrap();
         let y_var = cs.allocate(ith_selected_witness.map(|xy| xy.y)).unwrap();
 
         // Select from public set
-        select(cs, x_var.into(), chunk.iter().cloned())?;
+        select(cs, x_var.into(), children.by_ref().take(chunk_size))?;
 
         // Curve check
         curve_check(cs, x_var.into(), y_var.into(), C::COEFF_A, C::COEFF_B);

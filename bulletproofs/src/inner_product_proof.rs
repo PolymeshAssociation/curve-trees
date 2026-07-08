@@ -11,7 +11,7 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress};
 use ark_std::{cfg_into_iter, cfg_iter, cfg_iter_mut, One};
 use core::iter;
 use dock_crypto_utils::transcript::MerlinTranscript;
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::errors::ProofError;
 use crate::msm::binary_scalar_mul_jsf_affine;
@@ -44,16 +44,17 @@ impl<C: AffineRepr> InnerProductProof<C> {
         H_factors: &[C::ScalarField],
         mut G_vec: Vec<C>,
         mut H_vec: Vec<C>,
-        mut a_vec: Vec<C::ScalarField>,
-        mut b_vec: Vec<C::ScalarField>,
+        a_vec: Vec<C::ScalarField>,
+        b_vec: Vec<C::ScalarField>,
     ) -> Result<InnerProductProof<C>, ProofError> {
-        // Brings `par_iter`/`into_par_iter` into scope for the `cfg_*` iterator macros below.
         #[cfg(feature = "parallel")]
         use rayon::prelude::*;
 
         // Create slices G, H, a, b backed by their respective
         // vectors.  This lets us reslice as we compress the lengths
         // of the vectors in the main loop below.
+        let mut a_vec = Zeroizing::new(a_vec);
+        let mut b_vec = Zeroizing::new(b_vec);
         let mut G = &mut G_vec[..];
         let mut H = &mut H_vec[..];
         let mut a = &mut a_vec[..];
@@ -215,9 +216,6 @@ impl<C: AffineRepr> InnerProductProof<C> {
             a: a[0],
             b: b[0],
         };
-
-        a_vec.zeroize();
-        b_vec.zeroize();
 
         Ok(proof)
     }
@@ -414,8 +412,7 @@ mod tests {
         let H: Vec<_> = bp_gens.share(0).H(n as u32).copied().collect();
 
         // Q would be determined upstream in the protocol, so we pick a random one.
-        let Q =
-            util::affine_from_bytes_tai::<Affine>(b"test point").expect("Q point should be valid");
+        let Q = affine_from_bytes_tai::<Affine>(b"test point").expect("Q point should be valid");
 
         // a and b are the vectors for which we want to prove c = <a,b>
         let a: Vec<_> = (0..n).map(|_| F::rand(&mut rng)).collect();

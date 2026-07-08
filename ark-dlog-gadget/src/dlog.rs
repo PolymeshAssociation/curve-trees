@@ -16,7 +16,7 @@ use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
 pub use generic_array::typenum::{Diff, Quot, Sum, Unsigned, U1, U2};
 pub use generic_array::{ArrayLength, GenericArray};
 use rand_core::CryptoRngCore;
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 // Move this file to divisors crate
 
@@ -176,7 +176,7 @@ impl<F: PrimeField, Parameters: DiscreteLogParameters> ChallengePoint<F, Paramet
             yx[i] = last * x;
         }
 
-        let x_sq = x.square();
+        let x_sq = x_pows[1];
         let three_x_sq = x_sq.double() + x_sq;
         let three_x_sq_plus_a = three_x_sq + curve.a;
         let two_y = y.double();
@@ -744,15 +744,15 @@ fn constrain_challenge_eval<
     let c0_eval = divisor_challenge_eval(cs, &divisor, &challenge.c0);
     let c1_eval = divisor_challenge_eval(cs, &divisor, &challenge.c1);
     let c2_eval = divisor_challenge_eval(cs, &divisor, &challenge.c2);
-    let lhs_eval = LinearCombination::default() + c0_eval + c1_eval + c2_eval;
+    let lhs_eval = c0_eval + c1_eval + c2_eval;
 
     // Interpolate the doublings of the generator
-    let mut rhs_eval = LinearCombination::default();
-    // We call this `bit` yet it's not constrained to being a bit
-    // It's presumed to be yet may be malleated
-    for (bit, weight) in dlog.into_iter().zip(&challenged_generator.0) {
-        rhs_eval = rhs_eval + LinearCombination::from_iter([(*bit, *weight)]);
+    let mut rhs_terms = Vec::with_capacity(dlog.len());
+    for (d, weight) in dlog.into_iter().zip(&challenged_generator.0) {
+        rhs_terms.push((*d, *weight));
     }
+    // rhs_eval = \sum_i{d_i * weight_i}
+    let mut rhs_eval = LinearCombination::from_iter(rhs_terms);
 
     // Interpolate the output point
     // intercept - (y - (slope * x))
@@ -761,10 +761,12 @@ fn constrain_challenge_eval<
     // EXCEPT the output point we're proving the discrete log for isn't the one interpolated
     // Its negative is, so -y becomes y
     // y + (slope * x) + intercept
-    let output_interpolation = LinearCombination::default()
-        + challenge.intercept
-        + point.1
-        + LinearCombination::from_iter([(point.0, challenge.slope)]);
+
+    let output_interpolation = LinearCombination::from_iter([
+        (Variable::One(PhantomData), challenge.intercept),
+        (point.0, challenge.slope),
+        (point.1, F::ONE),
+    ]);
 
     let output_interpolation_eval_inv = inverse(cs, output_interpolation);
     rhs_eval = rhs_eval + output_interpolation_eval_inv;
@@ -957,8 +959,9 @@ pub fn create_divisor_and_decomposition<
     generator_source: impl GeneratorMultiplesSource<C> + Clone,
     blinding: C::ScalarField,
 ) -> Result<Box<DivisorWitness<F, Parameters>>, Error> {
-    let (scalar, mut decomposition_vec) =
+    let (scalar, decomposition_vec) =
         decompose_scalar::<C::ScalarField, C::BaseField, Parameters>(blinding)?;
+    let mut decomposition_vec = Zeroizing::new(decomposition_vec);
 
     let scalar_mul_and_divisor = ScalarMulAndDivisor::<C>::new(&scalar, generator_source)?;
     let result_x = scalar_mul_and_divisor.x;
@@ -967,7 +970,6 @@ pub fn create_divisor_and_decomposition<
     decomposition_vec.push(result_x);
 
     let decomposition = GenericArray::from_slice(&decomposition_vec).clone();
-    decomposition_vec.zeroize();
     let divisor = get_divisor_array::<F, Parameters>(&scalar_mul_and_divisor.divisor, result_y)?;
     Ok(Box::new(DivisorWitness::<F, Parameters>::new(
         decomposition,
@@ -1090,8 +1092,9 @@ pub fn create_divisor_and_decomposition_multi_point<
     generator_sources: &[&GeneratorTable<F, Parameters>],
     blinding: C::ScalarField,
 ) -> Result<Box<DivisorWitnessMulti<F, Parameters>>, Error> {
-    let (scalar, mut decomposition_vec) =
+    let (scalar, decomposition_vec) =
         decompose_scalar::<C::ScalarField, C::BaseField, Parameters>(blinding)?;
+    let decomposition_vec = Zeroizing::new(decomposition_vec);
 
     let mut result_xs = Vec::with_capacity(generator_sources.len());
     let mut divisors = Vec::with_capacity(generator_sources.len());
@@ -1107,7 +1110,6 @@ pub fn create_divisor_and_decomposition_multi_point<
     }
 
     let decomposition = GenericArray::from_slice(&decomposition_vec).clone();
-    decomposition_vec.zeroize();
     Ok(Box::new(DivisorWitnessMulti::<F, Parameters>::new(
         decomposition,
         result_xs,
@@ -1404,7 +1406,7 @@ pub fn discrete_log_blinding_and_dlog_given_challenge<
     Ok(())
 }
 
-/// The second returned value is the scalar's bit decomposition, length `ScalarBits`.
+/// The second returned value is the scalar's decomposition, length `ScalarBits`.
 fn decompose_scalar<S: PrimeField, B: PrimeField, Parameters: DiscreteLogParameters>(
     blinding: S,
 ) -> Result<(ScalarDecomposition<S>, Vec<B>), Error> {
@@ -1471,10 +1473,11 @@ fn get_divisor_array<F: PrimeField, Parameters: DiscreteLogParameters>(
 fn commit_to_witness_chunks<F: PrimeField, C: AffineRepr<ScalarField = F>, R: CryptoRngCore>(
     rng: &mut R,
     prover: &mut Prover<MerlinTranscript, C>,
-    mut combined_witness: Vec<F>,
+    combined_witness: Vec<F>,
     chunk_len: usize,
     bp_gens: &BulletproofGens<C>,
 ) -> Result<(DivisorComms<C>, DivisorCommsBlindings<F>, Vec<Variable<F>>), Error> {
+    let combined_witness = Zeroizing::new(combined_witness);
     if combined_witness.len() % chunk_len != 0 {
         return Err(Error::WitnessChunkLengthMismatch(
             combined_witness.len(),
@@ -1497,8 +1500,6 @@ fn commit_to_witness_chunks<F: PrimeField, C: AffineRepr<ScalarField = F>, R: Cr
         blindings_vec.push(blinding);
         vars.extend(vars_chunk);
     }
-
-    combined_witness.zeroize();
 
     let comms = DivisorComms(commitments);
     let blindings = DivisorCommsBlindings(blindings_vec);

@@ -55,7 +55,7 @@ default = ["std", "parallel", "asm", "host_hash_to_curve"]
 no_std = []
 std = ["rand/std", "thiserror/std", "sha2/std", "ark-pallas/std", "ark-vesta/std", "dock_crypto_utils/std", "ahash/std", "impl_host_hash_to_curve", "lazy_static"]
 asm = ["ark-ff/asm", "sha2/asm"]
-parallel = ["std", "rayon" ]
+parallel = ["std", "rayon", "ark-ff/parallel", "ark-ec/parallel" ]
 parallel_full = [ "parallel", "dock_crypto_utils/parallel_full" ]
 
 # Enable host `hash_to_curve` support.

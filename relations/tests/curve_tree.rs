@@ -1244,7 +1244,7 @@ pub fn test_curve_tree_even_depth_large_divisor() {
 #[test]
 pub fn test_curve_tree_odd_depth_large_divisor() {
     test_curve_tree_with_parameters_newer::<
-        32,
+        64,
         PallasBase,
         PallasConfig,
         VestaConfig,
@@ -1253,7 +1253,7 @@ pub fn test_curve_tree_odd_depth_large_divisor() {
     >(Some(3), 11, 64, 10);
 
     test_curve_tree_with_parameters_newer::<
-        32,
+        64,
         HeliosBase,
         HeliosConfig,
         SeleneConfig,

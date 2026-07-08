@@ -360,12 +360,14 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
             .copied()
             .collect::<Vec<_>>();
 
-        let scalars: Vec<C::ScalarField> =
+        let mut scalars: Vec<C::ScalarField> =
             iter::once(&v_blinding).chain(v.iter()).copied().collect();
 
         assert_eq!(generators.len(), scalars.len());
 
         let comm = C::Group::msm_unchecked(generators.as_slice(), scalars.as_slice()).into_affine();
+
+        scalars.zeroize();
 
         let vars = self.vars_for_committed_vec(&comm, v, v_blinding);
 
@@ -640,15 +642,19 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
         let (A_I1, A_O1, S1) = {
             // todo clean up when send is safely implemented
             let blinding = self.pc_gens.B_blinding;
-            let A_I1_scalars = iter::once(&i_blinding1)
-                .chain(self.secrets.a_L.iter())
-                .chain(self.secrets.a_R.iter())
-                .copied()
-                .collect::<Vec<C::ScalarField>>();
-            let A_O1_scalars = iter::once(&o_blinding1)
-                .chain(self.secrets.a_O.iter())
-                .copied()
-                .collect::<Vec<C::ScalarField>>();
+            let A_I1_scalars = Zeroizing::new(
+                iter::once(&i_blinding1)
+                    .chain(self.secrets.a_L.iter())
+                    .chain(self.secrets.a_R.iter())
+                    .copied()
+                    .collect::<Vec<C::ScalarField>>(),
+            );
+            let A_O1_scalars = Zeroizing::new(
+                iter::once(&o_blinding1)
+                    .chain(self.secrets.a_O.iter())
+                    .copied()
+                    .collect::<Vec<C::ScalarField>>(),
+            );
             let (mut A_I1, mut A_O1, mut S1) = (None, None, None);
             rayon::scope(|s| {
                 // A_I = <a_L, G> + <a_R, H> + i_blinding * B_blinding
@@ -686,6 +692,13 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
 
                 // S = <s_L, G> + <s_R, H> + s_blinding * B_blinding
                 s.spawn(|_| {
+                    let S1_scalars = Zeroizing::new(
+                        iter::once(&s_blinding1)
+                            .chain(s_L1.iter())
+                            .chain(s_R1.iter())
+                            .copied()
+                            .collect::<Vec<C::ScalarField>>(),
+                    );
                     S1 = Some(
                         C::Group::msm_unchecked(
                             iter::once(&blinding)
@@ -694,12 +707,7 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
                                 .copied()
                                 .collect::<Vec<C>>()
                                 .as_slice(),
-                            iter::once(&s_blinding1)
-                                .chain(s_L1.iter())
-                                .chain(s_R1.iter())
-                                .copied()
-                                .collect::<Vec<C::ScalarField>>()
-                                .as_slice(),
+                            S1_scalars.as_slice(),
                         )
                         .into(),
                     )
@@ -718,6 +726,13 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
         #[cfg(not(feature = "parallel"))]
         let (A_I1, A_O1, S1) = {
             // A_I = <a_L, G> + <a_R, H> + i_blinding * B_blinding
+            let A_I1_scalars = Zeroizing::new(
+                iter::once(&i_blinding1)
+                    .chain(self.secrets.a_L.iter())
+                    .chain(self.secrets.a_R.iter())
+                    .map(|s| (*s).into())
+                    .collect::<Vec<C::ScalarField>>(),
+            );
             let A_I1 = C::Group::msm_unchecked(
                 iter::once(&self.pc_gens.B_blinding)
                     .chain(gens.G(n1))
@@ -725,27 +740,24 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
                     .copied()
                     .collect::<Vec<C>>()
                     .as_slice(),
-                iter::once(&i_blinding1)
-                    .chain(self.secrets.a_L.iter())
-                    .chain(self.secrets.a_R.iter())
-                    .map(|s| (*s).into())
-                    .collect::<Vec<C::ScalarField>>()
-                    .as_slice(),
+                A_I1_scalars.as_slice(),
             )
             .into();
 
             // A_O = <a_O, G> + o_blinding * B_blinding
+            let A_O1_scalars = Zeroizing::new(
+                iter::once(&o_blinding1)
+                    .chain(self.secrets.a_O.iter())
+                    .map(|s| (*s).into())
+                    .collect::<Vec<C::ScalarField>>(),
+            );
             let A_O1 = C::Group::msm_unchecked(
                 iter::once(&self.pc_gens.B_blinding)
                     .chain(gens.G(n1))
                     .copied()
                     .collect::<Vec<C>>()
                     .as_slice(),
-                iter::once(&o_blinding1)
-                    .chain(self.secrets.a_O.iter())
-                    .map(|s| (*s).into())
-                    .collect::<Vec<C::ScalarField>>()
-                    .as_slice(),
+                A_O1_scalars.as_slice(),
             )
             .into();
 
@@ -753,6 +765,13 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
             // <Vi, G> + vi_blinding * B:blinding
 
             // S = <s_L, G> + <s_R, H> + s_blinding * B_blinding
+            let S1_scalars = Zeroizing::new(
+                iter::once(&s_blinding1)
+                    .chain(s_L1.iter())
+                    .chain(s_R1.iter())
+                    .map(|s| (*s).into())
+                    .collect::<Vec<C::ScalarField>>(),
+            );
             let S1 = C::Group::msm_unchecked(
                 iter::once(&self.pc_gens.B_blinding)
                     .chain(gens.G(n1))
@@ -760,12 +779,7 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
                     .copied()
                     .collect::<Vec<C>>()
                     .as_slice(),
-                iter::once(&s_blinding1)
-                    .chain(s_L1.iter())
-                    .chain(s_R1.iter())
-                    .map(|s| (*s).into())
-                    .collect::<Vec<C::ScalarField>>()
-                    .as_slice(),
+                S1_scalars.as_slice(),
             )
             .into();
             (A_I1, A_O1, S1)
@@ -821,20 +835,26 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
         let (A_I2, A_O2, S2) = if has_2nd_phase_commitments {
             // todo clean up when send is safely implemented
             let blinding = self.pc_gens.B_blinding;
-            let A_I2_scalars = iter::once(&i_blinding2)
-                .chain(self.secrets.a_L.iter().skip(n1 as usize))
-                .chain(self.secrets.a_R.iter().skip(n1 as usize))
-                .copied()
-                .collect::<Vec<C::ScalarField>>();
-            let A_O2_scalars = iter::once(&o_blinding2)
-                .chain(self.secrets.a_O.iter().skip(n1 as usize))
-                .copied()
-                .collect::<Vec<C::ScalarField>>();
-            let S2_scalars = iter::once(&s_blinding2)
-                .chain(s_L2.iter())
-                .chain(s_R2.iter())
-                .copied()
-                .collect::<Vec<C::ScalarField>>();
+            let A_I2_scalars = Zeroizing::new(
+                iter::once(&i_blinding2)
+                    .chain(self.secrets.a_L.iter().skip(n1 as usize))
+                    .chain(self.secrets.a_R.iter().skip(n1 as usize))
+                    .copied()
+                    .collect::<Vec<C::ScalarField>>(),
+            );
+            let A_O2_scalars = Zeroizing::new(
+                iter::once(&o_blinding2)
+                    .chain(self.secrets.a_O.iter().skip(n1 as usize))
+                    .copied()
+                    .collect::<Vec<C::ScalarField>>(),
+            );
+            let S2_scalars = Zeroizing::new(
+                iter::once(&s_blinding2)
+                    .chain(s_L2.iter())
+                    .chain(s_R2.iter())
+                    .copied()
+                    .collect::<Vec<C::ScalarField>>(),
+            );
             let (mut A_I2, mut A_O2, mut S2) = (None, None, None);
             rayon::scope(|s| {
                 // A_I = <a_L, G> + <a_R, H> + i_blinding * B_blinding
@@ -900,6 +920,26 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
         };
         #[cfg(not(feature = "parallel"))]
         let (A_I2, A_O2, S2) = if has_2nd_phase_commitments {
+            let A_I2_scalars = Zeroizing::new(
+                iter::once(&i_blinding2)
+                    .chain(self.secrets.a_L.iter().skip(n1 as usize))
+                    .chain(self.secrets.a_R.iter().skip(n1 as usize))
+                    .copied()
+                    .collect::<Vec<C::ScalarField>>(),
+            );
+            let A_O2_scalars = Zeroizing::new(
+                iter::once(&o_blinding2)
+                    .chain(self.secrets.a_O.iter().skip(n1 as usize))
+                    .copied()
+                    .collect::<Vec<C::ScalarField>>(),
+            );
+            let S2_scalars = Zeroizing::new(
+                iter::once(&s_blinding2)
+                    .chain(s_L2.iter())
+                    .chain(s_R2.iter())
+                    .copied()
+                    .collect::<Vec<C::ScalarField>>(),
+            );
             (
                 // A_I = <a_L, G> + <a_R, H> + i_blinding * B_blinding
                 C::Group::msm_unchecked(
@@ -909,12 +949,7 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
                         .copied()
                         .collect::<Vec<C>>()
                         .as_slice(),
-                    iter::once(&i_blinding2)
-                        .chain(self.secrets.a_L.iter().skip(n1 as usize))
-                        .chain(self.secrets.a_R.iter().skip(n1 as usize))
-                        .copied()
-                        .collect::<Vec<C::ScalarField>>()
-                        .as_slice(),
+                    A_I2_scalars.as_slice(),
                 )
                 .into(),
                 // A_O = <a_O, G> + o_blinding * B_blinding
@@ -924,11 +959,7 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
                         .copied()
                         .collect::<Vec<C>>()
                         .as_slice(),
-                    iter::once(&o_blinding2)
-                        .chain(self.secrets.a_O.iter().skip(n1 as usize))
-                        .copied()
-                        .collect::<Vec<C::ScalarField>>()
-                        .as_slice(),
+                    A_O2_scalars.as_slice(),
                 )
                 .into(),
                 // S = <s_L, G> + <s_R, H> + s_blinding * B_blinding
@@ -939,12 +970,7 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
                         .copied()
                         .collect::<Vec<C>>()
                         .as_slice(),
-                    iter::once(&s_blinding2)
-                        .chain(s_L2.iter())
-                        .chain(s_R2.iter())
-                        .copied()
-                        .collect::<Vec<C::ScalarField>>()
-                        .as_slice(),
+                    S2_scalars.as_slice(),
                 )
                 .into(),
             )
@@ -1256,9 +1282,9 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
             log::debug!("sanity check passed");
         }
 
-        let i_blinding = i_blinding1 + u * i_blinding2;
-        let o_blinding = o_blinding1 + u * o_blinding2;
-        let s_blinding = s_blinding1 + u * s_blinding2;
+        let mut i_blinding = i_blinding1 + u * i_blinding2;
+        let mut o_blinding = o_blinding1 + u * o_blinding2;
+        let mut s_blinding = s_blinding1 + u * s_blinding2;
 
         i_blinding1.zeroize();
         o_blinding1.zeroize();
@@ -1294,13 +1320,17 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
         let mut e_blinding = C::ScalarField::zero();
         {
             let mut xn = C::ScalarField::one();
-            for bnd in e_terms.into_iter() {
+            for bnd in e_terms.iter() {
                 if let Some(val) = bnd {
-                    e_blinding += xn * val;
+                    e_blinding += xn * *val;
                 }
                 xn *= x;
             }
         }
+        e_terms.zeroize();
+        i_blinding.zeroize();
+        o_blinding.zeroize();
+        s_blinding.zeroize();
 
         transcript.append_scalar::<C>(b"t_x", &t_x);
         transcript.append_scalar::<C>(b"t_x_blinding", &t_x_blinding);

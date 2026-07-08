@@ -4,7 +4,9 @@ use crate::curve_tree_prover::{
 };
 use crate::error::{Error, Result};
 use crate::parameters::SelRerandProofParametersRef;
-use crate::select::{multi_select_public_set, select, select_public_set};
+use crate::select::{
+    multi_select_public_set, select, select_public_set, select_public_set_given_poly,
+};
 use crate::utils::get_2_rngs_from_one;
 use ark_dlog_gadget::dlog::{
     commit_witness_chunks_prover, create_divisor_and_decomposition,
@@ -18,6 +20,7 @@ use ark_ec::{AffineRepr, CurveGroup};
 use ark_ec_divisors::util::GeneratorTable;
 use ark_ec_divisors::DivisorCurve;
 use ark_ff::{Field, PrimeField};
+use ark_poly::univariate::DensePolynomial;
 use ark_std::vec;
 use ark_std::{boxed::Box, vec::Vec};
 use bulletproofs::r1cs::{ConstraintSystem, LinearCombination, Prover, Variable};
@@ -692,6 +695,41 @@ pub fn select_root<
     Ok((x, y, x_rerand, y_rerand))
 }
 
+/// Same as [`select_root`] but takes the precomputed vanishing polynomial of the root's public
+/// child x-coordinates instead of the x-coordinate slice. When many proofs are verified against the
+/// same root, this polynomial is identical across all of them, so it can be built once (with
+/// `poly_from_roots` over the root's `x_coord_children`) and reused, saving the per-proof O(L^2)
+/// polynomial construction in [`select_public_set`].
+pub fn select_root_given_poly<
+    Fb: PrimeField,
+    Fs: Field,
+    C2: SWCurveConfig<BaseField = Fs, ScalarField = Fb> + Copy,
+    Cs: ConstraintSystem<Fs>,
+>(
+    cs: &mut Cs, // Prover or verifier
+    delta: &Affine<C2>,
+    rerandomized_child: &Affine<C2>, // The public rerandomization of the selected child without Delta
+    all_children_plus_delta_poly: &DensePolynomial<Fs>, // Vanishing poly of all children's x-coords plus delta
+    child: Option<Affine<C2>>,                          // Witness of the selected child
+) -> Result<(Variable<Fs>, Variable<Fs>, Fs, Fs)> {
+    // Add the re-randomised child to the transcript
+    cs.transcript()
+        .append(b"rerandomized_child", &rerandomized_child);
+
+    let delta = delta.into_group();
+    // Show that child is part of `all_children` by showing that the child's x-coordinate is present in x-coordinates of the all children
+    let child_plus_delta = child.map(|c| (c + delta).into_affine());
+    let x = cs.allocate(child_plus_delta.map(|xy| xy.x))?;
+    let y = cs.allocate(child_plus_delta.map(|xy| xy.y))?;
+    let x_lc: LinearCombination<_> = x.into();
+    select_public_set_given_poly(cs, x_lc.clone(), all_children_plus_delta_poly)?;
+    let (x_rerand, y_rerand) = (*rerandomized_child + delta)
+        .into_affine()
+        .xy()
+        .ok_or_else(|| Error::PointCantBeZero)?;
+    Ok((x, y, x_rerand, y_rerand))
+}
+
 /// Return variables for x, y coordinates of the node being randomized and then x, y coordinates
 /// of the randomized node (coordinates taken after adding delta)
 pub fn select_non_root<
@@ -716,7 +754,8 @@ pub fn select_non_root<
     let x = cs.allocate(child_plus_delta.map(|xy| xy.x))?;
     let y = cs.allocate(child_plus_delta.map(|xy| xy.y))?;
     let x_lc: LinearCombination<_> = x.into();
-    select(cs, x_lc.clone(), all_children_plus_delta.iter().cloned())?;
+    // `x_lc` and `all_children_plus_delta` are not used after this, so move both in.
+    select(cs, x_lc, all_children_plus_delta.into_iter())?;
     let (x_rerand, y_rerand) = (*rerandomized_child + delta)
         .into_affine()
         .xy()
