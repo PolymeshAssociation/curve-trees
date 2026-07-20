@@ -1010,7 +1010,7 @@ pub fn tree_mult_gate_estimate(num_levels: usize, arity: usize, num_indices: usi
 /// which get a second re-randomization.
 pub fn ped_comm_estimated_mult_gates(size: usize, num_shared: usize) -> usize {
     // Got this by running test and checking the number of multiplications
-    21 * size + 13 * num_shared
+    20 * size + 12 * num_shared
 }
 
 /// Per-curve divisor chunk lengths

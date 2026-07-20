@@ -25,9 +25,11 @@ pub fn batch_verify_with_rng<C: AffineRepr, R: RngCore + CryptoRng>(
     bp_gens: &BulletproofGens<C>,
     rng: &mut R,
 ) -> Result<(), R1CSError> {
-    batch_verify_core(verification_tuples, pc_gens, bp_gens, |_| {
-        C::ScalarField::rand(rng)
-    })
+    let mut r = C::ScalarField::rand(rng);
+    while r.is_zero() {
+        r = C::ScalarField::rand(rng);
+    }
+    batch_verify_core(verification_tuples, pc_gens, bp_gens, |_| r)
 }
 
 pub fn batch_verify_with_given_randomness<C: AffineRepr>(
@@ -36,6 +38,10 @@ pub fn batch_verify_with_given_randomness<C: AffineRepr>(
     bp_gens: &BulletproofGens<C>,
     randomness: C::ScalarField,
 ) -> Result<(), R1CSError> {
+    if randomness.is_zero() {
+        // Defense in depth: randomness shouldn't be 0 as that will ignore all except the first item in the batch
+        return Err(R1CSError::BatchVerificationError);
+    }
     batch_verify_core(verification_tuples, pc_gens, bp_gens, |r| randomness * r)
 }
 

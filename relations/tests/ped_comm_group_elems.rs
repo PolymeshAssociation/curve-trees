@@ -93,14 +93,16 @@ pub fn check_naive<
         let nested = (0..nesting_size)
             .map(|_| Affine::<P1>::rand(&mut rng))
             .collect::<Vec<_>>();
-        let x_coords = nested
+        let coords = nested
             .iter()
-            .map(|n| (*n + sr_params.odd_parameters.delta).into_affine().x)
+            .flat_map(|n| {
+                let (x, y) = n.xy().unwrap();
+                [x, y]
+            })
             .collect::<Vec<_>>();
-        let comm =
-            sr_params
-                .even_parameters
-                .commit(x_coords.as_slice(), P0::ScalarField::zero(), 0);
+        let comm = sr_params
+            .even_parameters
+            .commit(coords.as_slice(), P0::ScalarField::zero(), 0);
         proof_indices.insert(
             possible_proof_indices.choose(&mut rng).unwrap(),
             (nested, comm),
@@ -275,14 +277,16 @@ pub fn check<
         let nested = (0..nesting_size)
             .map(|_| Affine::<P1>::rand(&mut rng))
             .collect::<Vec<_>>();
-        let x_coords = nested
+        let coords = nested
             .iter()
-            .map(|n| (*n + sr_params.odd_parameters.delta).into_affine().x)
+            .flat_map(|n| {
+                let (x, y) = n.xy().unwrap();
+                [x, y]
+            })
             .collect::<Vec<_>>();
-        let comm =
-            sr_params
-                .even_parameters
-                .commit(x_coords.as_slice(), P0::ScalarField::zero(), 0);
+        let comm = sr_params
+            .even_parameters
+            .commit(coords.as_slice(), P0::ScalarField::zero(), 0);
         proof_indices.insert(
             possible_proof_indices.choose(&mut rng).unwrap(),
             (nested, comm),
@@ -341,13 +345,13 @@ pub fn check<
         let (re_randomized_nested, comms) = prove_new::<_, _, _, P0, P1, Params>(
             &mut rng,
             &mut pallas_prover,
-            nested.clone(),
+            &nested,
             &path_commitments.get_rerandomized_leaf().unwrap(),
             re_randomization_of_leaf,
-            blindings_for_points.clone(),
+            &blindings_for_points,
             &odd_proof_params,
             &sr_params.even_parameters.bp_gens,
-            shared_dlog_indices.clone(),
+            &shared_dlog_indices,
             None,
         )
         .expect("Failed to prove");
@@ -412,10 +416,10 @@ pub fn check<
             verify_new::<_, _, P0, P1, Params>(
                 &mut pallas_verifier,
                 rerandomized_leaf,
-                re_randomized_nested,
-                comms,
+                &re_randomized_nested,
+                &comms,
                 &odd_proof_params,
-                shared_dlog_indices.clone(),
+                &shared_dlog_indices,
                 None,
             )
             .expect("Failed to verify");

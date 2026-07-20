@@ -1,14 +1,27 @@
-use ark_ff::fields::Field;
+use ark_ff::{fields::Field, PrimeField};
+use ark_std::format;
 use bulletproofs::r1cs::*;
 use zeroize::Zeroize;
 
 /// Enforces that the quantity of v is in the range [0, 2^n).
-pub fn range_proof<F: Field, CS: ConstraintSystem<F>>(
+pub fn range_proof<F: PrimeField, CS: ConstraintSystem<F>>(
     cs: &mut CS,
     mut v: LinearCombination<F>,
     v_assignment: Option<u128>,
     n: usize,
 ) -> Result<(), R1CSError> {
+    // Defense in depth: reject bit lengths where 2^n > p, where p is the order of the field,
+    // else a non-canonical alias `x + k*p` could satisfy the bit constraints while
+    // representing an out-of-range integer.
+    if n >= (F::MODULUS_BIT_SIZE as usize) - 1 {
+        // -1 for being totally safe, avoid value in [2^{n-1}, p)
+        return Err(R1CSError::GadgetError {
+            description: format!(
+                "range bit length {n} too large for a {}-bit field",
+                F::MODULUS_BIT_SIZE
+            ),
+        });
+    }
     let mut exp_2 = F::one();
     for i in 0..n {
         // Create low-level variables and add them to constraints

@@ -87,7 +87,6 @@ pub fn on_curve<F: PrimeField, Cs: ConstraintSystem<F>>(
 /// - λ * (b.x - a.x) = b.y - a.y
 /// - λ * (c.x - a.x) = -c.y - a.y  
 /// - λ * λ = a.x + b.x + c.x
-/// TODO: "incomplete" is misleading, its not incomplete in the sense of elliptic curve formula
 pub fn incomplete_add_pub<F: PrimeField, Cs: ConstraintSystem<F>>(
     cs: &mut Cs,
     a: (F, F),
@@ -106,22 +105,18 @@ pub fn incomplete_add_pub<F: PrimeField, Cs: ConstraintSystem<F>>(
     let b_x_minus_a_x = b_x_lc.clone() - a_x;
     let b_y_minus_a_y = b_y_lc.clone() - a_y;
     let c_x_minus_a_x = c_x_lc.clone() - a_x;
-    // let c_y_minus_a_y = c_y_lc.clone() - a_y;
 
-    // Check b.x != a.0
-    inequality(cs, b_x_lc.clone(), LinearCombination::<F>::from(a_x));
+    // Check b.x != a.x by checking if b.x - a.x != 0, i.e. b.x - a.x is invertible
+    let (b_x_minus_a_x_inv, _) = inverse(cs, b_x_minus_a_x.clone());
 
     // slope of line through (b_x, b_y) and (a_x, a_y)
     let slope = cs.evaluate(&b_y_lc).map(|b_y| {
-        let b_x = cs.evaluate(&b_x_lc).unwrap();
         // unwrap only affects prover as verifier can't evaluate the lc
-        let b_x_minus_a_x_inv = (b_x - a_x).inverse().unwrap();
-        (b_y - a_y) * b_x_minus_a_x_inv
+        (b_y - a_y) * b_x_minus_a_x_inv.unwrap()
     });
 
     let slope_lc = LinearCombination::<F>::from(cs.allocate(slope).unwrap());
     // slope * (b_x - a_x) = b_y - a_y
-    // let b_x_minus_a_x_val = cs.evaluate(&b_x_minus_a_x);
     let (_, _, o) = cs.multiply(slope_lc.clone(), b_x_minus_a_x);
     cs.constrain(LinearCombination::<F>::from(o) - b_y_minus_a_y);
 
@@ -142,10 +137,13 @@ pub fn incomplete_add_pub<F: PrimeField, Cs: ConstraintSystem<F>>(
     }
 }
 
+/// Returns the value and linear combination for the inverse of value in `x_lc`. The value is None for verifier
 pub fn inverse<F: Field, Cs: ConstraintSystem<F>>(
     cs: &mut Cs,
     x_lc: LinearCombination<F>,
-) -> LinearCombination<F> {
+) -> (Option<F>, LinearCombination<F>) {
+    // unwrap only affects prover as verifier can't evaluate the lc
+    let x_inv = cs.evaluate(&x_lc).map(|x| x.inverse().unwrap());
     // one = 1
     let one = LinearCombination::<F>::from(Variable::One(PhantomData::<F>));
     #[cfg(debug_assertions)]
@@ -155,12 +153,10 @@ pub fn inverse<F: Field, Cs: ConstraintSystem<F>>(
             assert_eq!(F::ONE, o.unwrap());
         }
     }
-    // unwrap only affects prover as verifier can't evaluate the lc
-    let x_inv = cs.evaluate(&x_lc).map(|x| x.inverse().unwrap());
     let x_inv_lc: LinearCombination<F> = cs.allocate(x_inv).unwrap().into();
     let (_, _, o) = cs.multiply(x_lc, x_inv_lc.clone());
     cs.constrain(LinearCombination::<F>::from(o) - one);
-    x_inv_lc
+    (x_inv, x_inv_lc)
 }
 
 pub fn inequality<F: Field, Cs: ConstraintSystem<F>>(

@@ -14,6 +14,15 @@ use ark_std::{boxed::Box, format, string::ToString, vec::Vec};
 use bulletproofs::r1cs::{ConstraintSystem, LinearCombination, Verifier};
 use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
 
+// NOTE: These do not verify that the path is of correct length. This means a prover might have
+// supplied a membership proof of an inner node and not a leaf. This is fine because the (randomized) leaf
+// is never used in isolation but used in other relations as well (outside this project). A malicious
+// prover using a shorter path will only be able to prove membership only and not the actual relation
+// involving the leaf. Adding the path length check would require callers to pass the height to these
+// functions. Another potential DoS vector is the verifier, giving a long path to consume resources as
+// each node in path leads to one scalar mult check. If these apply, the caller should enforce the
+// appropriate height check
+
 impl<
         const L: usize,
         F0: PrimeField,

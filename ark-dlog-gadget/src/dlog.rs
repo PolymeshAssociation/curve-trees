@@ -29,16 +29,16 @@ pub const MIN_CHUNK_LEN: usize = 32;
 /// This should not be directly implemented. `DiscreteLogParameter` should be implemented for which
 /// this will then be automatically derived.
 pub trait DiscreteLogParameters: DiscreteLogParameter {
-    /// The number of `x**i` coefficients in a divisor.
+    /// The number of `x^i` coefficients in a divisor.
     ///
     /// This is the number of points in a divisor (the number of bits in a scalar, plus one) divided
     /// by two.
     type XCoefficients: ArrayLength;
 
-    /// The number of `x**i` coefficients in a divisor, minus one.
+    /// The number of `x^i` coefficients in a divisor, minus one.
     type XCoefficientsMinusOne: ArrayLength;
 
-    /// The number of `y x**i` coefficients in a divisor.
+    /// The number of `y * x^i` coefficients in a divisor.
     ///
     /// This is the number of points in a divisor (the number of bits in a scalar, plus one),
     /// ceiling division by two, minus two.
@@ -78,24 +78,24 @@ where
 
 /// A representation of the divisor.
 ///
-/// The coefficient for x**1 is explicitly excluded as it's expected to be normalized to 1.
+/// The coefficient for `x` is explicitly excluded as it's expected to be normalized to 1.
 #[derive(Clone)]
 pub struct Divisor<F: PrimeField, Parameters: DiscreteLogParameters> {
     /// The coefficient for the `y` term of the divisor.
     ///
-    /// There is never more than one `y**i x**0` coefficient as the leading term of the modulus is
-    /// `y**2`. It's assumed the coefficient is non-zero (and present) as it will be for any divisor
+    /// There is never more than one `y^i` coefficient as the leading term of the modulus is
+    /// `y^2`. It's assumed the coefficient is non-zero (and present) as it will be for any divisor
     /// exceeding trivial complexity.
     pub y: Variable<F>,
-    /// The coefficients for the `y**1 x**i` terms of the polynomial.
+    /// The coefficients for the `y * x^i` terms of the polynomial.
     pub yx: GenericArray<Variable<F>, Parameters::YxCoefficients>,
-    /// The coefficients for the `x**i` terms of the polynomial, skipping x**1.
+    /// The coefficients for the `x^i` terms of the polynomial, skipping `x`.
     ///
-    /// x**1 is skipped as it's expected to be normalized to 1, and therefore constant, in order to
-    /// ensure the divisor is non-zero (as necessary for the proof to be complete).
-    // Subtract 1 from the length due to skipping the coefficient for x**1 as its always 1.
+    /// coefficient of `x` is skipped as it's expected to be normalized to 1, and therefore constant,
+    /// in order to ensure the divisor is non-zero (as necessary for the proof to be complete).
+    // Subtract 1 from the length due to skipping the coefficient for x as its always 1.
     pub x_from_power_of_2: GenericArray<Variable<F>, Parameters::XCoefficientsMinusOne>,
-    /// The constant term in the polynomial (alternatively, the coefficient for y**0 x**0).
+    /// The constant term in the polynomial.
     pub zero: Variable<F>,
 }
 
@@ -104,7 +104,7 @@ pub struct Divisor<F: PrimeField, Parameters: DiscreteLogParameters> {
 pub struct PointWithDlog<F: PrimeField, Parameters: DiscreteLogParameters> {
     /// The point which is supposedly the result of scaling the generator by the discrete logarithm.
     pub point: (Variable<F>, Variable<F>),
-    /// The discrete logarithm, represented as coefficients of a polynomial of 2**i.
+    /// The discrete logarithm, represented as coefficients of a polynomial of 2^i.
     pub dlog: GenericArray<Variable<F>, Parameters::ScalarBits>,
     /// The divisor interpolating the relevant doublings of generator with the inverse of the point.
     pub divisor: Divisor<F, Parameters>,
@@ -116,7 +116,7 @@ pub struct PointWithDlog<F: PrimeField, Parameters: DiscreteLogParameters> {
 pub struct PointsWithDlog<F: PrimeField, Parameters: DiscreteLogParameters> {
     /// The points which are supposedly the result of scaling the generators by the discrete logarithm.
     pub points: Vec<(Variable<F>, Variable<F>)>,
-    /// The discrete logarithm, represented as coefficients of a polynomial of 2**i.
+    /// The discrete logarithm, represented as coefficients of a polynomial of 2^i.
     pub dlog: GenericArray<Variable<F>, Parameters::ScalarBits>,
     /// The divisors interpolating the relevant doublings of generators with the inverse of the corresponding points.
     pub divisors: Vec<Divisor<F, Parameters>>,
@@ -136,11 +136,17 @@ pub struct DivisorCommsBlindings<F: PrimeField>(pub Vec<F>);
 /// challenge points.
 #[derive(Debug)]
 struct ChallengePoint<F: PrimeField, Parameters: DiscreteLogParameters> {
-    y: F,
-    yx: GenericArray<F, Parameters::YxCoefficients>,
-    x: GenericArray<F, Parameters::XCoefficients>,
-    p_0_n_0: F,
-    x_p_0_n_0: GenericArray<F, Parameters::YxCoefficients>,
+    // Pre-folded term weights so `divisor_challenge_eval` does no field muls. `n_*` are the numerator
+    // weights, for D' (the divisor's along-curve derivative) evaluated at the challenge point and
+    // scaled by p_1_n; `d_*` the denominator weights, for D(C) (the divisor evaluated at the point)
+    // scaled by p_1_d. p_1_n / p_1_d are the shared 2y factors that cancel between the two.
+    n_y: F,
+    n_yx: GenericArray<F, Parameters::YxCoefficients>,
+    n_x: GenericArray<F, Parameters::XCoefficientsMinusOne>,
+    d_y: F,
+    d_yx: GenericArray<F, Parameters::YxCoefficients>,
+    d_x: GenericArray<F, Parameters::XCoefficientsMinusOne>,
+    d_const: F,
     p_1_n: F,
     p_1_d: F,
 }
@@ -157,9 +163,9 @@ impl<F: PrimeField, Parameters: DiscreteLogParameters> ChallengePoint<F, Paramet
         // We accept this as an argument so that the caller can calculate these with a batch inversion
         inv_two_y: F,
     ) -> Self {
-        // Powers of x, skipping x**0
+        // Powers of x, starting from x
         let divisor_x_len = Parameters::XCoefficients::USIZE;
-        let mut x_pows = GenericArray::default();
+        let mut x_pows = GenericArray::<F, Parameters::XCoefficients>::default();
         x_pows[0] = x;
         for i in 1..divisor_x_len {
             let last = x_pows[i - 1];
@@ -168,8 +174,8 @@ impl<F: PrimeField, Parameters: DiscreteLogParameters> ChallengePoint<F, Paramet
 
         // Powers of x multiplied by y
         let divisor_yx_len = Parameters::YxCoefficients::USIZE;
-        let mut yx = GenericArray::default();
-        // Skips x**0
+        let mut yx = GenericArray::<F, Parameters::YxCoefficients>::default();
+        // Starts from y*x
         yx[0] = y * x;
         for i in 1..divisor_yx_len {
             let last = yx[i - 1];
@@ -178,28 +184,65 @@ impl<F: PrimeField, Parameters: DiscreteLogParameters> ChallengePoint<F, Paramet
 
         let x_sq = x_pows[1];
         let three_x_sq = x_sq.double() + x_sq;
+        // 3x^2 + a
         let three_x_sq_plus_a = three_x_sq + curve.a;
+        // 2y
         let two_y = y.double();
 
-        // p_0_n_0 from `DivisorChallenge`
+        // The curve slope y' = (3x^2 + a) / (2y) at the challenge point
         let p_0_n_0 = three_x_sq_plus_a * inv_two_y;
-        let mut x_p_0_n_0 = GenericArray::default();
-        // Since this iterates over x, which skips x**0, this also skips p_0_n_0 x**0
+        let mut x_p_0_n_0 = GenericArray::<F, Parameters::YxCoefficients>::default();
+        // Since this iterates over x, which skips x^0, this also skips p_0_n_0 x^0
         for (i, x) in x_pows.iter().take(divisor_yx_len).enumerate() {
             x_p_0_n_0[i] = p_0_n_0 * x;
         }
 
-        // p_1_n from `DivisorChallenge`
         let p_1_n = two_y;
-        // p_1_d from `DivisorChallenge`
         let p_1_d = (-slope * p_1_n) + three_x_sq_plus_a;
 
+        // Fold p_1_n / p_1_d into the term weights so `divisor_challenge_eval` can directly use them.
+
+        // Numerator weights for D' = y'*dD/dy + dD/dx (the divisor's along-curve derivative), scaled
+        // by p_1_n. Every y*x^j coefficient of the divisor gets a contribution from both derivatives,
+        // pre-summed here into one weight: dD/dy gives x_p_0_n_0[j] (the slope y' times x^j), and
+        // dD/dx of y*x^{j+1} brings the power down to (j+1)*y*x^j (= (j+1)*yx[j-1], as yx omits
+        // y*x^0). The j = 0 term instead takes the divisor's bare-y coefficient, which dD/dx shifts
+        // down to the constant y.
+        let n_y = p_0_n_0 * p_1_n;
+        let mut n_yx = GenericArray::default();
+        n_yx[0] = (x_p_0_n_0[0] + y) * p_1_n;
+        for j in 1..divisor_yx_len {
+            n_yx[j] = (x_p_0_n_0[j] + F::from((j + 1) as u64) * yx[j - 1]) * p_1_n;
+        }
+        // dD/dx of the divisor's x^{i+2} coefficient brings the power down to (i+2)*x^{i+1}
+        // (x_pows[i] = x^{i+1})
+        let mut n_x = GenericArray::default();
+        for i in 0..(divisor_x_len - 1) {
+            n_x[i] = F::from((i + 2) as u64) * x_pows[i] * p_1_n;
+        }
+
+        // Denominator weights for D(C), the divisor evaluated at the challenge point, scaled by
+        // p_1_d. The divisor's x^{i+2} coefficient evaluates against x^{i+2} = x_pows[i+1]; d_const
+        // is its x^1 coefficient (a fixed 1) evaluated against x.
+        let d_y = y * p_1_d;
+        let mut d_yx = GenericArray::default();
+        for (j, w) in yx.iter().enumerate() {
+            d_yx[j] = *w * p_1_d;
+        }
+        let mut d_x = GenericArray::default();
+        for i in 0..(divisor_x_len - 1) {
+            d_x[i] = x_pows[i + 1] * p_1_d;
+        }
+        let d_const = x_pows[0] * p_1_d;
+
         ChallengePoint {
-            x: x_pows,
-            y,
-            yx,
-            p_0_n_0,
-            x_p_0_n_0,
+            n_y,
+            n_yx,
+            n_x,
+            d_y,
+            d_yx,
+            d_x,
+            d_const,
             p_1_n,
             p_1_d,
         }
@@ -408,92 +451,59 @@ fn divisor_challenge_eval<
     // additions. This is identical since LC addition just concatenates terms, but avoids allocating
     // and freeing a temporary vec for every term
 
-    // The evaluation of the divisor differentiated by y, further multiplied by p_0_n_0
-    // Differentiation drops everything without a y coefficient, and drops what remains by a power
-    // of y
-    // (y**1 -> y**0, yx**i -> x**i)
-    // This aligns with p_0_n_1  from `DivisorChallenge`
-    let p_0_n_1: LinearCombination<F> = core::iter::once((divisor.y, challenge.p_0_n_0))
+    // Numerator: the divisor's along-curve derivative D' evaluated at the challenge point, with
+    // p_1_n pre-folded into every weight (see `new`). Each divisor.yx[j] takes a single weight that
+    // pre-sums its y- and x-derivative contributions. divisor.y comes only from the y-derivative;
+    // divisor.x_from_power_of_2 and the constant term (the divisor's x^1 coefficient, a fixed 1,
+    // which differentiates to a constant) come only from the x-derivative.
+    let p_n: LinearCombination<F> = core::iter::once((divisor.y, challenge.n_y))
+        .chain(core::iter::once((
+            Variable::One(PhantomData),
+            challenge.p_1_n,
+        )))
         .chain(
             divisor
                 .yx
                 .iter()
                 .enumerate()
-                // This does not index by `j + 1` as x_p_0_n_0 omits x**0
-                .map(|(j, var)| (*var, challenge.x_p_0_n_0[j])),
-        )
-        .collect();
-
-    // The evaluation of the divisor differentiated by x
-    // This aligns with p_0_n_2 from `DivisorChallenge`
-    let p_0_n_2: LinearCombination<F> =
-        // The coefficient for x**1 is 1, so 1 becomes the new zero coefficient
-        // (equivalent to `constant(F::ONE)`, i.e. Variable::One with weight 1)
-        core::iter::once((Variable::One(PhantomData), F::ONE))
-            // Handle the new y coefficient
-            .chain(core::iter::once((divisor.yx[0], challenge.y)))
-            // Handle the new yx coefficients
-            .chain(divisor.yx.iter().enumerate().skip(1).map(|(j, yx)| {
-                // For the power which was shifted down, we multiply this coefficient
-                // 3 x**2 -> 2 * 3 x**1
-                let original_power_of_x = F::from((j + 1) as u64);
-                // `j - 1` so `j = 1` indexes yx[0] as yx[0] is the y x**1
-                // (yx omits y x**0)
-                let weight = original_power_of_x * challenge.yx[j - 1];
-                (*yx, weight)
-            }))
-            // Handle the x coefficients
-            // We don't skip the first one as `x_from_power_of_2` already omits x**1
-            .chain(divisor.x_from_power_of_2.iter().enumerate().map(|(i, x)| {
-                // i + 2 as the paper expects i to start from 1 and be + 1, yet we start from 0
-                let original_power_of_x = F::from((i + 2) as u64);
-                // Still x[i] as x[0] is x**1
-                let weight = original_power_of_x * challenge.x[i];
-                (*x, weight)
-            }))
-            .collect();
-
-    // p_0_n from `DivisorChallenge`
-    let p_0_n = p_0_n_1 + p_0_n_2;
-
-    // Evaluation of the divisor
-    // p_0_d from `DivisorChallenge`
-    let p_0_d: LinearCombination<F> = core::iter::once((divisor.y, challenge.y))
-        .chain(
-            divisor
-                .yx
-                .iter()
-                .zip(&challenge.yx)
-                .map(|(var, c_yx)| (*var, *c_yx)),
+                .map(|(j, var)| (*var, challenge.n_yx[j])),
         )
         .chain(
             divisor
                 .x_from_power_of_2
                 .iter()
                 .enumerate()
-                .map(|(i, var)| {
-                    // This `i+1` is preserved, despite most not being as x omits x**0, as this assumes we
-                    // start with `i=1`
-                    (*var, challenge.x[i + 1])
-                }),
+                .map(|(i, var)| (*var, challenge.n_x[i])),
         )
-        // Adding the zero-degree divisor coefficient, ensuring the divisor isn't 0
-        .chain(core::iter::once((divisor.zero, F::ONE)))
         .collect();
-    // Adding x effectively adds a `1 x` term (a constant scalar, not a Variable term)
-    let p_0_d = p_0_d + challenge.x[0];
 
-    // Calculate the joint numerator
-    // p_n from `DivisorChallenge`
-    let p_n = p_0_n * challenge.p_1_n;
-    // Calculate the joint denominator
-    // p_d from `DivisorChallenge`
-    let p_d = p_0_d * challenge.p_1_d;
+    // Denominator: the divisor D evaluated at the challenge point, with p_1_d pre-folded into every
+    // weight (see `new`).
+    let p_d: LinearCombination<F> = core::iter::once((divisor.y, challenge.d_y))
+        .chain(
+            divisor
+                .yx
+                .iter()
+                .zip(&challenge.d_yx)
+                .map(|(var, w)| (*var, *w)),
+        )
+        .chain(
+            divisor
+                .x_from_power_of_2
+                .iter()
+                .enumerate()
+                .map(|(i, var)| (*var, challenge.d_x[i])),
+        )
+        // The divisor's constant coefficient, ensuring the divisor isn't 0; folded to p_1_d
+        .chain(core::iter::once((divisor.zero, challenge.p_1_d)))
+        .collect();
+    // The divisor's x^1 coefficient (a fixed 1, so a scalar not a Variable term); folded to x * p_1_d
+    let p_d = p_d + challenge.d_const;
 
     // We want `n / d = o`
     // `n / d = o` == `n = d * o`
     // These are safe unwraps as they're solely done by the prover and should always be non-zero
-    let p_d_inv = inverse(cs, p_d.clone());
+    let (_, p_d_inv) = inverse(cs, p_d.clone());
     let (_, _, o) = cs.multiply(p_n, p_d_inv);
     o.into()
 }
@@ -606,7 +616,7 @@ pub fn discrete_log_challenge<
     let slope = (c1_y - c0_y) * (c1_x - c0_x).inverse().unwrap();
     let intercept = c0_y - (slope * c0_x);
 
-    // Calculate the inversions for 2 c_y (for each c) and all of the challenged generators
+    // Calculate the inversions for 2*c_y (for each c) and all of the challenged generators
     let mut inversions = vec![F::ZERO; 3 + (generators.len() * Parameters::ScalarBits::USIZE)];
 
     // Needed for the left-hand side eval
@@ -620,7 +630,7 @@ pub fn discrete_log_challenge<
     for (i, generator) in generators.iter().enumerate() {
         // Needed for the right-hand side eval
         for (j, generator) in generator.0.iter().enumerate() {
-            // `DiscreteLog` has weights of `(mu - (G_i.y + (slope * G_i.x)))**-1` in its last line
+            // `DiscreteLog` has weights of `(intercept - (G_i.y + (slope * G_i.x)))^-1` in its last line
             inversions[3 + (i * Parameters::ScalarBits::USIZE) + j] =
                 intercept - (generator.1 - (slope * generator.0));
         }
@@ -768,7 +778,7 @@ fn constrain_challenge_eval<
         (point.1, F::ONE),
     ]);
 
-    let output_interpolation_eval_inv = inverse(cs, output_interpolation);
+    let (_, output_interpolation_eval_inv) = inverse(cs, output_interpolation);
     rhs_eval = rhs_eval + output_interpolation_eval_inv;
 
     cs.constrain(lhs_eval - rhs_eval);
@@ -1004,9 +1014,8 @@ pub fn commit_witness_chunks_prover<
     // Combine scalar decomposition and divisor coefficients in single vector so they can be committed in chunks
     let combined_witness: Vec<F> = divisor_witness
         .decomposition
-        .as_slice()
         .iter()
-        .chain(divisor_witness.divisor.as_slice().iter())
+        .chain(divisor_witness.divisor.iter())
         .cloned()
         .collect();
 
@@ -1146,10 +1155,10 @@ pub fn commit_witness_chunks_prover_multi_point<
 
     // [<scalar decomposition>, <x-coordinates of all resulting points>, <divisor of i-th resulting point>, <y-coordinate of i-th resulting point>, <padding>]
     let mut combined_witness = Vec::with_capacity(padded_len);
-    combined_witness.extend_from_slice(witness.decomposition.as_slice());
+    combined_witness.extend_from_slice(witness.decomposition.as_ref());
     combined_witness.extend_from_slice(&witness.result_xs);
     for div in &witness.divisors {
-        combined_witness.extend_from_slice(div.as_slice());
+        combined_witness.extend_from_slice(div.as_ref());
     }
     combined_witness.resize(padded_len, F::ZERO);
 

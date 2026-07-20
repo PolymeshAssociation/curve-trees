@@ -1,8 +1,8 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![allow(non_snake_case)]
 
-// This code is ported from [Monero's codebase](https://github.com/monero-oxide/monero-oxide/tree/fcmp%2B%2B/crypto/divisors)
-// Read the audit. Consider SlverBullet paper
+//! Implementation of the paper [Zero Knowledge Proofs of Elliptic Curve Inner Products from Principal Divisors and Weil Reciprocity](https://eprint.iacr.org/2022/596.pdf)
+//! This code is ported from [Monero's codebase](https://github.com/monero-oxide/monero-oxide/tree/fcmp%2B%2B/crypto/divisors)
 
 use ark_ec::short_weierstrass::Projective;
 use ark_ec::{AdditiveGroup, CurveConfig, CurveGroup};
@@ -23,6 +23,8 @@ pub mod curves;
 pub mod scalar_decomposition;
 pub mod util;
 
+pub mod narrow;
+
 pub mod error;
 use error::Error;
 
@@ -30,75 +32,78 @@ pub use curves::DivisorCurve;
 pub use scalar_decomposition::ScalarDecomposition;
 
 type Xy<C> = (<C as CurveConfig>::BaseField, <C as CurveConfig>::BaseField);
-type Denom<F> = (CtOption<F>, CtOption<F>);
+pub type Denom<F> = (CtOption<F>, CtOption<F>);
 
-/// Per-pair output of `line_args`: the sanitized points whose line we compute, plus degeneracy flags.
-struct LineArgs<C: DivisorCurve> {
+pub(crate) type LeafLines<F> = Vec<SmallDivisor<F>>;
+pub(crate) type Merges<F> = Vec<(SmallDivisor<F>, Denom<F>)>;
+/// One divisor's leaf lines and merge nodes.
+pub(crate) type DivisorLines<F> = (LeafLines<F>, Merges<F>);
+
+/// The sanitized points whose line we compute, plus degeneracy flags.
+pub struct LineArgs<C: DivisorCurve> {
     /// Final first point
-    a: Projective<C>,
+    pub(crate) a: Projective<C>,
     /// Final second point, chosen so the pair has distinct x (the batched slope never divides by zero).
-    b: Projective<C>,
+    pub(crate) b: Projective<C>,
     /// Whether the original first or second point were identity
-    a_is_identity: bool,
-    b_is_identity: bool,
+    pub(crate) a_is_identity: bool,
+    pub(crate) b_is_identity: bool,
     /// Both original points were the identity.
-    both_are_identity: Choice,
+    pub(crate) both_are_identity: Choice,
     /// One point was the identity, or the two were additive inverses.
-    one_is_identity_or_additive_inverses: Choice,
-    /// `line_args` changed `b` (a degenerate pair). When set, the original `b` shared `a`'s
+    pub(crate) one_is_identity_or_additive_inverses: Choice,
+    /// Changed `b` (a degenerate pair). When set, the original `b` shared `a`'s
     /// x-coordinate, so `a_x` is the original b's x for the denominator / constant term.
-    modified: bool,
+    pub(crate) modified: bool,
 }
 
 /// Batch-convert projective points to affine (x, y) pairs.
-fn batch_to_xy<C: DivisorCurve>(pts: &[Projective<C>]) -> Vec<(C::BaseField, C::BaseField)> {
+pub fn batch_to_xy<C: DivisorCurve>(pts: &[Projective<C>]) -> Vec<(C::BaseField, C::BaseField)> {
     Projective::<C>::normalize_batch(pts)
         .into_iter()
         .map(|a| (a.x, a.y))
         .collect()
 }
 
-/// Sanitize a pair so the batched slope computation is "well-defined", and record its degeneracy.
-/// "well-defined" means x-coordinates of both points are different
-fn line_args<C: DivisorCurve>(
-    a: Projective<C>,
-    b: Projective<C>,
-    dummy_point: &Projective<C>,
-) -> LineArgs<C> {
-    let a_is_identity = a.is_zero();
-    let b_is_identity = b.is_zero();
+impl<C: DivisorCurve> LineArgs<C> {
+    /// Sanitize a pair so the batched slope computation is "well-defined", and record its degeneracy.
+    /// "well-defined" means x-coordinates of both points are different
+    pub fn new(a: Projective<C>, b: Projective<C>, dummy_point: &Projective<C>) -> LineArgs<C> {
+        let a_is_identity = a.is_zero();
+        let b_is_identity = b.is_zero();
 
-    // TODO: Projective<C> does not implement subtle::ConditionallySelectable or ConstantTimeEq;
-    // ideally these would be Choice values and we'd use conditional_select throughout.
-    let both_are_identity = Choice::from(u8::from(a_is_identity && b_is_identity));
-    let additive_inverses = a == -b;
-    let one_is_identity_or_additive_inverses = Choice::from(u8::from(
-        a_is_identity || b_is_identity || additive_inverses,
-    ));
+        // TODO: Projective<C> does not implement subtle::ConditionallySelectable or ConstantTimeEq;
+        // ideally these would be Choice values and we'd use conditional_select throughout.
+        let both_are_identity = Choice::from(u8::from(a_is_identity && b_is_identity));
+        let additive_inverses = a == -b;
+        let one_is_identity_or_additive_inverses = Choice::from(u8::from(
+            a_is_identity || b_is_identity || additive_inverses,
+        ));
 
-    let orig_b = b;
-    // If identity set to dummy point, if additive inverses, b = 2*a (vertical line).
-    // If a == b, b = -2*a. See `finish_line` for how the slope is used or discarded.
-    let a = if a_is_identity { *dummy_point } else { a };
-    let b = if b_is_identity { *dummy_point } else { b };
-    let b = if additive_inverses { a.double() } else { b }; // // discarded in `finish_line`
-    let b = if a == b { -a.double() } else { b };
+        let orig_b = b;
+        // If identity set to dummy point, if additive inverses, b = 2*a (vertical line).
+        // If a == b, b = -2*a. See `finish_line` for how the slope is used or discarded.
+        let a = if a_is_identity { *dummy_point } else { a };
+        let b = if b_is_identity { *dummy_point } else { b };
+        let b = if additive_inverses { a.double() } else { b }; // // discarded in `finish_line`
+        let b = if a == b { -a.double() } else { b };
 
-    LineArgs {
-        a,
-        b,
-        a_is_identity,
-        b_is_identity,
-        both_are_identity,
-        one_is_identity_or_additive_inverses,
-        modified: b != orig_b,
+        Self {
+            a,
+            b,
+            a_is_identity,
+            b_is_identity,
+            both_are_identity,
+            one_is_identity_or_additive_inverses,
+            modified: b != orig_b,
+        }
     }
 }
 
 /// Computes all (slope, intercept) pairs between points `a[i]` and `b[i]`.
-fn slopes_and_intercepts<C: DivisorCurve>(
-    a: Vec<Xy<C>>,
-    b: Vec<Xy<C>>,
+pub(crate) fn slopes_and_intercepts<C: DivisorCurve>(
+    a: &[Xy<C>],
+    b: &[Xy<C>],
 ) -> Result<Vec<(C::BaseField, C::BaseField)>, Error> {
     debug_assert_eq!(a.len(), b.len());
     // Compute \prod{1/(b_i.x - a_i.x)}
@@ -116,12 +121,12 @@ fn slopes_and_intercepts<C: DivisorCurve>(
     batch_inversion(&mut inv_diffs);
 
     // Compute slope = (b_i.y - a_i.y)/(b_i.x - a_i.x) and intercept = b_i.y - (slope * b_i.x) for each
-    Ok(a.into_iter()
-        .zip(b)
+    Ok(a.iter()
+        .zip(b.iter())
         .zip(inv_diffs)
         .map(|((a, b), inv_diff)| {
-            let (ax, ay) = a;
-            let (bx, by) = b;
+            let (ax, ay) = *a;
+            let (bx, by) = *b;
 
             let slope = (by - ay) * inv_diff;
             let intercept = by - (slope * bx);
@@ -134,7 +139,7 @@ fn slopes_and_intercepts<C: DivisorCurve>(
 
 /// Constructs a `SmallDivisor` representing the line `y - slope * x - intercept`,
 /// handling special cases where points are at infinity or are additive inverses.
-fn finish_line<F: PrimeField>(
+pub(crate) fn finish_line<F: PrimeField>(
     slope: F,
     intercept: F,
     both_are_identity: Choice,
@@ -164,62 +169,53 @@ fn finish_line<F: PrimeField>(
     )
 }
 
-/// Computes all lines required to construct a divisor, batching expensive operations.
+/// All the pairs of points from which lines will be created.
+/// Builds a binary tree where `pairs` will contain leaves, followed by nodes above that leaf level,
+/// followed by nodes of next upper level and so on. If number of nodes at any level is odd, the last node
+/// is processed at next (upper) level.
+/// Each leaf is a pair of points and each parent is the sum of its 2 children.
 ///
+/// Takes 2 consecutive points from `points` and adds them to `pairs`. If length of `points` is odd,
+/// its last point is paired with point at infinity.
+pub(crate) fn build_pairs<C: DivisorCurve>(points: &[Projective<C>]) -> Vec<[Projective<C>; 2]> {
+    let mut pairs = Vec::<[Projective<C>; 2]>::with_capacity(points.len());
+    let mut divs = Vec::<Projective<C>>::with_capacity(points.len().div_ceil(2));
+
+    let mut iter = points.iter().copied();
+    while let Some(a) = iter.next() {
+        let b = iter.next();
+        pairs.push([a, b.unwrap_or_else(Projective::<C>::zero)]);
+        divs.push(match b {
+            Some(b) => a + b,
+            None => a,
+        });
+    }
+
+    while divs.len() > 1 {
+        let mut next_divs = Vec::with_capacity((divs.len() / 2) + 1);
+        if (divs.len() % 2) == 1 {
+            next_divs.push(divs.pop().unwrap());
+        }
+
+        while let Some(a) = divs.pop() {
+            let b = divs.pop().unwrap();
+            pairs.push([a, b]);
+            next_divs.push(a + b);
+        }
+        divs = next_divs;
+    }
+    pairs
+}
+
+/// Computes all lines required to construct a divisor, batching expensive operations.
 /// Returns `(leaf_lines, merge_nodes)`: the `ceil(n/2)` leaf lines (leaves are not divided, so they
 /// carry no denominator) and the merge nodes as `(line, denom)`, where `denom = (x1, x2)` is divided out
 /// as `(x - x1)(x - x2)` during that merge.
-fn lines_and_denoms<C: DivisorCurve>(
+pub(crate) fn lines_and_denoms<C: DivisorCurve>(
     points: &[Projective<C>],
-) -> Result<
-    (
-        Vec<SmallDivisor<C::BaseField>>,
-        Vec<(SmallDivisor<C::BaseField>, Denom<C::BaseField>)>,
-    ),
-    Error,
-> {
+) -> Result<DivisorLines<C::BaseField>, Error> {
     let num_leaves = points.len().div_ceil(2);
-    // All the pairs of points from which lines will be created.
-    // Builds a binary tree where `pairs` will contain leaves, followed by nodes above that leaf level,
-    // followed by nodes of next upper level and so on. If number of nodes at any level is odd, the last node
-    // is processed at next (upper) level
-    // Each leaf is a pair of points and each parent is the sum of its 2 children.
-    let pairs = {
-        let mut pairs = Vec::<[Projective<C>; 2]>::with_capacity(points.len());
-        let mut divs = Vec::<Projective<C>>::with_capacity(points.len().div_ceil(2));
-
-        // Take 2 consecutive points from `points` and add them to `pairs`. If length of `points` is odd,
-        // its last point is paired with point at infinity. `divs` will contain the sums of each pair from `pairs`
-        let mut iter = points.iter().copied();
-        while let Some(a) = iter.next() {
-            let b = iter.next();
-            pairs.push([a, b.unwrap_or_else(Projective::<C>::zero)]);
-            let div = match b {
-                Some(b) => a + b,
-                None => a,
-            };
-            divs.push(div);
-        }
-
-        // `divs` now corresponds to parent level of leaves
-
-        // process `divs` until it contains just the root
-        while divs.len() > 1 {
-            let mut next_divs = Vec::with_capacity((divs.len() / 2) + 1);
-            // If there's an odd number of divisors, carry the odd one out to the next iteration
-            if (divs.len() % 2) == 1 {
-                next_divs.push(divs.pop().unwrap());
-            }
-
-            while let Some(a) = divs.pop() {
-                let b = divs.pop().unwrap();
-                pairs.push([a, b]);
-                next_divs.push(a + b);
-            }
-            divs = next_divs;
-        }
-        pairs
-    };
+    let pairs = build_pairs::<C>(points);
 
     // `g` is a dummy point substituted for points at infinity and gets discarded later.
     let g: Projective<C> = C::GENERATOR.into();
@@ -227,7 +223,7 @@ fn lines_and_denoms<C: DivisorCurve>(
     // Sanitize each pair into the points whose line we compute, plus degeneracy flags.
     let args: Vec<LineArgs<C>> = pairs
         .iter()
-        .map(|[a, b]| line_args::<C>(*a, *b, &g))
+        .map(|[a, b]| LineArgs::new(*a, *b, &g))
         .collect();
     // `a_xy` and `b_xy` are the affine coordinates of the first and second point from `pairs` but
     // taking into account `args`
@@ -243,27 +239,42 @@ fn lines_and_denoms<C: DivisorCurve>(
         (xy, b_xy)
     };
 
-    // The denominator and the vertical-line constant term need the original b's x-coordinate. Whenever
-    // `line_args` changed `b`, the original `b` had same x-coord as `a`
-    let denom_xs: Vec<(C::BaseField, C::BaseField)> = args
-        .iter()
-        .zip(&a_xy)
-        .zip(&b_xy)
-        .map(|((l, &(a_x, _)), &(b_x, _))| (a_x, if l.modified { a_x } else { b_x }))
-        .collect();
+    let slopes_and_intercepts = slopes_and_intercepts::<C>(&a_xy, &b_xy)?;
 
-    let slopes = slopes_and_intercepts::<C>(a_xy, b_xy)?;
+    Ok(leaf_lines_and_denoms::<C>(
+        num_leaves,
+        &args,
+        &a_xy,
+        &b_xy,
+        &slopes_and_intercepts,
+    ))
+}
 
-    // Assemble each line; leaves drop the denominator, merge nodes keep it.
+pub(crate) fn leaf_lines_and_denoms<C: DivisorCurve>(
+    num_leaves: usize,
+    args: &[LineArgs<C>],
+    a_xy: &[Xy<C>],
+    b_xy: &[Xy<C>],
+    slopes_and_intercepts: &[(C::BaseField, C::BaseField)],
+) -> DivisorLines<C::BaseField> {
     let mut leaf_lines = Vec::with_capacity(num_leaves);
     let mut merges = Vec::with_capacity(args.len() - num_leaves);
-    for (i, ((l, (a_x, orig_b_x)), (slope, intercept))) in
-        args.iter().zip(denom_xs).zip(slopes).enumerate()
+    for (i, (((l, a_xy_i), b_xy_i), (slope, intercept))) in args
+        .iter()
+        .zip(a_xy)
+        .zip(b_xy)
+        .zip(slopes_and_intercepts)
+        .enumerate()
     {
+        let a_x = a_xy_i.0;
+        let b_x = b_xy_i.0;
+        // The denominator and the vertical-line constant term need the original b's x-coordinate. Whenever
+        // `LineArgs` changed `b`, the original `b` had same x-coord as `a`
+        let orig_b_x = if l.modified { a_x } else { b_x };
         let constant_term = if l.a_is_identity { orig_b_x } else { a_x };
         let line = finish_line(
-            slope,
-            intercept,
+            *slope,
+            *intercept,
             l.both_are_identity,
             (l.one_is_identity_or_additive_inverses, constant_term),
         );
@@ -278,7 +289,7 @@ fn lines_and_denoms<C: DivisorCurve>(
             merges.push((line, denom));
         }
     }
-    Ok((leaf_lines, merges))
+    (leaf_lines, merges)
 }
 
 /// Create a divisor interpolating the following points.
@@ -336,6 +347,7 @@ pub fn new_divisor<C: DivisorCurve>(
     points: &[Projective<C>],
     interpolator: &Interpolator<C::BaseField>,
 ) -> Result<DivisorPoly<C::BaseField>, Error> {
+    // As per section 3.1.1 of the paper
     // Creates divisor incrementally by first creating line divisors for pairs of consecutive points
     // in `points`. Then "merge" each such divisor pair to form a divisor for those points in a
     // binary tree fashion. Thus each line divisor forms a leaf and corresponds to 2 points. Then line
@@ -403,6 +415,11 @@ pub fn new_divisor<C: DivisorCurve>(
             *x2,
             required_evals as u16,
         ));
+    }
+
+    // Extremely unlikely but just incase
+    if all_denoms.iter().any(|d| d.is_zero()) {
+        return Err(Error::InvertingZero);
     }
     batch_inversion(&mut all_denoms);
 

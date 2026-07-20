@@ -13,7 +13,7 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 /// rather than storing coefficients. This enables efficient pointwise operations.
 #[derive(Debug, Clone, Zeroize, ZeroizeOnDrop)]
 pub struct Evals<F: PrimeField> {
-    evals: Vec<F>,
+    pub(crate) evals: Vec<F>,
     #[zeroize(skip)]
     degree: u16,
 }
@@ -40,6 +40,10 @@ impl<F: PrimeField> Evals<F> {
     pub(crate) fn len(&self) -> usize {
         self.evals.len()
     }
+
+    pub(crate) fn as_slice(&self) -> &[F] {
+        &self.evals
+    }
 }
 
 /// A small divisor representing a line through two points.
@@ -63,6 +67,17 @@ impl<F: PrimeField> SmallDivisor<F> {
             zero_coefficient,
             y_coefficient,
         }
+    }
+
+    /// `(x_coefficient, zero_coefficient, y_coefficient)` = (slope, intercept, a).
+    /// `pub(crate)` accessor so the experimental `narrow` module can build a leaf from a
+    /// line. Remove with the prototype.
+    pub(crate) fn coeffs(&self) -> (F, F, F) {
+        (
+            self.x_coefficient,
+            self.zero_coefficient,
+            self.y_coefficient,
+        )
     }
 }
 
@@ -101,7 +116,7 @@ impl<F: PrimeField> Div<Evals<F>> for DivisorEvals<F> {
 }
 
 impl<F: PrimeField> DivisorEvals<F> {
-    /// Create divisor `A(x) + yB(x)` in the evaluation form given a line divisor
+    /// Create divisor `A(x) - yB(x)` in the evaluation form given a line divisor
     pub(super) fn from_small(small: SmallDivisor<F>, num_evals: u16) -> Self {
         let SmallDivisor {
             mut x_coefficient,
@@ -131,68 +146,30 @@ impl<F: PrimeField> DivisorEvals<F> {
         Self { a, b }
     }
 
-    fn ab(&self, i: usize) -> (F, F) {
-        let a = self.a.evals[i];
-        let b = self.b.evals[i];
-        (a, b)
-    }
-
-    fn ab_mut(&mut self, i: usize) -> (&mut F, &mut F) {
-        let a = &mut self.a.evals[i];
-        let b = &mut self.b.evals[i];
-        (a, b)
-    }
-
     /// The degrees of the A, B polynomials after the multiplication of these divisors.
     fn degree_after_multiplication(&self, other_a_degree: u16, other_b_degree: u16) -> (u16, u16) {
-        // f1 * f2 = A1A2 - y(A1B2 + A2B1) + (x^3 + ax + b) B1B2
-        // A = A1A2 + (x^3 + ax + b) B1B2
-        // B = A1B2 + A2B1
-        // deg(A) = max(A1 + A2, 3 + B1 + B2)
-        // deg(B) = max(A1 + B2, A2 + B1)
         let (a1, b1) = (self.a.degree, self.b.degree);
         let (a2, b2) = (other_a_degree, other_b_degree);
-        let a = (a1 + a2).max(3 + b1 + b2);
-        let b = (a1 + b2).max(a2 + b1);
-        (a, b)
+        deg_after_mul((a1, b1), (a2, b2))
     }
 
     /// Multiply two divisors modulo the curve equation.
-    ///
-    /// Computes `f1 * f2` where `f1 = A1(x) - y.B1(x)` and `f2 = A2(x) - y.B2(x)` and multiplication
-    /// is done modulo `y^2 = x^3 + ax + b`.
-    ///
-    /// The formula used is:
-    /// - `f1 * f2 = A1A2 - y(A1B2 + A2B1) + (x^3 + ax + b) B1B2`
-    /// - `A = A1A2 + (x^3 + ax + b) B1B2`
-    /// - `B = A1B2 + A2B1`
-    ///
-    /// This is computed efficiently in the evaluation domain using pointwise operations.
     fn mul_mod(mut self, rhs: &Self, modulus: &Evals<F>) -> Self {
         debug_assert_eq!(self.a.len(), rhs.a.len());
         debug_assert_eq!(self.b.len(), rhs.b.len());
         debug_assert_eq!(self.a.len(), self.b.len());
 
-        let len = self.a.len();
-
         let degree_after_multiplication =
             self.degree_after_multiplication(rhs.a.degree, rhs.b.degree);
-        // f1 * f2 = A1A2 - y(A1B2 + A2B1) + y^2 B1B2
-        // f1 * f2 = A1A2 - y(A1B2 + A2B1) + (x^3 + ax + b) B1B2
-        // For product poly: A = A1A2 + (x^3 + ax + b) B1B2, B = A1B2 + A2B1
-        for i in 0..len {
-            let modulus = modulus.evals[i];
-            let (a1, b1) = self.ab_mut(i);
-            let (a2, b2) = rhs.ab(i);
-            let a1a2 = *a1 * a2;
-            let b1b2 = *b1 * b2;
-            // (A1+B1)(A2+B2) = A1A2 + A1B2 + B1A2 + B1B2
-            let cross = (*a1 + *b1) * (a2 + b2);
-            let b = cross - (a1a2 + b1b2);
-            let a = a1a2 + (b1b2 * modulus);
-            *a1 = a;
-            *b1 = b;
-        }
+
+        mul_mod_slices(
+            &mut self.a.evals,
+            &mut self.b.evals,
+            &rhs.a.evals,
+            &rhs.b.evals,
+            &modulus.evals,
+        );
+
         self.a.degree = degree_after_multiplication.0;
         self.b.degree = degree_after_multiplication.1;
         self
@@ -202,30 +179,17 @@ impl<F: PrimeField> DivisorEvals<F> {
     fn mul_mod_small(mut self, rhs: SmallDivisor<F>, modulus: &Evals<F>) -> Self {
         debug_assert_eq!(self.a.len(), self.b.len());
 
-        let len = self.a.len();
-
         let degree_after_multiplication = self.degree_after_multiplication(1, 0);
-        // Evals of line divisor poly f = ax - by + c at evaluation domain 0,1,2,..len-1 (fixed in the protocol):
-        // for A(x) = [c, a+c, 2a+c, ... ]
-        // for B(x) = [b, b, b, ....]
-        // A(x) is calculated in the loop as A(i) = A(i-i) + a
 
-        // a2 = A(0)
-        let mut a2 = rhs.zero_coefficient;
-        let b2 = rhs.y_coefficient;
-        for i in 0..len {
-            let modulus = modulus.evals[i];
-            let (a1, b1) = self.ab_mut(i);
-            let a1a2 = *a1 * a2;
-            let b1b2 = *b1 * b2;
-            // (A1+B1)(A2+B2) = A1A2 + A1B2 + B1A2 + B1B2
-            let cross = (*a1 + *b1) * (a2 + b2);
-            let b = cross - (a1a2 + b1b2);
-            let a = a1a2 + b1b2 * modulus;
-            a2 += rhs.x_coefficient;
-            *a1 = a;
-            *b1 = b;
-        }
+        mul_mod_small_slices(
+            &mut self.a.evals,
+            &mut self.b.evals,
+            &modulus.evals,
+            rhs.x_coefficient,
+            rhs.zero_coefficient,
+            rhs.y_coefficient,
+        );
+
         self.a.degree = degree_after_multiplication.0;
         self.b.degree = degree_after_multiplication.1;
         self
@@ -416,5 +380,92 @@ where
             zero_coefficient,
             y_coefficient,
         }
+    }
+}
+
+/// (A, B) degrees of `f1 * f2` reduced mod `y^2 = x^3 + a x + b`.
+pub(crate) fn deg_after_mul((a1, b1): (u16, u16), (a2, b2): (u16, u16)) -> (u16, u16) {
+    // f1 * f2 = A1A2 - y(A1B2 + A2B1) + (x^3 + ax + b) B1B2
+    // A = A1A2 + (x^3 + ax + b) B1B2
+    // B = A1B2 + A2B1
+    // deg(A) = max(A1 + A2, 3 + B1 + B2)
+    // deg(B) = max(A1 + B2, A2 + B1)
+    let a = (a1 + a2).max(3 + b1 + b2);
+    let b = (a1 + b2).max(a2 + b1);
+    (a, b)
+}
+
+/// Multiply two divisors modulo the curve equation, in evaluation domain.
+///
+/// Computes `f1 * f2` where `f1 = A1(x) - y.B1(x)` and `f2 = A2(x) - y.B2(x)` and multiplication
+/// is done modulo `y^2 = x^3 + ax + b`.
+///
+/// The formula used is:
+/// - `f1 * f2 = A1A2 - y(A1B2 + A2B1) + (x^3 + ax + b) B1B2`
+/// - `A = A1A2 + (x^3 + ax + b) B1B2`
+/// - `B = A1B2 + A2B1`
+///
+/// This is computed efficiently in the evaluation domain using pointwise operations.
+pub(crate) fn mul_mod_slices<F: PrimeField>(
+    a1: &mut [F],
+    b1: &mut [F],
+    a2: &[F],
+    b2: &[F],
+    modulus: &[F],
+) {
+    debug_assert_eq!(a1.len(), b1.len());
+    debug_assert_eq!(a1.len(), a2.len());
+    debug_assert_eq!(a1.len(), b2.len());
+    debug_assert_eq!(a1.len(), modulus.len());
+
+    // f1 * f2 = A1A2 - y(A1B2 + A2B1) + y^2 B1B2
+    // f1 * f2 = A1A2 - y(A1B2 + A2B1) + (x^3 + ax + b) B1B2
+    // For product poly: A = A1A2 + (x^3 + ax + b) B1B2, B = A1B2 + A2B1
+    for i in 0..a1.len() {
+        let m = modulus[i];
+        let a2_i = a2[i];
+        let b2_i = b2[i];
+        let a1a2 = a1[i] * a2_i;
+        let b1b2 = b1[i] * b2_i;
+        // (A1+B1)(A2+B2) = A1A2 + A1B2 + B1A2 + B1B2
+        let cross = (a1[i] + b1[i]) * (a2_i + b2_i);
+        let b = cross - (a1a2 + b1b2);
+        let a = a1a2 + (b1b2 * m);
+        a1[i] = a;
+        b1[i] = b;
+    }
+}
+
+/// Multiply any divisor and a line divisor modulo the curve equation, in evaluation domain.
+pub(crate) fn mul_mod_small_slices<F: PrimeField>(
+    a1: &mut [F],
+    b1: &mut [F],
+    modulus: &[F],
+    line_x: F,
+    line_zero: F,
+    line_y: F,
+) {
+    debug_assert_eq!(a1.len(), b1.len());
+    debug_assert_eq!(a1.len(), modulus.len());
+
+    // Evals of line divisor poly f = ax - by + c at evaluation domain 0,1,2,..len-1 (fixed in the protocol):
+    // for A(x) = [c, a+c, 2a+c, ... ]
+    // for B(x) = [b, b, b, ....]
+    // A(x) is calculated in the loop as A(i) = A(i-i) + a
+
+    // a2 = A(0)
+    let mut a2 = line_zero;
+    let b2 = line_y;
+    for i in 0..a1.len() {
+        let m = modulus[i];
+        let a1a2 = a1[i] * a2;
+        let b1b2 = b1[i] * b2;
+        // (A1+B1)(A2+B2) = A1A2 + A1B2 + B1A2 + B1B2
+        let cross = (a1[i] + b1[i]) * (a2 + b2);
+        let b = cross - (a1a2 + b1b2);
+        let a = a1a2 + b1b2 * m;
+        a2 += line_x;
+        a1[i] = a;
+        b1[i] = b;
     }
 }

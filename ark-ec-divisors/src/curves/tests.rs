@@ -372,7 +372,7 @@ fn scalar_mul_divisor_correctness<C: DivisorCurve>() {
 
         let mul_start = Instant::now();
         let (poly, result) = decomposition
-            .scalar_mul_divisor(DirectGenerator::from(generator))
+            .scalar_mul_divisor(DirectGenerator::from(generator.into_affine()))
             .unwrap();
         scalar_mul_times.push(mul_start.elapsed());
 

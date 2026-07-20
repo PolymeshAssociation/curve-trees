@@ -1,23 +1,28 @@
-//! Pedersen commitment to "curve points". Commits to elliptic curve points by committing to their x-coordinate the
-//! same way curve trees do. Then the knowledge of those committed points can be proved along with
+//! Pedersen commitment to "curve points". Commits to elliptic curve points by committing to both their
+//! coordinates. Then the knowledge of those committed points can be proved along with
 //! generating a re-randomized version of each point.
-//! Given points `P_i \in G` as `A = [P_0, P_1, ..., P_n]`. Commit to `A` in a Pedersen commitment of x-coordinate of
-//! each `P_i`, i.e. `P_i.x` in `C = PedCom(P_0.x, P_1.x, ..., P_n.x) = \sum_{G_i*P_i.x}` where `C \in H` where `G, H`
-//! are on 2 curves which form a 2-cycle (base field of one equals scalar field of other).
+//! Given points `P_i \in G` as `A = [P_0, P_1, ..., P_n]`. Commit to `A` in a Pedersen commitment of both
+//! coordinates of each `P_i`, i.e. `C = PedCom(P_0.x, P_0.y, ..., P_n.x, P_n.y) = \sum_i{G_{2i}*P_i.x + G_{2i+1}*P_i.y}`
+//! where `C \in H` where `G, H` are on 2 curves which form a 2-cycle (base field of one equals scalar
+//! field of other).
 //!
 //! 1. Prover randomizes each `P_i` to get `A_r = [{P_r}_0, {P_r}_1, ..., {P_r}_n]` where `A_r[i] = {P_r}_i = P_i + r_i*B` where
 //! `B \in G` and `r_i` is chosen randomly.
 //! 2. Prover proves `\forall i, P_i \in G`, i.e. `P_i.x, P_i.y` are x and y coordinates of a point which lies in group `G`.
 //! 3. Prover proves `\forall i, A_r[i] = A[i] + r_i*B = P_i + r_i*B`
 //!
-//! The implementation adds a public element `delta` to each `P_i` as mentioned in the curve tree paper.
+//! Both coordinates are committed, which pins `P_i`. Curve trees commit only `(P_i + delta).x`, leaving the
+//! y-sign free so the prover can re-randomize `-(P_i + delta)` and output a re-randomization of
+//! `-P_i - 2*delta`. The `delta` shift approach of the curve tree paper does not work for points where
+//! prover does not need to know the opening of points. `P_i` being the identity is rejected as `(0, 0)`
+//! is not on the curve.
 //!
 //! ## Selective Dual Re-Randomization
 //!
 //! The `prove` and `verify` functions support selective dual re-randomization via `shared_dlog_indices: &BTreeSet<usize>`:
 //!
 //! ### For indices in the set
-//! - Produces **two** re-randomized points using same blinding with different generators:
+//! - Produces 2 re-randomized points using same blinding with different generators:
 //!   - Primary: `P_i + B_blinding * r_i`
 //!   - Secondary: `P_i + B * r_i`
 //! - Uses `discrete_log_blinding_and_dlog` (mixed proof with shared scalar)
@@ -36,7 +41,7 @@
 //! // re_randomized.primary: Vec of primary points (always present, one per input)
 //! // re_randomized.secondary: BTreeMap with secondary points only for indices {0, 2}
 //!
-//! verify(..., re_randomized, comms, parameters, &shared_dlog_indices)?;
+//! verify(..., &re_randomized, &comms, parameters, &shared_dlog_indices)?;
 //! ```
 
 use crate::error::Error;
@@ -56,9 +61,9 @@ use ark_ec_divisors::DivisorCurve;
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{
-    cfg_iter,
     collections::{BTreeMap, BTreeSet},
     format,
+    string::ToString,
     vec::Vec,
 };
 use bulletproofs::r1cs::{ConstraintSystem, Prover, Variable, Verifier};
@@ -67,9 +72,6 @@ use dock_crypto_utils::msm::multiply_field_elems_with_same_group_elem;
 use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
 use rand_core::CryptoRngCore;
 use zeroize::Zeroize;
-
-#[cfg(feature = "parallel")]
-use rayon::prelude::*;
 
 #[derive(Clone, Debug, CanonicalSerialize, CanonicalDeserialize)]
 pub struct ReRandomizedPoints<P: SWCurveConfig> {
@@ -103,13 +105,13 @@ pub fn prove<
 >(
     rng: &mut R,
     prover: &mut Prover<MerlinTranscript, Affine<P0>>,
-    points: Vec<Affine<P1>>,
+    points: &[Affine<P1>],
     re_randomized_comm: &Affine<P0>,
     blinding_of_comm: P0::ScalarField,
-    blindings_for_points: Vec<P1::ScalarField>,
+    blindings_for_points: &[P1::ScalarField],
     parameters: &SingleLayerProofParametersNew<P1, Parameters>,
     bp_gens: &BulletproofGens<Affine<P0>>,
-    shared_dlog_indices: BTreeSet<usize>,
+    shared_dlog_indices: &BTreeSet<usize>,
     a_l_estimate: Option<u16>,
 ) -> Result<(ReRandomizedPoints<P1>, Vec<DivisorComms<Affine<P0>>>), Error> {
     let size = points.len();
@@ -121,29 +123,24 @@ pub fn prove<
         |a| a as usize,
     ));
 
-    // This could be stored once and reused.
-    let points_plus_delta = cfg_iter!(points)
-        .map(|n| *n + parameters.sl_params.delta)
-        .collect::<Vec<_>>();
-    let points_plus_delta = Projective::normalize_batch(&points_plus_delta);
-    // [..(points{i] + delta).x]
-    let x_coords = points_plus_delta.iter().map(|n| n.x).collect::<Vec<_>>();
+    // [points[0].x, points[0].y, ..., points[n].x, points[n].y]
+    let mut coords = Vec::with_capacity(2 * size);
+    for p in points {
+        let (x, y) = p.xy().ok_or_else(|| Error::PointCantBeZero)?;
+        coords.push(x);
+        coords.push(y);
+    }
 
     let blinding_base = parameters.sl_params.pc_gens.B_blinding.into_group();
     let mut blinders_b_blinding =
-        multiply_field_elems_with_same_group_elem(blinding_base, &blindings_for_points);
+        multiply_field_elems_with_same_group_elem(blinding_base, blindings_for_points);
 
     // `points[i] + B_blinding * blindings[i]`
     let mut re_randomized_points = Vec::with_capacity(size);
-    // `points[i] + delta + B_blinding * blindings[i]`
-    let mut re_randomized_points_plus_delta = Vec::with_capacity(size);
     for i in 0..size {
         re_randomized_points.push(points[i] + blinders_b_blinding[i]);
-        re_randomized_points_plus_delta.push(re_randomized_points[i] + parameters.sl_params.delta);
     }
     let re_randomized_points = Projective::normalize_batch(&re_randomized_points);
-    let re_randomized_points_plus_delta =
-        Projective::normalize_batch(&re_randomized_points_plus_delta);
 
     Zeroize::zeroize(&mut blinders_b_blinding);
 
@@ -152,7 +149,7 @@ pub fn prove<
     // `i` -> `B * blindings[i]` for `i` in `shared_dlog_indices`
     let mut blinding_points = BTreeMap::new();
 
-    for idx in shared_dlog_indices.clone() {
+    for &idx in shared_dlog_indices {
         blinding_points.insert(idx, (other_base * blindings_for_points[idx]).into_affine());
     }
 
@@ -161,11 +158,11 @@ pub fn prove<
         blindings_with_different_gen: blinding_points,
     };
 
-    let x_coord_vars = prover_commit(
+    let coord_vars = prover_commit(
         prover,
         re_randomized_comm,
         blinding_of_comm,
-        &x_coords,
+        &coords,
         &re_randomized_points,
     );
 
@@ -214,10 +211,10 @@ pub fn prove<
 
     // Enforce constraints
     for i in 0..size {
-        let x_var = x_coord_vars[i];
-        let y_var = prover.allocate(Some(points_plus_delta[i].y))?;
+        let x_var = coord_vars[2 * i];
+        let y_var = coord_vars[2 * i + 1];
 
-        let (re_rand_x_var, re_rand_y_var) = re_randomized_points_plus_delta[i]
+        let (re_rand_x_var, re_rand_y_var) = re_randomized_points.re_randomized_points[i]
             .xy()
             .ok_or_else(|| Error::PointCantBeZero)?;
 
@@ -264,10 +261,10 @@ pub fn verify<
 >(
     verifier: &mut Verifier<MerlinTranscript, Affine<P0>>,
     re_randomized_comm: Affine<P0>,
-    re_randomized_points: ReRandomizedPoints<P1>,
-    comms: Vec<DivisorComms<Affine<P0>>>,
+    re_randomized_points: &ReRandomizedPoints<P1>,
+    comms: &[DivisorComms<Affine<P0>>],
     parameters: &SingleLayerProofParametersNew<P1, Parameters>,
-    shared_dlog_indices: BTreeSet<usize>,
+    shared_dlog_indices: &BTreeSet<usize>,
     a_l_estimate: Option<u16>,
 ) -> Result<(), Error> {
     let size = re_randomized_points.len();
@@ -275,25 +272,35 @@ pub fn verify<
     if comms.len() != size {
         return Err(Error::MismatchedSize(comms.len(), size));
     }
+
+    // Defense in depth: Dont allow extra keys in re_randomized_points.blindings_with_different_gen as
+    // verifier might (which it should since its prover controlled) use keys of re_randomized_points.blindings_with_different_gen
+    // for other than verification
+    if re_randomized_points.blindings_with_different_gen.len() != shared_dlog_indices.len()
+        || !shared_dlog_indices.iter().all(|i| {
+            re_randomized_points
+                .blindings_with_different_gen
+                .contains_key(i)
+                && *i < size
+        })
+    {
+        return Err(Error::MalformedProofInput(
+            "blindings_with_different_gen keys must equal the keys of shared_dlog_indices"
+                .to_string(),
+        ));
+    }
+
     let chunk_len = estimate_divisor_chunk_len::<Parameters>(a_l_estimate.map_or_else(
         || ped_comm_estimated_mult_gates(size, shared_dlog_indices.len()),
         |a| a as usize,
     ));
 
-    // Add delta to all re-randomized points
-    let re_randomized_plus_delta: Vec<_> = re_randomized_points
-        .re_randomized_points
-        .iter()
-        .map(|p| *p + parameters.sl_params.delta)
-        .collect();
-    let re_randomized_plus_delta = Projective::normalize_batch(&re_randomized_plus_delta);
-
-    // Commit to all x-coordinates of the original points
-    let x_coord_vars = verifier.commit_vec(size, re_randomized_comm);
+    // Commit to both coordinates of the original points
+    let coord_vars = verifier.commit_vec(2 * size, re_randomized_comm);
 
     verifier
         .transcript()
-        .append(RE_RANDOMIZED_POINTS, &re_randomized_points);
+        .append(RE_RANDOMIZED_POINTS, re_randomized_points);
 
     let cs = CurveSpec {
         a: P1::COEFF_A,
@@ -325,10 +332,10 @@ pub fn verify<
 
     // Enforce constraints
     for i in 0..size {
-        let x_var = x_coord_vars[i];
-        let y_var = verifier.allocate(None)?;
+        let x_var = coord_vars[2 * i];
+        let y_var = coord_vars[2 * i + 1];
 
-        let (re_rand_x_var, re_rand_y_var) = re_randomized_plus_delta[i]
+        let (re_rand_x_var, re_rand_y_var) = re_randomized_points.re_randomized_points[i]
             .xy()
             .ok_or_else(|| Error::PointCantBeZero)?;
 
@@ -383,17 +390,16 @@ fn prover_commit<
     prover: &mut Prover<MerlinTranscript, Affine<P0>>,
     re_randomized_comm: &Affine<P0>,
     blinding_of_comm: P0::ScalarField,
-    x_coords: &[Fs],
+    coords: &[Fs],
     re_randomized_points: &ReRandomizedPoints<P1>,
 ) -> Vec<Variable<Fs>> {
-    // Allocate commitment to all x-coordinates
-    let x_coord_vars =
-        prover.vars_for_committed_vec(re_randomized_comm, x_coords, blinding_of_comm);
+    // Allocate commitment to both coordinates of all points
+    let coord_vars = prover.vars_for_committed_vec(re_randomized_comm, coords, blinding_of_comm);
 
     prover
         .transcript()
         .append(RE_RANDOMIZED_POINTS, re_randomized_points);
-    x_coord_vars
+    coord_vars
 }
 
 #[cfg(test)]
@@ -411,7 +417,7 @@ mod tests {
     use std::collections::BTreeSet;
 
     #[test]
-    fn point_at_infinity_fails() {
+    fn negative_cases() {
         let mut rng = rand::thread_rng();
 
         let sr_params = SelRerandParameters::<PallasConfig, VestaConfig>::new(1 << 13, 1 << 13)
@@ -426,14 +432,17 @@ mod tests {
         let nested: Vec<Affine<VestaConfig>> = (0..nesting_size)
             .map(|_| Affine::<VestaConfig>::rand(&mut rng))
             .collect();
-        let x_coords: Vec<VestaBase> = nested
+        let coords: Vec<VestaBase> = nested
             .iter()
-            .map(|n| (*n + odd_proof_params.sl_params.delta).into_affine().x)
+            .flat_map(|n| {
+                let (x, y) = n.xy().unwrap();
+                [x, y]
+            })
             .collect();
         let re_randomized_comm =
             sr_params
                 .even_parameters
-                .commit(x_coords.as_slice(), VestaBase::zero(), 0);
+                .commit(coords.as_slice(), VestaBase::zero(), 0);
         let blinding_of_comm = VestaBase::rand(&mut rng);
         let blindings_for_points: Vec<PallasBase> = (0..nesting_size)
             .map(|_| PallasBase::rand(&mut rng))
@@ -448,19 +457,44 @@ mod tests {
             prove::<_, _, _, PallasConfig, VestaConfig, VestaParams>(
                 &mut rng,
                 &mut pallas_prover,
-                nested.clone(),
+                &nested,
                 &re_randomized_comm,
                 blinding_of_comm,
-                blindings_for_points.clone(),
+                &blindings_for_points,
                 &odd_proof_params,
                 &sr_params.even_parameters.bp_gens,
-                shared_dlog_indices.clone(),
+                &shared_dlog_indices,
                 None,
             )
             .expect("Failed to prove");
 
-        let delta = odd_proof_params.sl_params.delta;
-        re_randomized_nested.re_randomized_points[0] = (-delta.into_group()).into_affine();
+        // unexpected extra key in blindings_with_different_gen fails verification
+        {
+            let mut rr = re_randomized_nested.clone();
+            rr.blindings_with_different_gen
+                .insert(1, Affine::<VestaConfig>::rand(&mut rng));
+
+            let transcript = MerlinTranscript::new(b"ped_comm_group_elems_test");
+            let mut pallas_verifier: Verifier<_, Affine<PallasConfig>> = Verifier::new(transcript);
+
+            let result = verify::<_, _, PallasConfig, VestaConfig, VestaParams>(
+                &mut pallas_verifier,
+                re_randomized_comm,
+                &rr,
+                &comms,
+                &odd_proof_params,
+                &shared_dlog_indices,
+                None,
+            );
+
+            assert!(
+                matches!(result, Err(Error::MalformedProofInput(_))),
+                "expected MalformedProofInput for extra key, got: {result:?}",
+            );
+        }
+
+        // point at infinity fails verification
+        re_randomized_nested.re_randomized_points[0] = Affine::<VestaConfig>::identity();
 
         let transcript = MerlinTranscript::new(b"ped_comm_group_elems_test");
         let mut pallas_verifier: Verifier<_, Affine<PallasConfig>> = Verifier::new(transcript);
@@ -468,16 +502,115 @@ mod tests {
         let result = verify::<_, _, PallasConfig, VestaConfig, VestaParams>(
             &mut pallas_verifier,
             re_randomized_comm,
-            re_randomized_nested,
-            comms,
+            &re_randomized_nested,
+            &comms,
             &odd_proof_params,
-            shared_dlog_indices.clone(),
+            &shared_dlog_indices,
             None,
         );
 
         assert!(
             matches!(result, Err(Error::PointCantBeZero)),
             "expected PointCantBeZero, got: {result:?}",
+        );
+    }
+
+    #[test]
+    fn negative_point_is_rejected() {
+        // Using -P instead of P (since same x-coordinate) should get rejected.
+        let mut rng = rand::thread_rng();
+
+        let sr_params = SelRerandParameters::<PallasConfig, VestaConfig>::new(1 << 13, 1 << 13)
+            .expect("Failed to create SelRerandParameters");
+
+        let odd_proof_params =
+            SingleLayerProofParametersNew::<VestaConfig, VestaParams>::from_single_layer_params(
+                sr_params.odd_parameters.clone(),
+            );
+
+        let nesting_size = 2;
+        let nested: Vec<Affine<VestaConfig>> = (0..nesting_size)
+            .map(|_| Affine::<VestaConfig>::rand(&mut rng))
+            .collect();
+        let coords_of = |points: &[Affine<VestaConfig>]| -> Vec<VestaBase> {
+            points
+                .iter()
+                .flat_map(|n| {
+                    let (x, y) = n.xy().unwrap();
+                    [x, y]
+                })
+                .collect()
+        };
+        let blinding_of_comm = VestaBase::rand(&mut rng);
+        let re_randomized_comm =
+            sr_params
+                .even_parameters
+                .commit(coords_of(&nested).as_slice(), blinding_of_comm, 0);
+
+        let reflected: Vec<Affine<VestaConfig>> = nested.iter().map(|n| -*n).collect();
+        for i in 0..nesting_size {
+            assert_eq!(reflected[i].x, nested[i].x);
+        }
+        assert_ne!(
+            sr_params.even_parameters.commit(
+                coords_of(&reflected).as_slice(),
+                VestaBase::zero(),
+                0
+            ),
+            re_randomized_comm,
+        );
+
+        let blindings_for_points: Vec<PallasBase> = (0..nesting_size)
+            .map(|_| PallasBase::rand(&mut rng))
+            .collect();
+        let shared_dlog_indices: BTreeSet<usize> = [0].into_iter().collect();
+
+        let transcript = MerlinTranscript::new(b"ped_comm_group_elems_test");
+        let mut pallas_prover: Prover<_, Affine<PallasConfig>> =
+            Prover::new(&sr_params.even_parameters.pc_gens, transcript);
+
+        // Prove for the reflected points against the commitment to the original ones
+        let (re_randomized_nested, comms) =
+            prove::<_, _, _, PallasConfig, VestaConfig, VestaParams>(
+                &mut rng,
+                &mut pallas_prover,
+                &reflected,
+                &re_randomized_comm,
+                blinding_of_comm,
+                &blindings_for_points,
+                &odd_proof_params,
+                &sr_params.even_parameters.bp_gens,
+                &shared_dlog_indices,
+                None,
+            )
+            .unwrap();
+
+        let proof = pallas_prover
+            .prove_with_rng(&sr_params.even_parameters.bp_gens, &mut rng)
+            .unwrap();
+
+        let transcript = MerlinTranscript::new(b"ped_comm_group_elems_test");
+        let mut pallas_verifier: Verifier<_, Affine<PallasConfig>> = Verifier::new(transcript);
+
+        verify::<_, _, PallasConfig, VestaConfig, VestaParams>(
+            &mut pallas_verifier,
+            re_randomized_comm,
+            &re_randomized_nested,
+            &comms,
+            &odd_proof_params,
+            &shared_dlog_indices,
+            None,
+        )
+        .unwrap();
+
+        let result = pallas_verifier.verify(
+            &proof,
+            &sr_params.even_parameters.pc_gens,
+            &sr_params.even_parameters.bp_gens,
+        );
+        assert!(
+            result.is_err(),
+            "expected verify to reject the reflected point, got: {result:?}",
         );
     }
 
@@ -549,14 +682,17 @@ mod tests {
             let nested: Vec<Affine<VestaConfig>> = (0..2)
                 .map(|_| Affine::<VestaConfig>::rand(&mut rng))
                 .collect();
-            let x_coords: Vec<VestaBase> = nested
+            let coords: Vec<VestaBase> = nested
                 .iter()
-                .map(|n| (*n + odd_proof_params.sl_params.delta).into_affine().x)
+                .flat_map(|n| {
+                    let (x, y) = n.xy().unwrap();
+                    [x, y]
+                })
                 .collect();
             let re_randomized_comm =
                 sr_params
                     .even_parameters
-                    .commit(x_coords.as_slice(), VestaBase::zero(), 0);
+                    .commit(coords.as_slice(), VestaBase::zero(), 0);
             let blinding_of_comm = VestaBase::rand(&mut rng);
             let blindings_for_points: Vec<PallasBase> =
                 (0..2).map(|_| PallasBase::rand(&mut rng)).collect();
@@ -565,15 +701,17 @@ mod tests {
             let malicious_nested: Vec<Affine<VestaConfig>> = (0..2)
                 .map(|_| Affine::<VestaConfig>::rand(&mut rng))
                 .collect();
-            let malicious_x_coords: Vec<VestaBase> = malicious_nested
+            let malicious_coords: Vec<VestaBase> = malicious_nested
                 .iter()
-                .map(|n| (*n + odd_proof_params.sl_params.delta).into_affine().x)
+                .flat_map(|n| {
+                    let (x, y) = n.xy().unwrap();
+                    [x, y]
+                })
                 .collect();
-            let malicious_re_rand_comm = sr_params.even_parameters.commit(
-                malicious_x_coords.as_slice(),
-                VestaBase::zero(),
-                0,
-            );
+            let malicious_re_rand_comm =
+                sr_params
+                    .even_parameters
+                    .commit(malicious_coords.as_slice(), VestaBase::zero(), 0);
             let malicious_blinding_of_comm = VestaBase::rand(&mut rng);
             let malicious_blindings: Vec<PallasBase> =
                 (0..2).map(|_| PallasBase::rand(&mut rng)).collect();
@@ -591,13 +729,13 @@ mod tests {
             prover_commit::<PallasBase, VestaBase, PallasConfig, VestaConfig>.mock_safe({
                 let mal_rr = malicious_rr.clone();
                 let mal_comm = malicious_re_rand_comm;
-                let mal_x_coords = malicious_x_coords.clone();
+                let mal_coords = malicious_coords.clone();
                 let mal_blinding = malicious_blinding_of_comm;
-                move |prover, _comm, _blinding, _x_coords, _re_rand| {
-                    let x_vars =
-                        prover.vars_for_committed_vec(&mal_comm, &mal_x_coords, mal_blinding);
+                move |prover, _comm, _blinding, _coords, _re_rand| {
+                    let coord_vars =
+                        prover.vars_for_committed_vec(&mal_comm, &mal_coords, mal_blinding);
                     prover.transcript().append(RE_RANDOMIZED_POINTS, &mal_rr);
-                    MockResult::Return(x_vars)
+                    MockResult::Return(coord_vars)
                 }
             });
 
@@ -609,13 +747,13 @@ mod tests {
                 prove::<_, _, _, PallasConfig, VestaConfig, VestaParams>(
                     &mut rng,
                     &mut pallas_prover,
-                    nested.clone(),
+                    &nested,
                     &re_randomized_comm,
                     blinding_of_comm,
-                    blindings_for_points.clone(),
+                    &blindings_for_points,
                     &odd_proof_params,
                     &sr_params.even_parameters.bp_gens,
-                    shared_dlog_indices.clone(),
+                    &shared_dlog_indices,
                     None,
                 )
                 .expect("Failed to prove");
@@ -633,10 +771,10 @@ mod tests {
             verify::<_, _, PallasConfig, VestaConfig, VestaParams>(
                 &mut pallas_verifier,
                 malicious_re_rand_comm,
-                malicious_rr,
-                comms,
+                &malicious_rr,
+                &comms,
                 &odd_proof_params,
-                shared_dlog_indices.clone(),
+                &shared_dlog_indices,
                 None,
             )
             .unwrap();
@@ -671,14 +809,17 @@ mod tests {
             let nested: Vec<Affine<VestaConfig>> = (0..2)
                 .map(|_| Affine::<VestaConfig>::rand(&mut rng))
                 .collect();
-            let x_coords: Vec<VestaBase> = nested
+            let coords: Vec<VestaBase> = nested
                 .iter()
-                .map(|n| (*n + odd_proof_params.sl_params.delta).into_affine().x)
+                .flat_map(|n| {
+                    let (x, y) = n.xy().unwrap();
+                    [x, y]
+                })
                 .collect();
             let re_randomized_comm =
                 sr_params
                     .even_parameters
-                    .commit(x_coords.as_slice(), VestaBase::zero(), 0);
+                    .commit(coords.as_slice(), VestaBase::zero(), 0);
             let blinding_of_comm = VestaBase::rand(&mut rng);
             let blindings_for_points: Vec<PallasBase> =
                 (0..2).map(|_| PallasBase::rand(&mut rng)).collect();
@@ -687,15 +828,17 @@ mod tests {
             let malicious_nested: Vec<Affine<VestaConfig>> = (0..2)
                 .map(|_| Affine::<VestaConfig>::rand(&mut rng))
                 .collect();
-            let malicious_x_coords: Vec<VestaBase> = malicious_nested
+            let malicious_coords: Vec<VestaBase> = malicious_nested
                 .iter()
-                .map(|n| (*n + odd_proof_params.sl_params.delta).into_affine().x)
+                .flat_map(|n| {
+                    let (x, y) = n.xy().unwrap();
+                    [x, y]
+                })
                 .collect();
-            let malicious_re_rand_comm = sr_params.even_parameters.commit(
-                malicious_x_coords.as_slice(),
-                VestaBase::zero(),
-                0,
-            );
+            let malicious_re_rand_comm =
+                sr_params
+                    .even_parameters
+                    .commit(malicious_coords.as_slice(), VestaBase::zero(), 0);
             let malicious_blinding_of_comm = VestaBase::rand(&mut rng);
             let malicious_blindings: Vec<PallasBase> =
                 (0..2).map(|_| PallasBase::rand(&mut rng)).collect();
@@ -709,13 +852,13 @@ mod tests {
             prover_commit::<PallasBase, VestaBase, PallasConfig, VestaConfig>.mock_safe({
                 let mal_rr = malicious_rr.clone();
                 let mal_comm = malicious_re_rand_comm;
-                let mal_x_coords = malicious_x_coords.clone();
+                let mal_coords = malicious_coords.clone();
                 let mal_blinding = malicious_blinding_of_comm;
-                move |prover, _comm, _blinding, _x_coords, _re_rand| {
-                    let x_vars =
-                        prover.vars_for_committed_vec(&mal_comm, &mal_x_coords, mal_blinding);
+                move |prover, _comm, _blinding, _coords, _re_rand| {
+                    let coord_vars =
+                        prover.vars_for_committed_vec(&mal_comm, &mal_coords, mal_blinding);
                     prover.transcript().append(RE_RANDOMIZED_POINTS, &mal_rr);
-                    MockResult::Return(x_vars)
+                    MockResult::Return(coord_vars)
                 }
             });
 
@@ -727,13 +870,13 @@ mod tests {
                 prove::<_, _, _, PallasConfig, VestaConfig, VestaParams>(
                     &mut rng,
                     &mut pallas_prover,
-                    nested.clone(),
+                    &nested,
                     &re_randomized_comm,
                     blinding_of_comm,
-                    blindings_for_points.clone(),
+                    &blindings_for_points,
                     &odd_proof_params,
                     &sr_params.even_parameters.bp_gens,
-                    shared_dlog_indices.clone(),
+                    &shared_dlog_indices,
                     None,
                 )
                 .expect("Failed to prove");
@@ -748,10 +891,10 @@ mod tests {
             verify::<_, _, PallasConfig, VestaConfig, VestaParams>(
                 &mut pallas_verifier,
                 malicious_re_rand_comm,
-                malicious_rr,
-                comms,
+                &malicious_rr,
+                &comms,
                 &odd_proof_params,
-                shared_dlog_indices.clone(),
+                &shared_dlog_indices,
                 None,
             )
             .unwrap();
@@ -786,14 +929,17 @@ mod tests {
             let nested: Vec<Affine<VestaConfig>> = (0..2)
                 .map(|_| Affine::<VestaConfig>::rand(&mut rng))
                 .collect();
-            let x_coords: Vec<VestaBase> = nested
+            let coords: Vec<VestaBase> = nested
                 .iter()
-                .map(|n| (*n + odd_proof_params.sl_params.delta).into_affine().x)
+                .flat_map(|n| {
+                    let (x, y) = n.xy().unwrap();
+                    [x, y]
+                })
                 .collect();
             let re_randomized_comm =
                 sr_params
                     .even_parameters
-                    .commit(x_coords.as_slice(), VestaBase::zero(), 0);
+                    .commit(coords.as_slice(), VestaBase::zero(), 0);
             let blinding_of_comm = VestaBase::rand(&mut rng);
             let blindings_for_points: Vec<PallasBase> =
                 (0..2).map(|_| PallasBase::rand(&mut rng)).collect();
@@ -802,15 +948,17 @@ mod tests {
             let malicious_nested: Vec<Affine<VestaConfig>> = (0..2)
                 .map(|_| Affine::<VestaConfig>::rand(&mut rng))
                 .collect();
-            let malicious_x_coords: Vec<VestaBase> = malicious_nested
+            let malicious_coords: Vec<VestaBase> = malicious_nested
                 .iter()
-                .map(|n| (*n + odd_proof_params.sl_params.delta).into_affine().x)
+                .flat_map(|n| {
+                    let (x, y) = n.xy().unwrap();
+                    [x, y]
+                })
                 .collect();
-            let malicious_re_rand_comm = sr_params.even_parameters.commit(
-                malicious_x_coords.as_slice(),
-                VestaBase::zero(),
-                0,
-            );
+            let malicious_re_rand_comm =
+                sr_params
+                    .even_parameters
+                    .commit(malicious_coords.as_slice(), VestaBase::zero(), 0);
             let malicious_blinding_of_comm = VestaBase::rand(&mut rng);
             let malicious_blindings: Vec<PallasBase> =
                 (0..2).map(|_| PallasBase::rand(&mut rng)).collect();
@@ -824,13 +972,13 @@ mod tests {
             prover_commit::<PallasBase, VestaBase, PallasConfig, VestaConfig>.mock_safe({
                 let mal_rr = malicious_rr.clone();
                 let mal_comm = malicious_re_rand_comm;
-                let mal_x_coords = malicious_x_coords.clone();
+                let mal_coords = malicious_coords.clone();
                 let mal_blinding = malicious_blinding_of_comm;
-                move |prover, _comm, _blinding, _x_coords, _re_rand| {
-                    let x_vars =
-                        prover.vars_for_committed_vec(&mal_comm, &mal_x_coords, mal_blinding);
+                move |prover, _comm, _blinding, _coords, _re_rand| {
+                    let coord_vars =
+                        prover.vars_for_committed_vec(&mal_comm, &mal_coords, mal_blinding);
                     prover.transcript().append(RE_RANDOMIZED_POINTS, &mal_rr);
-                    MockResult::Return(x_vars)
+                    MockResult::Return(coord_vars)
                 }
             });
 
@@ -842,13 +990,13 @@ mod tests {
                 prove::<_, _, _, PallasConfig, VestaConfig, VestaParams>(
                     &mut rng,
                     &mut pallas_prover,
-                    nested.clone(),
+                    &nested,
                     &re_randomized_comm,
                     blinding_of_comm,
-                    blindings_for_points.clone(),
+                    &blindings_for_points,
                     &odd_proof_params,
                     &sr_params.even_parameters.bp_gens,
-                    shared_dlog_indices.clone(),
+                    &shared_dlog_indices,
                     None,
                 )
                 .expect("Failed to prove");
@@ -863,10 +1011,10 @@ mod tests {
             verify::<_, _, PallasConfig, VestaConfig, VestaParams>(
                 &mut pallas_verifier,
                 malicious_re_rand_comm,
-                malicious_rr,
-                comms,
+                &malicious_rr,
+                &comms,
                 &odd_proof_params,
-                shared_dlog_indices.clone(),
+                &shared_dlog_indices,
                 None,
             )
             .unwrap();

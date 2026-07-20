@@ -1,6 +1,6 @@
 use ark_ec::short_weierstrass::{Affine, Projective, SWCurveConfig};
-use ark_ec::CurveGroup;
-use ark_ff::{AdditiveGroup, PrimeField};
+use ark_ec::{AdditiveGroup, AffineRepr, CurveGroup};
+use ark_ff::PrimeField;
 use ark_serialize::{
     CanonicalDeserialize, CanonicalSerialize, Compress, Read, SerializationError, Valid, Validate,
     Write,
@@ -12,7 +12,7 @@ use generic_array::{ArrayLength, GenericArray};
 
 /// Trait for providing generator multiples (powers of 2).
 pub trait GeneratorMultiplesSource<C: SWCurveConfig> {
-    type Iter: Iterator<Item = Projective<C>>;
+    type Iter: Iterator<Item = Affine<C>>;
 
     /// Get an iterator over generator multiples: G, 2G, 4G, 8G, ...
     fn iter(&self) -> Self::Iter;
@@ -24,22 +24,22 @@ pub struct DoublingIterator<C: SWCurveConfig> {
 }
 
 impl<C: SWCurveConfig> Iterator for DoublingIterator<C> {
-    type Item = Projective<C>;
+    type Item = Affine<C>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let result = self.current;
         self.current = self.current.double();
-        Some(result)
+        Some(result.into_affine())
     }
 }
 
 /// Implementation for direct computation from a generator point.
 pub struct DirectGenerator<C: SWCurveConfig> {
-    generator: Projective<C>,
+    generator: Affine<C>,
 }
 
 impl<C: SWCurveConfig> DirectGenerator<C> {
-    pub fn new(generator: Projective<C>) -> Self {
+    pub fn new(generator: Affine<C>) -> Self {
         Self { generator }
     }
 }
@@ -49,7 +49,7 @@ impl<C: SWCurveConfig> GeneratorMultiplesSource<C> for DirectGenerator<C> {
 
     fn iter(&self) -> Self::Iter {
         DoublingIterator {
-            current: self.generator,
+            current: self.generator.into_group(),
         }
     }
 }
@@ -80,7 +80,7 @@ pub struct GeneratorTableIter<'a, F: PrimeField, Parameters: DiscreteLogParamete
 impl<'a, F: PrimeField, Parameters: DiscreteLogParameter, C: SWCurveConfig<BaseField = F>> Iterator
     for GeneratorTableIter<'a, F, Parameters, C>
 {
-    type Item = Projective<C>;
+    type Item = Affine<C>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.index >= self.table.0.len() {
@@ -93,12 +93,12 @@ impl<'a, F: PrimeField, Parameters: DiscreteLogParameter, C: SWCurveConfig<BaseF
             point.is_on_curve(),
             "GeneratorTable entry is not on the curve"
         );
-        Some(point.into())
+        Some(point)
     }
 }
 
-impl<C: SWCurveConfig> From<Projective<C>> for DirectGenerator<C> {
-    fn from(generator: Projective<C>) -> Self {
+impl<C: SWCurveConfig> From<Affine<C>> for DirectGenerator<C> {
+    fn from(generator: Affine<C>) -> Self {
         DirectGenerator::new(generator)
     }
 }

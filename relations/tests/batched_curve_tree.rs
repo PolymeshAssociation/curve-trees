@@ -1564,3 +1564,72 @@ pub fn check_optimized_multi_paths_divisor<
         }
     }
 }
+
+#[test]
+fn malformed_multi_path_empty_odd_commitments_rejected() {
+    const L: usize = 8;
+    const M: usize = 4;
+    let depth = 3usize;
+    let generators_length = 1u32 << 12;
+    let num_leaves = 5usize;
+
+    let mut rng = thread_rng();
+
+    let sr_params =
+        SelRerandParameters::<PallasConfig, VestaConfig>::new(generators_length, generators_length)
+            .expect("Failed to create SelRerandParameters");
+    let sr_proof_params = SelRerandProofParametersNew::<
+        PallasConfig,
+        VestaConfig,
+        PallasParams,
+        VestaParams,
+    >::from_sr_params(sr_params.clone());
+
+    let mut set = Vec::with_capacity(num_leaves);
+    let mut leaf_indices = Vec::with_capacity(num_leaves);
+    for i in 0..num_leaves {
+        set.push(Affine::<PallasConfig>::rand(&mut rng));
+        leaf_indices.push(i as u32);
+    }
+
+    let curve_tree =
+        CurveTree::<L, M, PallasConfig, VestaConfig>::from_leaves(&set, &sr_params, Some(depth));
+    let root = curve_tree.root_node();
+    let optimized_multi_paths = curve_tree.get_optmz_paths_to_leaves(&leaf_indices).unwrap();
+
+    let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
+    let mut pallas_prover: Prover<_, Affine<PallasConfig>> =
+        Prover::new(&sr_params.even_parameters.pc_gens, pallas_transcript);
+    let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
+    let mut vesta_prover: Prover<_, Affine<VestaConfig>> =
+        Prover::new(&sr_params.odd_parameters.pc_gens, vesta_transcript);
+
+    let (mut path_commitments_list, _) = optimized_multi_paths
+        .batched_select_and_rerandomize_prover_gadget_new::<_, PallasParams, VestaParams>(
+            &mut pallas_prover,
+            &mut vesta_prover,
+            &sr_proof_params,
+            &mut rng,
+            None,
+        )
+        .expect("Failed to prove");
+
+    path_commitments_list[0].path.odd_commitments.clear();
+
+    let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
+    let mut pallas_verifier: Verifier<_, Affine<PallasConfig>> = Verifier::new(pallas_transcript);
+    let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
+    let mut vesta_verifier: Verifier<_, Affine<VestaConfig>> = Verifier::new(vesta_transcript);
+
+    let res = SelectAndRerandomizeMultiPathWithDivisorComms::batched_select_and_rerandomize_verifier_gadget_multi::<
+        PallasParams,
+        VestaParams,
+    >(
+        &path_commitments_list,
+        &root,
+        &mut pallas_verifier,
+        &mut vesta_verifier,
+        &sr_proof_params,
+    );
+    assert!(res.is_err());
+}

@@ -623,7 +623,13 @@ impl<
                 even_node_divisors[mp_idx].extend(even_items);
 
                 // Process all odd levels except for leaf's parent
-                let odd_non_root_len = path.path.odd_commitments.len() - 1;
+                let odd_non_root_len =
+                    path.path.odd_commitments.len().checked_sub(1).ok_or_else(|| {
+                        Error::MalformedProofInput(
+                            "odd_commitments must contain at least one element for leaf verification"
+                                .to_string(),
+                        )
+                    })?;
                 let odd_items = SelectAndRerandomizeMultiPathWithDivisorComms::<L, M, P1, P0>::verify_batched_non_root_on_curve::<
                     Parameters1,
                 >(
@@ -639,7 +645,13 @@ impl<
                 odd_node_divisors[mp_idx].extend(odd_items);
 
                 // leaf level
-                let parent_index = path.path.odd_commitments.len() - 1;
+                let parent_index =
+                    path.path.odd_commitments.len().checked_sub(1).ok_or_else(|| {
+                        Error::MalformedProofInput(
+                            "odd_commitments must contain at least one element for leaf verification"
+                                .to_string(),
+                        )
+                    })?;
                 let parent_commitment =
                     *path.path.odd_commitments.get(parent_index).ok_or_else(|| {
                         Error::MalformedProofInput(format!(

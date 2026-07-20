@@ -172,7 +172,7 @@ pub fn affine_from_bytes_tai<C: AffineRepr>(bytes: &[u8]) -> Option<C> {
         sha.update(bytes);
         sha.update([i]);
         let result = sha.finalize();
-        let res = C::from_random_bytes(result.as_slice());
+        let res = C::from_random_bytes(result.as_ref());
         if let Some(point) = res {
             return Some(point.clear_cofactor());
         }

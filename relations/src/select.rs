@@ -132,7 +132,7 @@ fn eval_poly_bsgs<F: Field, Cs: ConstraintSystem<F>>(
     x: LinearCombination<F>,
     poly: &DensePolynomial<F>,
 ) -> Result<LinearCombination<F>> {
-    if poly.coeffs.is_empty() {
+    if poly.coeffs.len() < 2 {
         return Err(Error::NeedNonZeroSetSize);
     }
 
@@ -322,6 +322,17 @@ mod tests {
                 return candidate;
             }
         }
+    }
+
+    #[test]
+    fn eval_poly_bsgs_rejects_degenerate_poly() {
+        let poly = DensePolynomial {
+            coeffs: vec![VestaScalar::from(5u64)],
+        };
+        let transcript = MerlinTranscript::new(b"eval_poly_bsgs_degenerate");
+        let mut verifier = Verifier::<_, VestaA>::new(transcript);
+        let res = eval_poly_bsgs(&mut verifier, LinearCombination::default(), &poly);
+        assert!(res.is_err());
     }
 
     fn check_multi_select_private(

@@ -240,14 +240,14 @@ impl<F: PrimeField> ScalarDecomposition<F> {
         let mut divisor_points = vec![<Projective<C>>::ZERO; num_bits as usize + 1];
 
         let mut generator_iter = generator_source.iter();
-        let mut generator_point: Projective<C> = generator_iter.next().unwrap();
+        let mut generator_point = generator_iter.next().unwrap();
 
         // result = s*G
         let mut result = <Projective<C>>::ZERO;
         let mut pos = 1usize;
         for (j, coefficient) in self.decomposition.iter().enumerate() {
             for _ in 0..*coefficient {
-                divisor_points[pos] = generator_point;
+                divisor_points[pos] = generator_point.into();
                 result += generator_point;
                 pos += 1;
             }
@@ -334,7 +334,7 @@ mod tests {
 
                 let start = Instant::now();
                 let (divisor_direct, point_direct) = decomposition
-                    .scalar_mul_divisor(DirectGenerator::from(generator))
+                    .scalar_mul_divisor(DirectGenerator::from(generator.into_affine()))
                     .unwrap();
                 time_direct += start.elapsed();
 
@@ -421,7 +421,7 @@ mod tests {
 
                 let mul_start = Instant::now();
                 let (poly, result) = decomposition
-                    .scalar_mul_divisor(DirectGenerator::from(generator))
+                    .scalar_mul_divisor(DirectGenerator::from(generator.into_affine()))
                     .unwrap();
                 scalar_mul_times.push(mul_start.elapsed());
 
