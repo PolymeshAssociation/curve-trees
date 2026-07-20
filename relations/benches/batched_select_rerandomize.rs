@@ -196,7 +196,7 @@ fn bench_naive_batch_select_and_rerandomize_with_parameters<
             log::debug!(
                 "{}_Constraints: {}",
                 &prefix_string,
-                even_prover.number_of_constraints() + odd_prover.number_of_constraints()
+                even_prover.num_multipliers() + odd_prover.num_multipliers()
             );
         }
         #[cfg(feature = "parallel")]
@@ -607,12 +607,12 @@ fn bench_grafted_batch_select_and_rerandomize_with_parameters<
             log::debug!(
                 "{}_Constraints: {}",
                 &prefix_string,
-                even_prover.number_of_constraints() + odd_prover.number_of_constraints()
+                even_prover.num_multipliers() + odd_prover.num_multipliers()
             );
             log::debug!(
                 "EvenConstraints: {}, OddConstraints: {}",
-                even_prover.number_of_constraints(),
-                odd_prover.number_of_constraints()
+                even_prover.num_multipliers(),
+                odd_prover.num_multipliers()
             );
         }
         #[cfg(feature = "parallel")]

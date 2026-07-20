@@ -148,7 +148,7 @@ fn bench_select_and_rerandomize_with_parameters<
             log::debug!(
                 "{}_Constraints: {}",
                 &prefix_string,
-                2 * pallas_prover.number_of_constraints()
+                2 * pallas_prover.num_multipliers()
             );
         }
         #[cfg(feature = "parallel")]

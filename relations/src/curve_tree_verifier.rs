@@ -1,5 +1,3 @@
-use bulletproofs::r1cs::*;
-
 use crate::curve_tree::{Root, SelectAndRerandomizePath};
 use crate::curve_tree_prover::{
     allocate_children_of_root_and_enforce_membership, CurveTreeWitnessPath, RootChildrenCoordsVars,
@@ -9,6 +7,8 @@ use crate::parameters::{SelRerandProofParameters, SingleLayerProofParameters};
 use crate::single_level_select_and_rerandomize::*;
 use ark_ec::{models::short_weierstrass::SWCurveConfig, short_weierstrass::Affine};
 use ark_ff::PrimeField;
+use ark_std::{format, string::ToString};
+use bulletproofs::r1cs::*;
 use core::borrow::BorrowMut;
 use dock_crypto_utils::transcript::MerlinTranscript;
 
@@ -25,35 +25,54 @@ impl<
         even_verifier: &mut Verifier<T, Affine<P0>>,
         odd_verifier: &mut Verifier<T, Affine<P1>>,
         parameters: &SelRerandProofParameters<P0, P1>,
-    ) {
+    ) -> Result<(), Error> {
         let root_is_even = match root {
             Root::Even(root) => {
-                let child = &self.odd_commitments[0];
+                let child = self.odd_commitments.get(0).ok_or_else(|| {
+                    Error::MalformedProofInput(
+                        "missing root child in odd_commitments for even root".to_string(),
+                    )
+                })?;
+                let all_x_coords = root.x_coord_children.get(0).ok_or_else(|| {
+                    Error::MalformedProofInput(
+                        "missing root x_coord_children for even root".to_string(),
+                    )
+                })?;
                 root_level_select_and_rerandomize(
                     even_verifier,
                     &parameters.odd_parameters,
-                    &child,
-                    &root.x_coord_children[0],
+                    child,
+                    all_x_coords,
                     None,
                     None,
-                );
+                )?;
                 true
             }
             Root::Odd(root) => {
-                let child = &self.even_commitments[0];
+                let child = self.even_commitments.get(0).ok_or_else(|| {
+                    Error::MalformedProofInput(
+                        "missing root child in even_commitments for odd root".to_string(),
+                    )
+                })?;
+                let all_x_coords = root.x_coord_children.get(0).ok_or_else(|| {
+                    Error::MalformedProofInput(
+                        "missing root x_coord_children for odd root".to_string(),
+                    )
+                })?;
                 root_level_select_and_rerandomize(
                     odd_verifier,
                     &parameters.even_parameters,
-                    &child,
-                    &root.x_coord_children[0],
+                    child,
+                    all_x_coords,
                     None,
                     None,
-                );
+                )?;
                 false
             }
         };
 
-        self.process_non_root_nodes(even_verifier, odd_verifier, root_is_even, parameters);
+        self.process_non_root_nodes(even_verifier, odd_verifier, root_is_even, parameters)?;
+        Ok(())
     }
 
     pub fn select_and_rerandomize_verifier_gadget_for_common_root<
@@ -91,9 +110,15 @@ impl<
         root_is_even: bool,
         even_verifier: &mut Verifier<T, Affine<P0>>,
         odd_parameters: &SingleLayerProofParameters<P1>,
-    ) {
-        // Last item of self.even_commitments.len() is for leaf
-        for parent_index in 0..(self.even_commitments.len() - 1) {
+    ) -> Result<(), Error> {
+        let even_len = self.even_commitments.len();
+        if even_len == 0 {
+            return Err(Error::MalformedProofInput(
+                "even_commitments is empty in non-root nodes".to_string(),
+            ));
+        }
+        // Last item of self.even_commitments is for leaf, so iterate up to len-1
+        for parent_index in 0..(even_len - 1) {
             // If the root is at even level, then the first element in self.odd_commitments will be child
             // of the root and its already processed in `root_level_select_and_rerandomize`
             let child_index = if root_is_even {
@@ -101,8 +126,12 @@ impl<
             } else {
                 parent_index
             };
-
-            let child = &self.odd_commitments[child_index];
+            let child = self.odd_commitments.get(child_index).ok_or_else(|| {
+                Error::MalformedProofInput(format!(
+                    "odd_commitments has no child at index {}",
+                    child_index
+                ))
+            })?;
             let variables = even_verifier
                 .commit_vec(L, self.even_commitments[parent_index])
                 .iter()
@@ -115,8 +144,10 @@ impl<
                 variables,
                 None,
                 None,
-            );
+            )?;
         }
+
+        Ok(())
     }
 
     /// Used after calling [`root_level_select_and_rerandomize`]
@@ -125,7 +156,7 @@ impl<
         root_is_even: bool,
         odd_verifier: &mut Verifier<T, Affine<P1>>,
         even_parameters: &SingleLayerProofParameters<P0>,
-    ) {
+    ) -> Result<(), Error> {
         for parent_index in 0..self.odd_commitments.len() {
             // If the root is at odd level, then the first element in self.even_commitments will be child
             // of the root and its already processed in `root_level_select_and_rerandomize`
@@ -134,8 +165,12 @@ impl<
             } else {
                 parent_index
             };
-
-            let child = self.even_commitments[child_index];
+            let child = self.even_commitments.get(child_index).ok_or_else(|| {
+                Error::MalformedProofInput(format!(
+                    "even_commitments has no child at index {}",
+                    child_index
+                ))
+            })?;
             let variables = odd_verifier
                 .commit_vec(L, self.odd_commitments[parent_index])
                 .iter()
@@ -144,12 +179,14 @@ impl<
             single_level_select_and_rerandomize(
                 odd_verifier,
                 even_parameters,
-                &child,
+                child,
                 variables,
                 None,
                 None,
-            );
+            )?;
         }
+
+        Ok(())
     }
 
     pub fn process_root_nodes_for_given_paths_with_common_root<T: BorrowMut<MerlinTranscript>>(
@@ -160,21 +197,31 @@ impl<
     ) -> Result<RootChildrenCoordsVars<P0::ScalarField, P1::ScalarField>, Error> {
         match root {
             Root::Even(root_node) => {
+                let x_coord_children = root_node.x_coord_children.get(0).ok_or_else(|| {
+                    Error::MalformedProofInput(
+                        "missing root x_coord_children for even root".to_string(),
+                    )
+                })?;
                 let x_coords_children = allocate_children_of_root_and_enforce_membership::<P1, _>(
                     even_verifier,
                     paths.len(),
                     None,
-                    &root_node.x_coord_children[0],
+                    x_coord_children,
                 )?;
 
                 Ok(RootChildrenCoordsVars::Even(x_coords_children))
             }
             Root::Odd(root_node) => {
+                let x_coord_children = root_node.x_coord_children.get(0).ok_or_else(|| {
+                    Error::MalformedProofInput(
+                        "missing root x_coord_children for odd root".to_string(),
+                    )
+                })?;
                 let x_coords_children = allocate_children_of_root_and_enforce_membership::<P0, _>(
                     odd_verifier,
                     paths.len(),
                     None,
-                    &root_node.x_coord_children[0],
+                    x_coord_children,
                 )?;
                 Ok(RootChildrenCoordsVars::Odd(x_coords_children))
             }
@@ -197,11 +244,17 @@ impl<
         let is_root_even = root.is_even();
 
         for path in paths {
+            let even_commitment = path.even_commitments.get(0).ok_or_else(|| {
+                Error::MalformedProofInput("missing even_commitments for path".to_string())
+            })?;
+            let odd_commitment = path.odd_commitments.get(0).ok_or_else(|| {
+                Error::MalformedProofInput("missing odd_commitments for path".to_string())
+            })?;
             root_children_coords.validate_and_re_randomize_child(
                 even_verifier,
                 odd_verifier,
-                &path.even_commitments[0],
-                &path.odd_commitments[0],
+                even_commitment,
+                odd_commitment,
                 None::<&CurveTreeWitnessPath<L, P0, P1>>,
                 None,
                 None,
@@ -210,7 +263,7 @@ impl<
             )?;
 
             // Process non-root nodes
-            path.process_non_root_nodes(even_verifier, odd_verifier, is_root_even, parameters);
+            path.process_non_root_nodes(even_verifier, odd_verifier, is_root_even, parameters)?;
         }
 
         Ok(())
@@ -222,13 +275,13 @@ impl<
         odd_verifier: &mut Verifier<T, Affine<P1>>,
         root_is_even: bool,
         parameters: &SelRerandProofParameters<P0, P1>,
-    ) {
+    ) -> Result<(), Error> {
         let verify_even = |even_verifier: &mut Verifier<T, Affine<P0>>| {
             self.even_verifier_gadget_for_non_root_nodes(
                 root_is_even,
                 even_verifier,
                 &parameters.odd_parameters,
-            );
+            )
         };
 
         let verify_odd = |odd_verifier: &mut Verifier<T, Affine<P1>>| {
@@ -236,21 +289,28 @@ impl<
                 root_is_even,
                 odd_verifier,
                 &parameters.even_parameters,
-            );
+            )
         };
 
         #[cfg(not(feature = "parallel"))]
-        verify_even(even_verifier);
-
-        #[cfg(not(feature = "parallel"))]
-        verify_odd(odd_verifier);
+        let (even_res, odd_res) = { (verify_even(even_verifier), verify_odd(odd_verifier)) };
 
         #[cfg(feature = "parallel")]
-        rayon::join(|| verify_even(even_verifier), || verify_odd(odd_verifier));
+        let (even_res, odd_res) =
+            rayon::join(|| verify_even(even_verifier), || verify_odd(odd_verifier));
+
+        even_res?;
+        odd_res?;
+
+        Ok(())
     }
 
     /// Get the public rerandomization of the selected (leaf) commitment
-    pub fn get_rerandomized_leaf(&self) -> Affine<P0> {
-        self.even_commitments.last().unwrap().clone()
+    pub fn get_rerandomized_leaf(&self) -> Result<Affine<P0>, Error> {
+        self.even_commitments.last().copied().ok_or_else(|| {
+            Error::MalformedProofInput(
+                "even_commitments is empty, cannot get rerandomized leaf".to_string(),
+            )
+        })
     }
 }

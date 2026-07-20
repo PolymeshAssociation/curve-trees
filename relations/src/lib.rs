@@ -1,4 +1,8 @@
 #![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(
+    all(test, feature = "nightly_mocking_tests"),
+    feature(proc_macro_hygiene)
+)]
 
 extern crate alloc;
 
@@ -46,7 +50,8 @@ pub mod lean_curve_tree;
 pub mod parameters;
 pub mod partial_curve_tree;
 pub mod ped_comm_group_elems;
+pub mod ped_comm_group_elems_naive;
 pub mod prover;
 pub mod verifier;
-
+pub mod verifier_common_root;
 // TODO: Rename generics types to be more descriptive

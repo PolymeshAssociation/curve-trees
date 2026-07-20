@@ -2,7 +2,7 @@ extern crate bulletproofs;
 extern crate relations;
 
 use ark_dlog_gadget::dlog::DiscreteLogParameters;
-use ark_ec::AffineRepr;
+use ark_ec::{AffineRepr, CurveGroup};
 use ark_ec_divisors::{
     curves::{
         helios::HeliosParams, pallas::PallasParams, selene::SeleneParams, vesta::VestaParams,
@@ -289,12 +289,14 @@ pub fn check_individual_vs_batched_proofs_with_parameters<
             Prover::new(&sr_params.odd_parameters.pc_gens, vesta_transcript);
 
         let path = curve_tree.get_path_to_leaf_for_proof(i, 0).unwrap();
-        let (path_commitments, _) = path.select_and_rerandomize_prover_gadget(
-            &mut pallas_prover,
-            &mut vesta_prover,
-            &sr_proof_params,
-            &mut rng,
-        );
+        let (path_commitments, _) = path
+            .select_and_rerandomize_prover_gadget(
+                &mut pallas_prover,
+                &mut vesta_prover,
+                &sr_proof_params,
+                &mut rng,
+            )
+            .unwrap();
 
         let (pallas_proof, vesta_proof) = prove(
             pallas_prover,
@@ -322,12 +324,14 @@ pub fn check_individual_vs_batched_proofs_with_parameters<
         let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
         let mut vesta_verifier = Verifier::new(vesta_transcript);
 
-        let _ = path_commitments.select_and_rerandomize_verifier_gadget(
-            &curve_tree.root_node(),
-            &mut pallas_verifier,
-            &mut vesta_verifier,
-            &sr_proof_params,
-        );
+        path_commitments
+            .select_and_rerandomize_verifier_gadget(
+                &curve_tree.root_node(),
+                &mut pallas_verifier,
+                &mut vesta_verifier,
+                &sr_proof_params,
+            )
+            .unwrap();
 
         verify(
             pallas_verifier,
@@ -366,12 +370,14 @@ pub fn check_individual_vs_batched_proofs_with_parameters<
     // Call select_and_rerandomize_prover_gadget for each leaf to accumulate constraints
     let mut path_commitments_list: Vec<SelectAndRerandomizePath<L, P0, P1>> = Vec::new();
     for i in 0..M {
-        let (path_commitments, _) = paths[i].select_and_rerandomize_prover_gadget(
-            &mut pallas_prover,
-            &mut vesta_prover,
-            &sr_proof_params,
-            &mut rng,
-        );
+        let (path_commitments, _) = paths[i]
+            .select_and_rerandomize_prover_gadget(
+                &mut pallas_prover,
+                &mut vesta_prover,
+                &sr_proof_params,
+                &mut rng,
+            )
+            .unwrap();
         path_commitments_list.push(path_commitments);
     }
 
@@ -400,12 +406,14 @@ pub fn check_individual_vs_batched_proofs_with_parameters<
 
     // For verification, we need to call the verifier gadget for each leaf too
     for path_commitments in &path_commitments_list {
-        path_commitments.select_and_rerandomize_verifier_gadget(
-            &root,
-            &mut pallas_verifier,
-            &mut vesta_verifier,
-            &sr_proof_params,
-        );
+        path_commitments
+            .select_and_rerandomize_verifier_gadget(
+                &root,
+                &mut pallas_verifier,
+                &mut vesta_verifier,
+                &sr_proof_params,
+            )
+            .unwrap();
     }
 
     verify(
@@ -501,7 +509,8 @@ pub fn check_individual_vs_batched_proofs_with_parameters<
     for i in 0..M {
         assert_eq!(
             rerandomized_leaves[i].into_group(),
-            set[i] + (sr_params.even_parameters.pc_gens.B_blinding * leaf_randomizations[i])
+            set[i].into_group()
+                + (sr_params.even_parameters.pc_gens.B_blinding * leaf_randomizations[i])
         );
     }
 }
@@ -686,7 +695,7 @@ pub fn check_batched_combined_vs_common_root_proofs_with_parameters<
             if leaf_idx < num_leaves as usize {
                 assert_eq!(
                     rerandomized_leaves_list[i][j].into_group(),
-                    curve_tree.get_leaf(leaf_idx).unwrap()
+                    curve_tree.get_leaf(leaf_idx).unwrap().into_group()
                         + (sr_params.even_parameters.pc_gens.B_blinding
                             * all_leaf_rerandomizations[i][j])
                 )
@@ -979,6 +988,28 @@ pub fn test_batched_curve_tree_odd_depth_divisor() {
         VestaConfig,
         PallasParams,
         VestaParams,
+    >(1, 12, 1);
+
+    test_batched_curve_tree_with_parameters_new::<
+        32,
+        2,
+        PallasFr,
+        PallasBase,
+        PallasConfig,
+        VestaConfig,
+        PallasParams,
+        VestaParams,
+    >(1, 12, 2);
+
+    test_batched_curve_tree_with_parameters_new::<
+        32,
+        2,
+        PallasFr,
+        PallasBase,
+        PallasConfig,
+        VestaConfig,
+        PallasParams,
+        VestaParams,
     >(3, 12, 2);
 
     test_batched_curve_tree_with_parameters_new::<
@@ -1070,6 +1101,7 @@ pub fn test_batched_curve_tree_with_parameters_new<
             &mut vesta_prover,
             &sr_proof_params,
             &mut rng,
+            None,
         )
         .expect("Failed to prove batched select and rerandomize (divisor)");
 
@@ -1140,6 +1172,87 @@ pub fn test_batched_curve_tree_with_parameters_new<
                 set[i] + (sr_params.even_parameters.pc_gens.B_blinding * leaf_randomizations[i])
             );
         }
+
+        // a leaf must be a correctly rerandomized member of the tree
+        let neg_prove_verify =
+            |w: &CurveTreeWitnessMultiPath<L, M, P0, P1>,
+             tamper: &dyn Fn(&mut SelectAndRerandomizeMultiPathWithDivisorComms<L, M, P0, P1>),
+             rng: &mut rand::rngs::ThreadRng|
+             -> Result<(), R1CSError> {
+                let mut pp: Prover<_, Affine<P0>> = Prover::new(
+                    &sr_params.even_parameters.pc_gens,
+                    MerlinTranscript::new(b"neg"),
+                );
+                let mut vp: Prover<_, Affine<P1>> = Prover::new(
+                    &sr_params.odd_parameters.pc_gens,
+                    MerlinTranscript::new(b"neg"),
+                );
+                let (mut pc, _) = w
+                    .batched_select_and_rerandomize_prover_gadget_new::<_, Params0, Params1>(
+                        &mut pp,
+                        &mut vp,
+                        &sr_proof_params,
+                        rng,
+                        None,
+                    )
+                    .unwrap();
+                let (pproof, vproof) = prove(
+                    pp,
+                    vp,
+                    &sr_params.even_parameters.bp_gens,
+                    &sr_params.odd_parameters.bp_gens,
+                    rng,
+                )
+                .unwrap();
+                tamper(&mut pc);
+                let mut pv = Verifier::new(MerlinTranscript::new(b"neg"));
+                let mut vv = Verifier::new(MerlinTranscript::new(b"neg"));
+                pc.batched_select_and_rerandomize_verifier_gadget::<Params0, Params1>(
+                    &root,
+                    &mut pv,
+                    &mut vv,
+                    &sr_proof_params,
+                )
+                .unwrap();
+                verify(
+                    pv,
+                    vv,
+                    &pproof,
+                    &vproof,
+                    &sr_params.even_parameters.pc_gens,
+                    &sr_params.even_parameters.bp_gens,
+                    &sr_params.odd_parameters.pc_gens,
+                    &sr_params.odd_parameters.bp_gens,
+                    rng,
+                )
+            };
+
+        // Leaf is not a member - change one leaf
+        let mut non_member = curve_tree.get_paths_to_leaves(indices.as_slice()).unwrap();
+        non_member.odd_internal_nodes.last_mut().unwrap()[0].child_node_to_randomize =
+            Affine::<P0>::rand(&mut rng);
+        assert!(
+            neg_prove_verify(&non_member, &|_pc| {}, &mut rng).is_err(),
+            "a non-member leaf must be rejected"
+        );
+
+        // Leaf's blinding is wrong
+        let member = curve_tree.get_paths_to_leaves(indices.as_slice()).unwrap();
+        let extra = (sr_params.even_parameters.pc_gens.B_blinding
+            * P0::ScalarField::rand(&mut rng))
+        .into_affine();
+        assert!(
+            neg_prove_verify(
+                &member,
+                &|pc| {
+                    let leaf = &mut pc.path.selected_commitments[0];
+                    *leaf = (*leaf + extra).into_affine();
+                },
+                &mut rng,
+            )
+            .is_err(),
+            "a re-blinded rerandomized leaf must be rejected"
+        );
     }
 }
 
@@ -1177,6 +1290,7 @@ pub fn test_batched_divisor_malformed_proof_inputs() {
             &mut vesta_prover,
             &sr_proof_params,
             &mut rng,
+            None,
         )
         .unwrap();
 
@@ -1197,15 +1311,9 @@ pub fn test_batched_divisor_malformed_proof_inputs() {
     assert!(matches!(err, RelError::NeedNonZeroNumberOfIndices));
 
     let mut short_root = root.clone();
-    let expected_root_msg = match &mut short_root {
-        Root::Even(root_node) => {
-            root_node.x_coord_children.truncate(1);
-            "root x_coord_children shorter than selected indices for even root"
-        }
-        Root::Odd(root_node) => {
-            root_node.x_coord_children.truncate(1);
-            "root x_coord_children shorter than selected indices for odd root"
-        }
+    match &mut short_root {
+        Root::Even(root_node) => root_node.x_coord_children.truncate(1),
+        Root::Odd(root_node) => root_node.x_coord_children.truncate(1),
     };
     let pallas_transcript = MerlinTranscript::new(b"malformed-batched-root-xcoords");
     let mut pallas_verifier = Verifier::new(pallas_transcript);
@@ -1221,20 +1329,17 @@ pub fn test_batched_divisor_malformed_proof_inputs() {
         )
         .unwrap_err();
     match err {
-        RelError::MalformedProofInput(msg) => assert!(msg.contains(expected_root_msg), "{msg}"),
+        RelError::MalformedProofInput(msg) => assert!(
+            msg.contains("root x_coord_children shorter than selected indices"),
+            "{msg}"
+        ),
         other => panic!("unexpected error variant: {other:?}"),
     }
 
     let mut missing_root_child = valid_path_commitments.clone();
-    let expected_root_child_msg = match &root {
-        Root::Even(_) => {
-            missing_root_child.path.odd_commitments.clear();
-            "missing root child in odd_commitments for even root"
-        }
-        Root::Odd(_) => {
-            missing_root_child.path.even_commitments.clear();
-            "missing root child in even_commitments for odd root"
-        }
+    match &root {
+        Root::Even(_) => missing_root_child.path.odd_commitments.clear(),
+        Root::Odd(_) => missing_root_child.path.even_commitments.clear(),
     };
     let pallas_transcript = MerlinTranscript::new(b"malformed-batched-root-child");
     let mut pallas_verifier = Verifier::new(pallas_transcript);
@@ -1250,8 +1355,281 @@ pub fn test_batched_divisor_malformed_proof_inputs() {
         .unwrap_err();
     match err {
         RelError::MalformedProofInput(msg) => {
-            assert!(msg.contains(expected_root_child_msg), "{msg}")
+            assert!(msg.contains("missing root child commitment"), "{msg}")
         }
         other => panic!("unexpected error variant: {other:?}"),
     }
+}
+
+#[test]
+pub fn test_optimized_multi_paths_divisor() {
+    check_optimized_multi_paths_divisor::<
+        32,
+        4,
+        PallasFr,
+        PallasBase,
+        PallasConfig,
+        VestaConfig,
+        PallasParams,
+        VestaParams,
+    >(1, 12, 5);
+    check_optimized_multi_paths_divisor::<
+        8,
+        4,
+        PallasFr,
+        PallasBase,
+        PallasConfig,
+        VestaConfig,
+        PallasParams,
+        VestaParams,
+    >(3, 12, 5);
+    check_optimized_multi_paths_divisor::<
+        8,
+        4,
+        PallasFr,
+        PallasBase,
+        PallasConfig,
+        VestaConfig,
+        PallasParams,
+        VestaParams,
+    >(4, 12, 8);
+    check_optimized_multi_paths_divisor::<
+        8,
+        4,
+        PallasFr,
+        PallasBase,
+        PallasConfig,
+        VestaConfig,
+        PallasParams,
+        VestaParams,
+    >(4, 12, 9);
+}
+
+pub fn check_optimized_multi_paths_divisor<
+    const L: usize,
+    const M: usize,
+    F0: PrimeField,
+    F1: PrimeField,
+    P0: DivisorCurve<BaseField = F1, ScalarField = F0> + Copy,
+    P1: DivisorCurve<BaseField = F0, ScalarField = F1> + Copy,
+    Params0: DiscreteLogParameters,
+    Params1: DiscreteLogParameters,
+>(
+    depth: usize,
+    generators_length_log_2: usize,
+    num_leaves: usize,
+) {
+    let mut rng = thread_rng();
+    let generators_length = 1 << generators_length_log_2;
+
+    let sr_params = SelRerandParameters::<P0, P1>::new(generators_length, generators_length)
+        .expect("Failed to create SelRerandParameters");
+    let sr_proof_params =
+        SelRerandProofParametersNew::<P0, P1, Params0, Params1>::from_sr_params(sr_params.clone());
+
+    let mut set = Vec::with_capacity(num_leaves);
+    let mut leaf_indices = Vec::with_capacity(num_leaves);
+    for i in 0..num_leaves {
+        set.push(Affine::<P0>::rand(&mut rng));
+        leaf_indices.push(i as u32);
+    }
+
+    let curve_tree = CurveTree::<L, M, P0, P1>::from_leaves(&set, &sr_params, Some(depth));
+    assert_eq!(curve_tree.height(), depth);
+    let root = curve_tree.root_node();
+
+    let optimized_multi_paths = curve_tree.get_optmz_paths_to_leaves(&leaf_indices).unwrap();
+    let num_multi_paths = (num_leaves + M - 1) / M;
+    assert_eq!(optimized_multi_paths.num_multi_paths(), num_multi_paths);
+
+    // The compact same-root witness must reconstruct the same individual multi-paths as building
+    // each multi-path separately.
+    let mut multi_paths = Vec::new();
+    for chunk in leaf_indices.chunks(M) {
+        multi_paths.push(curve_tree.get_paths_to_leaves(chunk).unwrap());
+    }
+    let reconstructed = optimized_multi_paths.to_individual_multi_paths();
+    assert_eq!(reconstructed.len(), multi_paths.len());
+    for (original, recon) in multi_paths.iter().zip(reconstructed.iter()) {
+        assert_eq!(
+            original.even_internal_nodes.len(),
+            recon.even_internal_nodes.len()
+        );
+        assert_eq!(
+            original.odd_internal_nodes.len(),
+            recon.odd_internal_nodes.len()
+        );
+        for (orig_level, recon_level) in original
+            .even_internal_nodes
+            .iter()
+            .zip(recon.even_internal_nodes.iter())
+        {
+            assert_eq!(orig_level.len(), recon_level.len());
+            for (orig_node, recon_node) in orig_level.iter().zip(recon_level.iter()) {
+                assert_eq!(orig_node.x_coord_children, recon_node.x_coord_children);
+                assert_eq!(
+                    orig_node.child_node_to_randomize,
+                    recon_node.child_node_to_randomize
+                );
+            }
+        }
+        for (orig_level, recon_level) in original
+            .odd_internal_nodes
+            .iter()
+            .zip(recon.odd_internal_nodes.iter())
+        {
+            assert_eq!(orig_level.len(), recon_level.len());
+            for (orig_node, recon_node) in orig_level.iter().zip(recon_level.iter()) {
+                assert_eq!(orig_node.x_coord_children, recon_node.x_coord_children);
+                assert_eq!(
+                    orig_node.child_node_to_randomize,
+                    recon_node.child_node_to_randomize
+                );
+            }
+        }
+    }
+
+    let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
+    let mut pallas_prover: Prover<_, Affine<P0>> =
+        Prover::new(&sr_params.even_parameters.pc_gens, pallas_transcript);
+    let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
+    let mut vesta_prover: Prover<_, Affine<P1>> =
+        Prover::new(&sr_params.odd_parameters.pc_gens, vesta_transcript);
+
+    let (path_commitments_list, all_leaf_rerandomizations) = optimized_multi_paths
+        .batched_select_and_rerandomize_prover_gadget_new::<_, Params0, Params1>(
+            &mut pallas_prover,
+            &mut vesta_prover,
+            &sr_proof_params,
+            &mut rng,
+            None,
+        )
+        .expect("Failed to prove common-root batched select and rerandomize (divisor)");
+    assert_eq!(path_commitments_list.len(), num_multi_paths);
+
+    let (pallas_proof, vesta_proof) = prove(
+        pallas_prover,
+        vesta_prover,
+        &sr_params.even_parameters.bp_gens,
+        &sr_params.odd_parameters.bp_gens,
+        &mut rng,
+    )
+    .unwrap();
+
+    let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
+    let mut pallas_verifier = Verifier::new(pallas_transcript);
+    let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
+    let mut vesta_verifier = Verifier::new(vesta_transcript);
+
+    SelectAndRerandomizeMultiPathWithDivisorComms::batched_select_and_rerandomize_verifier_gadget_multi::<
+        Params0,
+        Params1,
+    >(
+        &path_commitments_list,
+        &root,
+        &mut pallas_verifier,
+        &mut vesta_verifier,
+        &sr_proof_params,
+    )
+    .unwrap();
+
+    let rerandomized_leaves_list: Vec<_> = path_commitments_list
+        .iter()
+        .map(|p| p.path.get_rerandomized_leaves())
+        .collect();
+
+    verify(
+        pallas_verifier,
+        vesta_verifier,
+        &pallas_proof,
+        &vesta_proof,
+        &sr_params.even_parameters.pc_gens,
+        &sr_params.even_parameters.bp_gens,
+        &sr_params.odd_parameters.pc_gens,
+        &sr_params.odd_parameters.bp_gens,
+        &mut rng,
+    )
+    .unwrap();
+
+    for mp in 0..num_multi_paths {
+        let num_idx = path_commitments_list[mp].path.selected_commitments.len();
+        for slot in 0..num_idx {
+            let leaf_idx = mp * M + slot;
+            assert_eq!(
+                rerandomized_leaves_list[mp][slot].into_group(),
+                set[leaf_idx].into_group()
+                    + (sr_params.even_parameters.pc_gens.B_blinding
+                        * all_leaf_rerandomizations[mp][slot])
+            );
+        }
+    }
+}
+
+#[test]
+fn malformed_multi_path_empty_odd_commitments_rejected() {
+    const L: usize = 8;
+    const M: usize = 4;
+    let depth = 3usize;
+    let generators_length = 1u32 << 12;
+    let num_leaves = 5usize;
+
+    let mut rng = thread_rng();
+
+    let sr_params =
+        SelRerandParameters::<PallasConfig, VestaConfig>::new(generators_length, generators_length)
+            .expect("Failed to create SelRerandParameters");
+    let sr_proof_params = SelRerandProofParametersNew::<
+        PallasConfig,
+        VestaConfig,
+        PallasParams,
+        VestaParams,
+    >::from_sr_params(sr_params.clone());
+
+    let mut set = Vec::with_capacity(num_leaves);
+    let mut leaf_indices = Vec::with_capacity(num_leaves);
+    for i in 0..num_leaves {
+        set.push(Affine::<PallasConfig>::rand(&mut rng));
+        leaf_indices.push(i as u32);
+    }
+
+    let curve_tree =
+        CurveTree::<L, M, PallasConfig, VestaConfig>::from_leaves(&set, &sr_params, Some(depth));
+    let root = curve_tree.root_node();
+    let optimized_multi_paths = curve_tree.get_optmz_paths_to_leaves(&leaf_indices).unwrap();
+
+    let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
+    let mut pallas_prover: Prover<_, Affine<PallasConfig>> =
+        Prover::new(&sr_params.even_parameters.pc_gens, pallas_transcript);
+    let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
+    let mut vesta_prover: Prover<_, Affine<VestaConfig>> =
+        Prover::new(&sr_params.odd_parameters.pc_gens, vesta_transcript);
+
+    let (mut path_commitments_list, _) = optimized_multi_paths
+        .batched_select_and_rerandomize_prover_gadget_new::<_, PallasParams, VestaParams>(
+            &mut pallas_prover,
+            &mut vesta_prover,
+            &sr_proof_params,
+            &mut rng,
+            None,
+        )
+        .expect("Failed to prove");
+
+    path_commitments_list[0].path.odd_commitments.clear();
+
+    let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");
+    let mut pallas_verifier: Verifier<_, Affine<PallasConfig>> = Verifier::new(pallas_transcript);
+    let vesta_transcript = MerlinTranscript::new(b"select_and_rerandomize");
+    let mut vesta_verifier: Verifier<_, Affine<VestaConfig>> = Verifier::new(vesta_transcript);
+
+    let res = SelectAndRerandomizeMultiPathWithDivisorComms::batched_select_and_rerandomize_verifier_gadget_multi::<
+        PallasParams,
+        VestaParams,
+    >(
+        &path_commitments_list,
+        &root,
+        &mut pallas_verifier,
+        &mut vesta_verifier,
+        &sr_proof_params,
+    );
+    assert!(res.is_err());
 }

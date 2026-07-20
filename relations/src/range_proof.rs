@@ -1,14 +1,27 @@
-use ark_ff::fields::Field;
+use ark_ff::{fields::Field, PrimeField};
+use ark_std::format;
 use bulletproofs::r1cs::*;
 use zeroize::Zeroize;
 
 /// Enforces that the quantity of v is in the range [0, 2^n).
-pub fn range_proof<F: Field, CS: ConstraintSystem<F>>(
+pub fn range_proof<F: PrimeField, CS: ConstraintSystem<F>>(
     cs: &mut CS,
     mut v: LinearCombination<F>,
     v_assignment: Option<u128>,
     n: usize,
 ) -> Result<(), R1CSError> {
+    // Defense in depth: reject bit lengths where 2^n > p, where p is the order of the field,
+    // else a non-canonical alias `x + k*p` could satisfy the bit constraints while
+    // representing an out-of-range integer.
+    if n >= (F::MODULUS_BIT_SIZE as usize) - 1 {
+        // -1 for being totally safe, avoid value in [2^{n-1}, p)
+        return Err(R1CSError::GadgetError {
+            description: format!(
+                "range bit length {n} too large for a {}-bit field",
+                F::MODULUS_BIT_SIZE
+            ),
+        });
+    }
     let mut exp_2 = F::one();
     for i in 0..n {
         // Create low-level variables and add them to constraints
@@ -22,12 +35,15 @@ pub fn range_proof<F: Field, CS: ConstraintSystem<F>>(
         cs.constrain(o.into());
 
         // Enforce that a = 1 - b, so they both are 1 or 0.
-        cs.constrain(a + (b - constant(1u64)));
+        let mut lc = LinearCombination::from(a);
+        lc += b;
+        lc -= F::one();
+        cs.constrain(lc);
 
         // Add `-b_i*2^i` to the linear combination
         // in order to form the following constraint by the end of the loop:
         // v = Sum(b_i * 2^i, i = 0..n-1)
-        v = v - b * exp_2;
+        v -= b * exp_2;
 
         exp_2 = exp_2 + exp_2;
     }
@@ -45,7 +61,9 @@ pub fn public_difference<F: Field, CS: ConstraintSystem<F>>(
     b: LinearCombination<F>,
     c: u64,
 ) -> Result<(), R1CSError> {
-    cs.constrain(a - b - LinearCombination::from(F::from(c)));
+    let mut lc = a - b;
+    lc -= F::from(c);
+    cs.constrain(lc);
     Ok(())
 }
 

@@ -6,7 +6,7 @@ use crate::single_level_select_and_rerandomize::*;
 
 use crate::curve_tree::{CurveTree, CurveTreeNode, SelectAndRerandomizeMultiPath};
 use crate::parameters::{SelRerandProofParameters, SingleLayerProofParameters};
-use crate::select::multi_select_public_set_ext_challenge;
+use crate::select::multi_select_public_set;
 use ark_ec::{
     models::short_weierstrass::{Projective, SWCurveConfig},
     short_weierstrass::Affine,
@@ -17,7 +17,7 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{string::ToString, vec, vec::Vec, Zero};
 use bulletproofs::PedersenGens;
 use core::ops::Mul;
-use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
+use dock_crypto_utils::transcript::MerlinTranscript;
 use rand_core::CryptoRngCore;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -131,164 +131,139 @@ impl<
 
         match self {
             Self::Even(ct) => {
-                if let CurveTreeNode::InnerNode(inner_node) = ct {
-                    let mut x_coords = Vec::with_capacity(num_indices_per_path);
-                    for root_index in 0..num_indices_per_path {
-                        x_coords.push(inner_node.x_coord_children[root_index]);
-                    }
-
-                    let mut child_nodes_to_randomize = Vec::with_capacity(indices.len());
-                    let mut root_children_nodes = vec![];
-                    for (i, leaf_index) in indices.into_iter().enumerate() {
-                        let root_index = i % M;
-                        let child_node_index = ct.child_index(*leaf_index as usize).unwrap();
-                        let child_node = inner_node.get_child(child_node_index)?;
-                        child_nodes_to_randomize.push(child_node.commitment(root_index));
-                        root_children_nodes.push(child_node);
-                    }
-
-                    let root_children = RootChildrenForMultiPath::Even {
+                // The root is even, so its child levels are odd and the levels below are even
+                let (x_coords, child_nodes_to_randomize, odd_internal_nodes, even_internal_nodes) =
+                    Self::get_batched_paths_grouped_by_root(ct, indices, num_indices_per_path)?;
+                Ok(WitnessMultiPathForSameRoot {
+                    root_children: RootChildrenForMultiPath::Even {
                         x_coords,
                         child_nodes_to_randomize,
-                    };
-
-                    let mut all_other_level_internal_nodes = vec![];
-                    let mut all_current_level_internal_nodes = vec![];
-
-                    for (chunk_indices, root_children_nodes) in
-                        indices.chunks(M).zip(root_children_nodes.chunks(M))
-                    {
-                        let mut multi_path_current_level_nodes = Vec::new();
-                        let mut multi_path_other_level_nodes = Vec::new();
-
-                        for (root_index, (leaf_index, child_node)) in chunk_indices
-                            .into_iter()
-                            .zip(root_children_nodes.into_iter())
-                            .enumerate()
-                        {
-                            let mut current_level_witness_nodes = Vec::new();
-                            let mut other_level_witness_nodes = Vec::new();
-
-                            child_node.generate_witness_node_for_this_and_children(
-                                *leaf_index as usize,
-                                root_index,
-                                &mut current_level_witness_nodes,
-                                &mut other_level_witness_nodes,
-                            )?;
-
-                            if root_index == 0 {
-                                for _ in 0..other_level_witness_nodes.len() {
-                                    multi_path_other_level_nodes
-                                        .push(Vec::with_capacity(chunk_indices.len()));
-                                }
-                                for _ in 0..current_level_witness_nodes.len() {
-                                    multi_path_current_level_nodes
-                                        .push(Vec::with_capacity(chunk_indices.len()));
-                                }
-                            }
-
-                            for (level, node) in other_level_witness_nodes.into_iter().enumerate() {
-                                multi_path_other_level_nodes[level].push(node);
-                            }
-                            for (level, node) in current_level_witness_nodes.into_iter().enumerate()
-                            {
-                                multi_path_current_level_nodes[level].push(node);
-                            }
-                        }
-
-                        all_other_level_internal_nodes.push(multi_path_other_level_nodes);
-                        all_current_level_internal_nodes.push(multi_path_current_level_nodes);
-                    }
-
-                    Ok(WitnessMultiPathForSameRoot {
-                        root_children,
-                        even_internal_nodes: all_other_level_internal_nodes,
-                        odd_internal_nodes: all_current_level_internal_nodes,
-                    })
-                } else {
-                    unreachable!()
-                }
+                    },
+                    even_internal_nodes,
+                    odd_internal_nodes,
+                })
             }
             Self::Odd(ct) => {
-                if let CurveTreeNode::InnerNode(inner_node) = ct {
-                    let mut x_coords = Vec::with_capacity(num_indices_per_path);
-                    for root_index in 0..num_indices_per_path {
-                        x_coords.push(inner_node.x_coord_children[root_index]);
-                    }
-
-                    let mut child_nodes_to_randomize = Vec::with_capacity(indices.len());
-                    let mut root_children_nodes = vec![];
-                    for (i, leaf_index) in indices.into_iter().enumerate() {
-                        let root_index = i % M;
-                        let child_node_index = ct.child_index(*leaf_index as usize).unwrap();
-                        let child_node = inner_node.get_child(child_node_index)?;
-                        child_nodes_to_randomize.push(child_node.commitment(root_index));
-                        root_children_nodes.push(child_node);
-                    }
-
-                    let root_children = RootChildrenForMultiPath::Odd {
+                // The root is odd, so its child levels are even and the levels below are odd.
+                let (x_coords, child_nodes_to_randomize, even_internal_nodes, odd_internal_nodes) =
+                    CurveTree::<L, M, P1, P0>::get_batched_paths_grouped_by_root(
+                        ct,
+                        indices,
+                        num_indices_per_path,
+                    )?;
+                Ok(WitnessMultiPathForSameRoot {
+                    root_children: RootChildrenForMultiPath::Odd {
                         x_coords,
                         child_nodes_to_randomize,
-                    };
-
-                    let mut all_even_internal_nodes = vec![];
-                    let mut all_odd_internal_nodes = vec![];
-
-                    for (chunk_indices, root_children_nodes) in
-                        indices.chunks(M).zip(root_children_nodes.chunks(M))
-                    {
-                        let mut multi_path_current_level_nodes = Vec::new();
-                        let mut multi_path_other_level_nodes = Vec::new();
-
-                        for (root_index, (leaf_index, child_node)) in chunk_indices
-                            .into_iter()
-                            .zip(root_children_nodes.into_iter())
-                            .enumerate()
-                        {
-                            let mut current_level_witness_nodes = Vec::new();
-                            let mut other_level_witness_nodes = Vec::new();
-
-                            child_node.generate_witness_node_for_this_and_children(
-                                *leaf_index as usize,
-                                root_index,
-                                &mut current_level_witness_nodes,
-                                &mut other_level_witness_nodes,
-                            )?;
-
-                            if root_index == 0 {
-                                for _ in 0..other_level_witness_nodes.len() {
-                                    multi_path_other_level_nodes
-                                        .push(Vec::with_capacity(chunk_indices.len()));
-                                }
-                                for _ in 0..current_level_witness_nodes.len() {
-                                    multi_path_current_level_nodes
-                                        .push(Vec::with_capacity(chunk_indices.len()));
-                                }
-                            }
-
-                            for (level, node) in other_level_witness_nodes.into_iter().enumerate() {
-                                multi_path_other_level_nodes[level].push(node);
-                            }
-                            for (level, node) in current_level_witness_nodes.into_iter().enumerate()
-                            {
-                                multi_path_current_level_nodes[level].push(node);
-                            }
-                        }
-
-                        all_even_internal_nodes.push(multi_path_other_level_nodes);
-                        all_odd_internal_nodes.push(multi_path_current_level_nodes);
-                    }
-
-                    Ok(WitnessMultiPathForSameRoot {
-                        root_children,
-                        even_internal_nodes: all_odd_internal_nodes,
-                        odd_internal_nodes: all_even_internal_nodes,
-                    })
-                } else {
-                    unreachable!()
-                }
+                    },
+                    even_internal_nodes,
+                    odd_internal_nodes,
+                })
             }
         }
+    }
+
+    /// Build the same-root paths for given leaf `indices` (chunked into groups of M), given the
+    /// shared root node. Returns the root's children's x-coords and selected children(size is `num_indices_per_path`),
+    /// plus the witness nodes for each multi-path grouped by level and path: the "current
+    /// level" nodes live on the child curve.
+    fn get_batched_paths_grouped_by_root(
+        root_node: &CurveTreeNode<L, M, P0, P1>,
+        indices: &[u32],
+        num_indices_per_path: usize,
+    ) -> Result<
+        (
+            Vec<[F0; L]>,
+            Vec<Affine<P1>>,
+            Vec<Vec<Vec<WitnessNode<L, P1, P0>>>>, // for the level just below root node
+            Vec<Vec<Vec<WitnessNode<L, P0, P1>>>>, // for other level
+        ),
+        Error,
+    > {
+        let CurveTreeNode::InnerNode(inner_node) = root_node else {
+            unreachable!()
+        };
+
+        // Collect x-coords of children of all root nodes, there will be only `num_indices_per_path` unique roots
+        let mut root_children_x_coords = Vec::with_capacity(num_indices_per_path);
+        for root_index in 0..num_indices_per_path {
+            root_children_x_coords.push(inner_node.x_coord_children[root_index]);
+        }
+
+        // For each of `indices`, get its root's child node
+        // The commitment to the root's child node
+        let mut child_nodes_to_randomize = Vec::with_capacity(indices.len());
+        // The root's child nodes on path to each leaf
+        let mut root_children_nodes = vec![];
+        for (i, leaf_index) in indices.iter().enumerate() {
+            let root_index = i % M;
+            let child_node_index = root_node.child_index(*leaf_index as usize).unwrap();
+            // child_node might be same for many leaves but still added since the
+            // randomized path cannot reveal if leaves share any ancestors. So this is only a size
+            // overhead when prover fetches the path
+            let child_node = inner_node.get_child(child_node_index)?;
+            child_nodes_to_randomize.push(child_node.commitment(root_index));
+            root_children_nodes.push(child_node);
+        }
+
+        let mut all_current_level_internal_nodes = vec![];
+        let mut all_other_level_internal_nodes = vec![];
+
+        // Divide indices into chunks of size M and get a multi-path for each chunk
+        for (chunk_indices, root_children_nodes) in
+            indices.chunks(M).zip(root_children_nodes.chunks(M))
+        {
+            // Add witness nodes for this chunk where at each index of the following 2 vecs, same
+            // level nodes for each `chunk_indices` will be stored
+            let mut multi_path_current_level_nodes = Vec::new();
+            let mut multi_path_other_level_nodes = Vec::new();
+
+            // Get path for each leaf in chunk_indices wrt a different root (from the M roots)
+            for (root_index, (leaf_index, child_node)) in chunk_indices
+                .iter()
+                .zip(root_children_nodes.iter())
+                .enumerate()
+            {
+                let mut current_level_witness_nodes = Vec::new();
+                let mut other_level_witness_nodes = Vec::new();
+
+                // Get path to the leaf for this index
+                child_node.generate_witness_node_for_this_and_children(
+                    *leaf_index as usize,
+                    root_index,
+                    &mut current_level_witness_nodes,
+                    &mut other_level_witness_nodes,
+                )?;
+
+                // For each level
+                if root_index == 0 {
+                    for _ in 0..current_level_witness_nodes.len() {
+                        multi_path_current_level_nodes
+                            .push(Vec::with_capacity(chunk_indices.len()));
+                    }
+                    for _ in 0..other_level_witness_nodes.len() {
+                        multi_path_other_level_nodes.push(Vec::with_capacity(chunk_indices.len()));
+                    }
+                }
+
+                for (level, node) in current_level_witness_nodes.into_iter().enumerate() {
+                    multi_path_current_level_nodes[level].push(node);
+                }
+                for (level, node) in other_level_witness_nodes.into_iter().enumerate() {
+                    multi_path_other_level_nodes[level].push(node);
+                }
+            }
+
+            all_current_level_internal_nodes.push(multi_path_current_level_nodes);
+            all_other_level_internal_nodes.push(multi_path_other_level_nodes);
+        }
+
+        Ok((
+            root_children_x_coords,
+            child_nodes_to_randomize,
+            all_current_level_internal_nodes,
+            all_other_level_internal_nodes,
+        ))
     }
 }
 
@@ -342,9 +317,11 @@ pub struct WitnessMultiPathForSameRoot<
 > {
     /// Root children data (x-coords and selected children)
     pub root_children: RootChildrenForMultiPath<L, M, P0, P1>,
-    /// Internal even level nodes for each multi-path (excluding root)
+    /// Internal even level nodes for each multi-path (excluding root). Each item of the outer vector
+    /// is a chunk of multi-paths with chunk size upto M.
     pub even_internal_nodes: Vec<Vec<Vec<WitnessNode<L, P0, P1>>>>,
-    /// Internal odd level nodes for each multi-path (excluding root)
+    /// Internal odd level nodes for each multi-path (excluding root). Each item of the outer vector
+    /// is a chunk of multi-paths with chunk size upto M.
     pub odd_internal_nodes: Vec<Vec<Vec<WitnessNode<L, P1, P0>>>>,
 }
 
@@ -431,11 +408,15 @@ pub struct CurveTreeWitnessMultiPath<
     P0: SWCurveConfig + Copy,
     P1: SWCurveConfig + Copy,
 > {
-    /// list of witness nodes corresponding to internal even level nodes. The inner vector contains witness
-    /// nodes for each path at the same level
+    /// List of witness nodes corresponding to internal even level nodes. Each item of the inner vector
+    /// contains witness nodes for each path at the same level, i.e. even_internal_nodes[0] is for
+    /// the top even level nodes on all paths. The length of the inner vector is the number of leaves
+    /// for which this path is created and is <= M
     pub even_internal_nodes: Vec<Vec<WitnessNode<L, P0, P1>>>,
-    /// list of witness nodes corresponding to internal odd level nodes. The inner vector contains witness
-    /// nodes for each path at the same level
+    /// List of witness nodes corresponding to internal odd level nodes. Each item of the inner vector
+    /// contains witness nodes for each path at the same level, i.e. odd_internal_nodes[0] is for
+    /// the top odd level nodes on all paths. The length of the inner vector is the number of leaves
+    /// for which this path is created and is <= M
     pub odd_internal_nodes: Vec<Vec<WitnessNode<L, P1, P0>>>,
 }
 
@@ -776,7 +757,7 @@ impl<
                                     .into_affine(),
                             ),
                             Some(rerandomization_scalars_of_selected[inclusion_index]),
-                        );
+                        )?;
                     }
                 }
             }
@@ -882,7 +863,7 @@ impl<
                     all_x_coords_root_children,
                     selected_children_plus_delta_grp_by_root_index,
                     even_prover,
-                );
+                )?;
             Ok((
                 RootChildrenSelected::Even(selected_children_plus_delta),
                 RootChildrenCoordsVars::Even(selected_children_of_root_xs),
@@ -918,7 +899,7 @@ impl<
                 all_x_coords_root_children,
                 selected_children_plus_delta_grp_by_root_index,
                 odd_prover,
-            );
+            )?;
             Ok((
                 RootChildrenSelected::Odd(selected_children_plus_delta),
                 RootChildrenCoordsVars::Odd(selected_children_of_root_xs),
@@ -932,7 +913,7 @@ impl<
         all_x_coords_root_children: Vec<F0>,
         mut selected_children_plus_delta_grp_by_root_index: Vec<Vec<Affine<P1>>>,
         prover: &mut Prover<MerlinTranscript, Affine<P0>>,
-    ) -> (Vec<Vec<Affine<P1>>>, Vec<Vec<LinearCombination<F0>>>) {
+    ) -> Result<(Vec<Vec<Affine<P1>>>, Vec<Vec<LinearCombination<F0>>>), Error> {
         let mut selected_children_plus_delta = vec![vec![]; num_paths];
         // Split the variables of the vector commitments into chunks corresponding to the `max_num_indices` roots.
         let chunks = all_x_coords_root_children
@@ -944,10 +925,7 @@ impl<
                 .iter()
                 .map(|s| prover.allocate(Some(s.x)).unwrap().into())
                 .collect::<Vec<_>>();
-            let c = prover
-                .transcript()
-                .challenge_scalar(b"challenge-for-multi_select");
-            multi_select_public_set_ext_challenge(prover, xs.clone(), chunk, c);
+            multi_select_public_set(prover, xs.clone(), chunk)?;
             for (j, x) in xs.into_iter().enumerate() {
                 selected_children_of_root_xs[j].push(x);
             }
@@ -959,7 +937,7 @@ impl<
                 selected_children_plus_delta[j].push(child);
             }
         }
-        (selected_children_plus_delta, selected_children_of_root_xs)
+        Ok((selected_children_plus_delta, selected_children_of_root_xs))
     }
 
     pub fn randomize_nodes<R: CryptoRngCore>(
@@ -971,8 +949,8 @@ impl<
         Vec<Affine<P1>>,
         Vec<P0::ScalarField>,
         Vec<P1::ScalarField>,
-        Vec<Affine<P0>>,
-        Vec<P0::ScalarField>,
+        Vec<Affine<P0>>,      // re-randomized leaves
+        Vec<P0::ScalarField>, // re-randomization scalars for leaves
     ) {
         let num_indices = self.num_indices();
 
@@ -985,6 +963,7 @@ impl<
         let mut even_rerandomization_scalars: Vec<P0::ScalarField> = Vec::with_capacity(odd_length);
         let mut even_rerandomized_sum_of_nodes: Vec<Affine<P0>> = Vec::with_capacity(odd_length);
 
+        // Sum each child of multi-node at even level and randomize the sum
         for even_multi_node in &self.even_internal_nodes {
             let mut sum_of_selected = Projective::<P1>::zero();
             for even_node in even_multi_node {
@@ -997,10 +976,12 @@ impl<
             odd_rerandomized_sum_of_nodes.push((sum_of_selected + blinding).into());
         }
 
-        let mut rerandomization_scalars_of_selected = vec![F0::ZERO; num_indices as usize];
-        let mut rerandomizations_of_selected = vec![Affine::<P0>::default(); num_indices as usize];
+        let mut rerandomization_scalars_of_leaves = vec![F0::ZERO; num_indices as usize];
+        let mut rerandomizations_of_leaves = vec![Affine::<P0>::default(); num_indices as usize];
+        // Sum each child of multi-node at odd level except for leaf and randomize the sum
         for (index, odd_multi_node) in self.odd_internal_nodes.iter().enumerate() {
             if index < self.odd_internal_nodes.len() - 1 {
+                // parent of non-leaf
                 let mut sum_of_selected = Projective::<P0>::zero();
                 for odd_node in odd_multi_node {
                     sum_of_selected += odd_node.child_node_to_randomize;
@@ -1011,12 +992,12 @@ impl<
                 let blinding = even_pc_gens.B_blinding.mul(rerandomization).into_affine();
                 even_rerandomized_sum_of_nodes.push((sum_of_selected + blinding).into());
             } else {
-                // multi_node is the parent of leaves
+                // parent of leaves, randomize each leaf independently
                 for i in 0..num_indices as usize {
                     let rerandomization: F0 = F0::rand(rng);
-                    rerandomization_scalars_of_selected[i] = rerandomization;
+                    rerandomization_scalars_of_leaves[i] = rerandomization;
                     let blinding = even_pc_gens.B_blinding.mul(rerandomization).into_affine();
-                    rerandomizations_of_selected[i] =
+                    rerandomizations_of_leaves[i] =
                         (odd_multi_node[i].child_node_to_randomize + blinding).into();
                 }
             }
@@ -1026,8 +1007,8 @@ impl<
             odd_rerandomized_sum_of_nodes,
             even_rerandomization_scalars,
             odd_rerandomization_scalars,
-            rerandomizations_of_selected,
-            rerandomization_scalars_of_selected,
+            rerandomizations_of_leaves,
+            rerandomization_scalars_of_leaves,
         )
     }
 }

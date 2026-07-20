@@ -6,7 +6,7 @@ use alloc::{vec, vec::Vec};
 use ark_ff::Field;
 use core::iter::FromIterator;
 use core::marker::PhantomData;
-use core::ops::{Add, Mul, Neg, Sub};
+use core::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 use hashbrown::HashMap;
 
 #[cfg(all(
@@ -207,6 +207,64 @@ impl<F: Field, L: Into<LinearCombination<F>>> Sub<L> for LinearCombination<F> {
     }
 }
 
+impl<F: Field> AddAssign<F> for LinearCombination<F> {
+    fn add_assign(&mut self, c: F) {
+        self.terms.push((Variable::One(PhantomData), c));
+    }
+}
+
+impl<F: Field> SubAssign<F> for LinearCombination<F> {
+    fn sub_assign(&mut self, c: F) {
+        self.terms.push((Variable::One(PhantomData), -c));
+    }
+}
+
+impl<F: Field> AddAssign<Variable<F>> for LinearCombination<F> {
+    fn add_assign(&mut self, v: Variable<F>) {
+        self.terms.push((v, F::one()));
+    }
+}
+
+impl<F: Field> SubAssign<Variable<F>> for LinearCombination<F> {
+    fn sub_assign(&mut self, v: Variable<F>) {
+        self.terms.push((v, -F::one()));
+    }
+}
+
+impl<F: Field> AddAssign<&LinearCombination<F>> for LinearCombination<F> {
+    fn add_assign(&mut self, other: &LinearCombination<F>) {
+        self.terms.extend_from_slice(&other.terms);
+    }
+}
+
+impl<F: Field> SubAssign<&LinearCombination<F>> for LinearCombination<F> {
+    fn sub_assign(&mut self, other: &LinearCombination<F>) {
+        self.terms
+            .extend(other.terms.iter().map(|(v, c)| (*v, -*c)));
+    }
+}
+
+impl<F: Field> AddAssign<LinearCombination<F>> for LinearCombination<F> {
+    fn add_assign(&mut self, other: LinearCombination<F>) {
+        self.terms.extend(other.terms);
+    }
+}
+
+impl<F: Field> SubAssign<LinearCombination<F>> for LinearCombination<F> {
+    fn sub_assign(&mut self, other: LinearCombination<F>) {
+        self.terms
+            .extend(other.terms.into_iter().map(|(v, c)| (v, -c)));
+    }
+}
+
+impl<F: Field> MulAssign<F> for LinearCombination<F> {
+    fn mul_assign(&mut self, scalar: F) {
+        for (_, coeff) in self.terms.iter_mut() {
+            *coeff *= scalar;
+        }
+    }
+}
+
 // impl<F: Field> Mul<LinearCombination<F>> for F {
 //     type Output = LinearCombination<F>;
 
@@ -221,6 +279,24 @@ impl<F: Field, L: Into<LinearCombination<F>>> Sub<L> for LinearCombination<F> {
 // }
 
 impl<F: Field> LinearCombination<F> {
+    pub fn with_capacity(capacity: usize) -> Self {
+        LinearCombination {
+            terms: Vec::with_capacity(capacity),
+        }
+    }
+
+    pub fn reserve(&mut self, additional: usize) {
+        self.terms.reserve(additional);
+    }
+
+    pub fn push_term(&mut self, var: Variable<F>, coeff: F) {
+        self.terms.push((var, coeff));
+    }
+
+    pub fn add_constant(&mut self, c: F) {
+        self.terms.push((Variable::One(PhantomData), c));
+    }
+
     pub fn scalar_mul(self, scalar: F) -> LinearCombination<F> {
         let out_terms = self
             .terms

@@ -236,7 +236,6 @@ pub fn map_to_curve_simple_swu<F: Field, P: SWCurveConfig<BaseField = F>>(
     // so we avoid computing gx2 explicitly.
 
     // Not including theta like done in zcash pasta curves as the square root algorithm is different.
-    // TODO: Recheck with Amir as well.
     let y2 = zeta_u2 * element * y1;
     let num_x = if gx1_square { num_x1 } else { num_x2 };
     let y = if gx1_square { y1 } else { y2 };

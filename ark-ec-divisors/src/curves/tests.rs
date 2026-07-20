@@ -1,5 +1,5 @@
 use crate::util::DirectGenerator;
-use crate::{DivisorCurve, DivisorPoly, ScalarDecomposition, new_divisor};
+use crate::{new_divisor_checked, DivisorCurve, DivisorPoly, ScalarDecomposition};
 use ark_ec::short_weierstrass::Projective;
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{AdditiveGroup, Field, PrimeField, Zero};
@@ -49,11 +49,19 @@ fn check_divisor<C: DivisorCurve, R: CryptoRngCore>(rng: &mut R, points: Vec<Pro
     let precomputation = C::interpolator_for_scalar_mul();
 
     // Create the divisor
-    let divisor = new_divisor::<C>(&points, precomputation.borrow()).unwrap();
+    let divisor = new_divisor_checked::<C>(&points, precomputation.borrow()).unwrap();
+
     let eval = |c: Projective<C>| {
         let (x, y) = to_xy::<C>(c).unwrap();
         divisor.eval(x, y)
     };
+
+    for p in &points {
+        assert!(
+            eval(*p).is_zero(),
+            "divisor must vanish at every input point"
+        );
+    }
 
     // Decide challenges
     let c0 = Projective::<C>::rand(rng);
@@ -95,7 +103,7 @@ fn test_divisor<C: DivisorCurve>() {
 
         let start_new_divisor = Instant::now();
         // Create the divisor
-        let divisor = new_divisor::<C>(&points, precomputation.borrow()).unwrap();
+        let divisor = new_divisor_checked::<C>(&points, precomputation.borrow()).unwrap();
         new_divisor_times.push(start_new_divisor.elapsed());
 
         // Perform the original check
@@ -105,9 +113,9 @@ fn test_divisor<C: DivisorCurve>() {
 
         total_times.push(start_total.elapsed());
 
-        assert!(C::ScalarField::MODULUS_BIT_SIZE < 256);
+        assert!(C::ScalarField::MODULUS_BIT_SIZE <= 256);
         let x_len = divisor.x_coefficients.len().saturating_sub(1);
-        assert!(x_len <= 127, "x-len={x_len}");
+        assert!(x_len <= 128, "x-len={x_len}");
 
         // Decide challenges
         let c0 = Projective::<C>::rand(&mut rng);
@@ -218,11 +226,13 @@ fn test_same_point<C: DivisorCurve>() {
     let mut rng = StdRng::seed_from_u64(0);
     let p = Projective::<C>::rand(&mut rng);
     let mut points = vec![p, p];
-    let sum = points
-        .iter()
-        .copied()
-        .reduce(|a, b| a + b)
-        .unwrap_or_else(|| C::GENERATOR.into());
+    let sum = p + p;
+    points.push(-sum);
+    check_divisor(&mut rng, points);
+
+    let p = C::GENERATOR.into_group();
+    let mut points = vec![p, p];
+    let sum = p + p;
     points.push(-sum);
     check_divisor(&mut rng, points);
 }
@@ -231,7 +241,6 @@ fn test_subset_sum_to_infinity<C: DivisorCurve>() {
     let mut rng = StdRng::seed_from_u64(0);
     let mut check_divisor_times = Vec::new();
 
-    // Internally, a binary tree algorithm is used
     // This executes the first pass to end up with [0, 0] for further reductions
     {
         let p = Projective::<C>::rand(&mut rng);
@@ -266,6 +275,19 @@ fn test_subset_sum_to_infinity<C: DivisorCurve>() {
         let start = Instant::now();
         check_divisor(&mut rng, points);
         check_divisor_times.push(start.elapsed());
+    }
+
+    // Five points summing to infinity
+    {
+        let mut points = vec![
+            Projective::<C>::rand(&mut rng),
+            Projective::<C>::rand(&mut rng),
+            Projective::<C>::rand(&mut rng),
+            Projective::<C>::rand(&mut rng),
+        ];
+        let sum = points.iter().copied().reduce(|a, b| a + b).unwrap();
+        points.push(-sum);
+        check_divisor(&mut rng, points);
     }
 
     // Calculate median
@@ -349,10 +371,12 @@ fn scalar_mul_divisor_correctness<C: DivisorCurve>() {
         let generator = Projective::<C>::rand(&mut rng);
 
         let mul_start = Instant::now();
-        let poly = decomposition
-            .scalar_mul_divisor(DirectGenerator::from(generator))
+        let (poly, result) = decomposition
+            .scalar_mul_divisor(DirectGenerator::from(generator.into_affine()))
             .unwrap();
         scalar_mul_times.push(mul_start.elapsed());
+
+        assert_eq!(result, generator * scalar);
 
         // 1. Verify it vanishes at -(s * G)
         let neg_s_g = -(generator * scalar);
@@ -378,12 +402,110 @@ fn scalar_mul_divisor_correctness<C: DivisorCurve>() {
     let scalar_mul_median = scalar_mul_times[scalar_mul_times.len() / 2];
 
     println!(
-        "scalar_mul_divisor_correctness: ScalarDecomposition::new median {:?} ({} iterations), scalar_mul_divisor median {:?} ({} iterations)",
+        "scalar_mul_divisor_correctness: ScalarDecomposition::new median {:?} ({} iterations), \
+        scalar_mul_divisor median {:?} ({} iterations)",
         decomposition_median,
         decomposition_times.len(),
         scalar_mul_median,
-        scalar_mul_times.len()
+        scalar_mul_times.len(),
     );
+}
+
+/// Evaluate `LHS - RHS` of the log-derivative (Eagen) identity that `constrain_challenge_eval`
+/// enforces in-circuit, for a given (possibly tampered) `divisor` against the `points`
+/// whose principal divisor it claims to be, at the random line through `c0, c1, c2 = -(c0+c1)`.
+/// For the correct principal divisor the result is zero, for incorrect, its non-zero.
+fn logderiv_discrepancy<C: DivisorCurve>(
+    divisor: &DivisorPoly<C::BaseField>,
+    points: &[Projective<C>],
+    c0: Projective<C>,
+    c1: Projective<C>,
+) -> C::BaseField {
+    let c2 = -(c0 + c1);
+    let (slope, intercept) = slope_intercept::<C>(c0, c1);
+
+    // dx/dz helper polynomials (depend only on the slope and the curve, not on the divisor).
+    let dx_helper = DivisorPoly {
+        y_coefficient: C::BaseField::zero(),
+        yx_coefficients: vec![],
+        x_coefficients: vec![C::BaseField::zero(), C::BaseField::from(3u64)],
+        zero_coefficient: C::COEFF_A,
+    };
+    let dy_helper = DivisorPoly {
+        y_coefficient: C::BaseField::from(2u64),
+        yx_coefficients: vec![],
+        x_coefficients: vec![],
+        zero_coefficient: C::BaseField::zero(),
+    };
+    let dz_helper = (dy_helper.clone() * -slope) + &dx_helper;
+
+    let (ddx, ddy) = divisor.differentiate();
+    let lhs_at = |c: Projective<C>| {
+        let (x, y) = to_xy::<C>(c).unwrap();
+        let n_0 = (C::BaseField::from(3u64) * (x * x)) + C::COEFF_A;
+        let d_0 = (C::BaseField::from(2u64) * y).inverse().unwrap();
+        let p_0_n_0 = n_0 * d_0;
+        let fraction_1_n = (p_0_n_0 * ddy.eval(x, y)) + ddx.eval(x, y);
+        let fraction_1_d = divisor.eval(x, y);
+        let fraction_2_n = dy_helper.eval(x, y);
+        let fraction_2_d = dz_helper.eval(x, y);
+        fraction_1_n * fraction_2_n * (fraction_1_d * fraction_2_d).inverse().unwrap()
+    };
+    let lhs = lhs_at(c0) + lhs_at(c1) + lhs_at(c2);
+
+    let mut rhs = C::BaseField::zero();
+    for point in points {
+        let (x, y) = to_xy::<C>(*point).unwrap();
+        rhs += (intercept - (y - (slope * x))).inverse().unwrap();
+    }
+    lhs - rhs
+}
+
+fn tampered_divisor_breaks_identity<C: DivisorCurve>() {
+    let mut rng = StdRng::seed_from_u64(42);
+
+    // A set of points summing to identity, and its honest principal divisor.
+    let mut points = vec![];
+    for _ in 0..5 {
+        points.push(Projective::<C>::rand(&mut rng));
+    }
+    let sum = points.iter().copied().reduce(|a, b| a + b).unwrap();
+    points.push(-sum);
+
+    let precomputation = C::interpolator_for_scalar_mul();
+    let divisor = new_divisor_checked::<C>(&points, precomputation.borrow()).unwrap();
+
+    let c0 = Projective::<C>::rand(&mut rng);
+    let mut c1 = Projective::<C>::rand(&mut rng);
+    while c1 == c0 {
+        c1 = Projective::<C>::rand(&mut rng);
+    }
+
+    assert!(logderiv_discrepancy::<C>(&divisor, &points, c0, c1).is_zero());
+
+    // Wrong constant term
+    let mut t_zero = divisor.clone();
+    t_zero.zero_coefficient += C::BaseField::ONE;
+    assert!(!logderiv_discrepancy::<C>(&t_zero, &points, c0, c1).is_zero());
+
+    // Wrong x-coefficient
+    assert!(!divisor.x_coefficients.is_empty());
+    let mut t_x = divisor.clone();
+    let xi = t_x.x_coefficients.len() / 2;
+    t_x.x_coefficients[xi] += C::BaseField::ONE;
+    assert!(!logderiv_discrepancy::<C>(&t_x, &points, c0, c1).is_zero());
+
+    // Wrong yx-coefficient
+    if !divisor.yx_coefficients.is_empty() {
+        let mut t_yx = divisor.clone();
+        t_yx.yx_coefficients[0] += C::BaseField::ONE;
+        assert!(!logderiv_discrepancy::<C>(&t_yx, &points, c0, c1).is_zero());
+    }
+
+    // Wrong y-coefficient
+    let mut t_y = divisor.clone();
+    t_y.y_coefficient += C::BaseField::ONE;
+    assert!(!logderiv_discrepancy::<C>(&t_y, &points, c0, c1).is_zero());
 }
 
 /*#[cfg(feature = "ed25519")]
@@ -433,37 +555,46 @@ fn test_divisor_ed25519() {
     test_divisor::<EdwardsProjective>();
 }*/
 
-macro_rules! divisor_tests {
-    ($config:ty) => {
-        test_same_point::<$config>();
-        test_subset_sum_to_infinity::<$config>();
-        test_divisor::<$config>();
-        decomposition_correctness::<$config>();
-        scalar_mul_divisor_correctness::<$config>();
-    };
+fn run_divisor_tests<C: DivisorCurve>() {
+    test_same_point::<C>();
+    test_subset_sum_to_infinity::<C>();
+    test_divisor::<C>();
+    decomposition_correctness::<C>();
+    scalar_mul_divisor_correctness::<C>();
+    tampered_divisor_breaks_identity::<C>();
 }
 
 #[test]
 fn test_divisor_pallas() {
-    divisor_tests!(ark_pallas::PallasConfig);
+    run_divisor_tests::<ark_pallas::PallasConfig>();
 }
 
 #[test]
 fn test_divisor_vesta() {
-    divisor_tests!(ark_vesta::VestaConfig);
+    run_divisor_tests::<ark_vesta::VestaConfig>();
 }
 
 #[test]
 fn test_divisor_helios() {
-    divisor_tests!(ark_helios::HeliosConfig);
+    run_divisor_tests::<ark_helios::HeliosConfig>();
 }
 
 #[test]
 fn test_divisor_selene() {
-    divisor_tests!(ark_selene::SeleneConfig);
+    run_divisor_tests::<ark_selene::SeleneConfig>();
 }
 
 #[test]
 fn test_divisor_wei25519() {
-    divisor_tests!(ark_wei25519::Wei25519Config);
+    run_divisor_tests::<ark_wei25519::Wei25519Config>();
+}
+
+#[test]
+fn test_divisor_secp256k1() {
+    run_divisor_tests::<ark_secp256k1::Config>();
+}
+
+#[test]
+fn test_divisor_secq256k1() {
+    run_divisor_tests::<ark_secq256k1::Config>();
 }

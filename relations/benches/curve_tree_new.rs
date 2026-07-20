@@ -98,6 +98,7 @@ fn setup_curve_tree_data_new<const L: usize>(height: usize) -> NewSetupData<L> {
             &mut vesta_prover,
             &*SRProofParamsNewPallasLeaf,
             &mut rng,
+            None,
         )
         .unwrap();
 
@@ -209,6 +210,7 @@ fn curve_tree_prove_new<const L: usize>(c: &mut Criterion, height: usize) {
                     &mut vesta_prover,
                     &*SRProofParamsNewPallasLeaf,
                     &mut rng,
+                    None,
                 )
                 .unwrap();
 

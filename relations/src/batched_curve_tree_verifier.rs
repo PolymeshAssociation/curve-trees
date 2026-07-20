@@ -8,12 +8,12 @@ use crate::single_level_select_and_rerandomize::*;
 use crate::batched_curve_tree_prover::RootChildrenCoordsVars;
 use crate::curve_tree::{CurveTree, Root, RootNode, SelectAndRerandomizeMultiPath};
 use crate::parameters::{SelRerandProofParameters, SingleLayerProofParameters};
-use crate::select::multi_select_public_set_ext_challenge;
+use crate::select::multi_select_public_set;
 use ark_ec::{models::short_weierstrass::SWCurveConfig, short_weierstrass::Affine};
 use ark_ff::{PrimeField, Zero};
-use ark_std::{string::ToString, vec, vec::Vec};
+use ark_std::{format, string::ToString, vec, vec::Vec};
 use core::borrow::BorrowMut;
-use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
+use dock_crypto_utils::transcript::MerlinTranscript;
 
 impl<
         const L: usize,
@@ -39,10 +39,11 @@ impl<
 
         match self {
             Self::Odd(ct) => {
-                assert_eq!(
-                    randomized_path.even_commitments.len(),
-                    randomized_path.odd_commitments.len()
-                );
+                if randomized_path.even_commitments.len() != randomized_path.odd_commitments.len() {
+                    return Err(Error::MalformedProofInput(
+                        "even_commitments and odd_commitments must have equal length for odd level root".to_string(),
+                    ));
+                }
                 let mut sum_of_roots = Projective::<P1>::zero();
                 for i in 0..num_indices {
                     sum_of_roots += ct.commitment(i as usize)
@@ -52,10 +53,13 @@ impl<
                 randomized_path.odd_commitments = odd_commitments_with_root;
             }
             Self::Even(ct) => {
-                assert_eq!(
-                    randomized_path.even_commitments.len() + 1,
-                    randomized_path.odd_commitments.len()
-                );
+                if randomized_path.even_commitments.len() + 1
+                    != randomized_path.odd_commitments.len()
+                {
+                    return Err(Error::MalformedProofInput(
+                        "odd_commitments must have exactly one more element than even_commitments for even level root".to_string(),
+                    ));
+                }
                 let mut sum_of_roots = Projective::<P0>::zero();
                 for i in 0..num_indices {
                     sum_of_roots += ct.commitment(i as usize)
@@ -98,11 +102,16 @@ impl<
                 for i in 0..num_indices {
                     children.extend_from_slice(root.x_coord_children[i as usize].as_slice());
                 }
+                let odd_commitment = self.odd_commitments.get(0).ok_or_else(|| {
+                    Error::MalformedProofInput(
+                        "missing root child in odd_commitments for even root".to_string(),
+                    )
+                })?;
                 root_level_batched_select_and_rerandomize(
                     even_verifier,
                     &parameters.odd_parameters,
                     num_indices,
-                    &self.odd_commitments[0],
+                    odd_commitment,
                     children,
                     None,
                     None,
@@ -114,11 +123,16 @@ impl<
                 for i in 0..num_indices {
                     children.extend_from_slice(root.x_coord_children[i as usize].as_slice());
                 }
+                let even_commitment = self.even_commitments.get(0).ok_or_else(|| {
+                    Error::MalformedProofInput(
+                        "missing root child in even_commitments for odd root".to_string(),
+                    )
+                })?;
                 root_level_batched_select_and_rerandomize(
                     odd_verifier,
                     &parameters.even_parameters,
                     num_indices,
-                    &self.even_commitments[0],
+                    even_commitment,
                     children,
                     None,
                     None,
@@ -179,22 +193,28 @@ impl<
         }
         let mut root_children_selected_coord_vars = match root {
             Root::Even(node) => {
-                RootChildrenCoordsVars::Even(Self::process_root_nodes_for_given_multi_paths_with_common_root(node, max_num_indices, selected_children_count_grp_by_root_index, paths.len(), even_verifier))
+                RootChildrenCoordsVars::Even(Self::process_root_nodes_for_given_multi_paths_with_common_root(node, max_num_indices, selected_children_count_grp_by_root_index, paths.len(), even_verifier)?)
             }
             Root::Odd(node) => {
-                RootChildrenCoordsVars::Odd(SelectAndRerandomizeMultiPath::<L, M, P1, P0>::process_root_nodes_for_given_multi_paths_with_common_root(node, max_num_indices, selected_children_count_grp_by_root_index, paths.len(), odd_verifier))
+                RootChildrenCoordsVars::Odd(SelectAndRerandomizeMultiPath::<L, M, P1, P0>::process_root_nodes_for_given_multi_paths_with_common_root(node, max_num_indices, selected_children_count_grp_by_root_index, paths.len(), odd_verifier)?)
             }
         };
 
         for path in paths {
             let num_indices = path.num_indices();
 
+            let even_commitment = path.even_commitments.get(0).ok_or_else(|| {
+                Error::MalformedProofInput("missing even_commitments for path".to_string())
+            })?;
+            let odd_commitment = path.odd_commitments.get(0).ok_or_else(|| {
+                Error::MalformedProofInput("missing odd_commitments for path".to_string())
+            })?;
             root_children_selected_coord_vars.validate_and_re_randomize_children(
                 None,
                 even_verifier,
                 odd_verifier,
-                &path.even_commitments[0],
-                &path.odd_commitments[0],
+                even_commitment,
+                odd_commitment,
                 None,
                 None,
                 num_indices,
@@ -214,7 +234,7 @@ impl<
         selected_children_count_grp_by_root_index: Vec<u32>,
         num_paths: usize,
         verifier: &mut Verifier<T, Affine<P0>>,
-    ) -> Vec<Vec<LinearCombination<P0::ScalarField>>> {
+    ) -> Result<Vec<Vec<LinearCombination<P0::ScalarField>>>, Error> {
         let mut selected_children_of_root_xs = vec![vec![]; num_paths];
         for root_index in 0..max_num_indices as usize {
             let children_of_root = root_node.x_coord_children[root_index].as_slice();
@@ -222,15 +242,12 @@ impl<
             let xs = (0..selected_children_count_grp_by_root_index[root_index])
                 .map(|_| verifier.allocate(None).unwrap().into())
                 .collect::<Vec<_>>();
-            let c = verifier
-                .transcript()
-                .challenge_scalar(b"challenge-for-multi_select");
-            multi_select_public_set_ext_challenge(verifier, xs.clone(), children_of_root, c);
+            multi_select_public_set(verifier, xs.clone(), children_of_root)?;
             for (j, x) in xs.into_iter().enumerate() {
                 selected_children_of_root_xs[j].push(x);
             }
         }
-        selected_children_of_root_xs
+        Ok(selected_children_of_root_xs)
     }
 
     pub fn process_non_root_nodes<T: BorrowMut<MerlinTranscript>>(
@@ -271,6 +288,9 @@ impl<
         odd_parameters: &SingleLayerProofParameters<P1>,
     ) -> Result<(), Error> {
         let num_indices = self.num_indices();
+        if num_indices == 0 {
+            return Err(Error::NeedNonZeroNumberOfIndices);
+        }
         for parent_index in 0..self.even_commitments.len() {
             // If the root is at even level, then the first element in self.odd_commitments will be child
             // of the root and its already processed in `root_level_select_and_rerandomize`
@@ -279,6 +299,12 @@ impl<
             } else {
                 parent_index
             };
+            let odd_child = self.odd_commitments.get(child_index).ok_or_else(|| {
+                Error::MalformedProofInput(format!(
+                    "odd_commitments has no child at index {}",
+                    child_index
+                ))
+            })?;
             let variables = even_verifier
                 .commit_vec(
                     L * num_indices as usize,
@@ -291,7 +317,7 @@ impl<
                 even_verifier,
                 odd_parameters,
                 num_indices,
-                &self.odd_commitments[child_index],
+                odd_child,
                 variables,
                 None,
                 None,
@@ -307,6 +333,14 @@ impl<
         even_parameters: &SingleLayerProofParameters<P0>,
     ) -> Result<(), Error> {
         let num_indices = self.num_indices();
+        if num_indices == 0 {
+            return Err(Error::NeedNonZeroNumberOfIndices);
+        }
+        if self.odd_commitments.is_empty() {
+            return Err(Error::MalformedProofInput(
+                "odd_commitments is empty in batched verifier gadget".to_string(),
+            ));
+        }
         for parent_index in 0..self.odd_commitments.len() {
             // If the root is at odd level, then the first element in self.even_commitments will be child
             // of the root and its already processed in `root_level_select_and_rerandomize`
@@ -320,20 +354,34 @@ impl<
                 .into_iter()
                 .map(|v| LinearCombination::<P1::ScalarField>::from(v))
                 .collect();
-            if parent_index < self.odd_commitments.len() - 1 {
+            let last_parent = self.odd_commitments.len() - 1;
+            if parent_index < last_parent {
+                let even_child = self.even_commitments.get(child_index).ok_or_else(|| {
+                    Error::MalformedProofInput(format!(
+                        "even_commitments has no child at index {}",
+                        child_index
+                    ))
+                })?;
                 single_level_batched_select_and_rerandomize(
                     odd_verifier,
                     even_parameters,
                     num_indices,
-                    &self.even_commitments[child_index],
+                    even_child,
                     variables,
                     None,
                     None,
                 )?;
             } else {
                 // Split the variables of the vector commitments into chunks corresponding to the `num_indices` parents.
-                let chunks = variables.chunks_exact(variables.len() / num_indices as usize);
-                for (i, chunk) in chunks.enumerate() {
+                let chunk_len = variables.len() / num_indices as usize;
+                if variables.len() % num_indices as usize != 0 {
+                    return Err(Error::MalformedProofInput(format!(
+                        "variables length {} is not divisible by num_indices {}",
+                        variables.len(),
+                        num_indices
+                    )));
+                }
+                for (i, chunk) in variables.chunks_exact(chunk_len).enumerate() {
                     single_level_select_and_rerandomize(
                         odd_verifier,
                         even_parameters,
@@ -341,7 +389,7 @@ impl<
                         chunk.to_vec(),
                         None,
                         None,
-                    );
+                    )?;
                 }
             }
         }
@@ -360,6 +408,8 @@ impl<
                 num_indices,
                 M as u32,
             ))
+        } else if num_indices == 0 {
+            Err(Error::NeedNonZeroNumberOfIndices)
         } else {
             Ok(num_indices)
         }

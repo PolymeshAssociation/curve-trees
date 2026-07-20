@@ -3,11 +3,13 @@
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, vec, vec::Vec};
 
-use ark_ec::{AffineRepr, VariableBaseMSM};
-use ark_ff::Field;
-use ark_std::{format, string::ToString, One, UniformRand, Zero};
+use ark_ec::scalar_mul::variable_base::msm_bigint;
+use ark_ec::AffineRepr;
+use ark_ff::{Field, PrimeField};
+use ark_std::{cfg_into_iter, format, string::ToString, One, UniformRand, Zero};
 use core::borrow::BorrowMut;
 use core::mem;
+use dock_crypto_utils::ff::powers;
 use dock_crypto_utils::randomized_mult_checker::RandomizedMultChecker;
 use dock_crypto_utils::transcript::MerlinTranscript;
 use rand_core::{CryptoRng, RngCore};
@@ -20,13 +22,14 @@ use super::proof::R1CSProof;
 
 use crate::errors::R1CSError;
 use crate::generators::{BulletproofGens, PedersenGens};
-use crate::r1cs::Metrics;
+use crate::r1cs::prover::{COMMITMENT_LABEL, VEC_COMMITMENT_LABEL};
+use crate::r1cs::{committed_t_degrees, degrees, t_poly_degree, Metrics};
 use crate::transcript::TranscriptProtocol;
-
-use super::op_splits;
-
-pub mod batch;
 pub use batch::{batch_verify_with_given_randomness, batch_verify_with_rng};
+pub mod batch;
+
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
 
 /// A [`ConstraintSystem`] implementation for use by the verifier.
 ///
@@ -48,9 +51,9 @@ pub struct Verifier<T: BorrowMut<MerlinTranscript>, C: AffineRepr> {
     ///
     /// Because the `VerifierCS` only keeps the constraints
     /// themselves, it doesn't record the assignments (they're all
-    /// `Missing`), so the `num_vars` isn't kept implicitly in the
+    /// `Missing`), so the `num_multiplier` isn't kept implicitly in the
     /// variable assignments.
-    pub(crate) num_vars: usize,
+    pub(crate) num_multiplier: usize,
     pub(crate) V: Vec<C>,
 
     /// This list holds closures that will be called in the second phase of the protocol,
@@ -94,8 +97,8 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> ConstraintSystem<C::ScalarFi
         Variable<C::ScalarField>,
         Variable<C::ScalarField>,
     ) {
-        let var = self.num_vars;
-        self.num_vars += 1;
+        let var = self.num_multiplier;
+        self.num_multiplier += 1;
 
         // Create variables for l,r,o
         let l_var = Variable::MultiplierLeft(var);
@@ -117,8 +120,8 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> ConstraintSystem<C::ScalarFi
     ) -> Result<Variable<C::ScalarField>, R1CSError> {
         match self.pending_multiplier {
             None => {
-                let i = self.num_vars;
-                self.num_vars += 1;
+                let i = self.num_multiplier;
+                self.num_multiplier += 1;
                 self.pending_multiplier = Some(i);
                 Ok(Variable::MultiplierLeft(i))
             }
@@ -140,8 +143,8 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> ConstraintSystem<C::ScalarFi
         ),
         R1CSError,
     > {
-        let var = self.num_vars;
-        self.num_vars += 1;
+        let var = self.num_multiplier;
+        self.num_multiplier += 1;
 
         // Create variables for l,r,o
         let l_var = Variable::MultiplierLeft(var);
@@ -153,7 +156,7 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> ConstraintSystem<C::ScalarFi
 
     fn metrics(&self) -> Metrics {
         Metrics {
-            multipliers: self.num_vars,
+            multipliers: self.num_multiplier,
             constraints: self.constraints.len() + self.deferred_constraints.len(),
             phase_one_constraints: self.constraints.len(),
             phase_two_constraints: self.deferred_constraints.len(),
@@ -280,7 +283,7 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
         Verifier {
             vec_comms: Vec::new(),
             transcript,
-            num_vars: 0,
+            num_multiplier: 0,
             V: Vec::new(),
             constraints: Vec::new(),
             deferred_constraints: Vec::new(),
@@ -289,7 +292,7 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
     }
 
     pub fn size(&self) -> usize {
-        let mut n = self.num_vars;
+        let mut n = self.num_multiplier;
         for (_, dim) in self.vec_comms.iter() {
             n = core::cmp::max(*dim, n)
         }
@@ -315,7 +318,9 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
         self.V.push(commitment);
 
         // Add the commitment to the transcript.
-        self.transcript.borrow_mut().append_point(b"V", &commitment);
+        self.transcript
+            .borrow_mut()
+            .append_point(COMMITMENT_LABEL, &commitment);
 
         Variable::Committed(i)
     }
@@ -326,7 +331,9 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
         let comm_idx = self.vec_comms.len();
 
         // add the commitment to the transcript.
-        self.transcript.borrow_mut().append_point(b"V", &comm);
+        self.transcript
+            .borrow_mut()
+            .append_point(VEC_COMMITMENT_LABEL, &comm);
 
         // add to list of commitments
         self.vec_comms.push((comm, dimension));
@@ -363,7 +370,7 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
         Vec<Vec<C::ScalarField>>,
         C::ScalarField,
     ) {
-        let n = self.num_vars;
+        let n = self.num_multiplier;
         let m = self.V.len();
 
         let mut wL = vec![C::ScalarField::zero(); n];
@@ -462,10 +469,7 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
         bp_gens: &BulletproofGens<C>,
         rng: &mut R,
     ) -> Result<(), R1CSError> {
-        let verification_tuple = match self.verification_scalars_and_points_with_rng(proof, rng) {
-            Err(e) => return Err(e),
-            Ok(t) => t,
-        };
+        let verification_tuple = self.verification_scalars_and_points_with_rng(proof, rng)?;
         verify_given_verification_tuple(verification_tuple, pc_gens, bp_gens)
     }
 
@@ -503,11 +507,14 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
         F: FnMut() -> C::ScalarField,
     {
         // pad
-        while self.size() > self.num_vars {
+        let size = self.size();
+        while size > self.num_multiplier {
             self.allocate_multiplier(None)?;
         }
 
         let n1 = self.size();
+
+        let mut max_vc_size = 0;
 
         // Commit a length _suffix_ for the number of high-level variables.
         // We cannot do this in advance because user can commit variables one-by-one,
@@ -515,14 +522,25 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
         // is prefixed with a separate label.
         let transcript = self.transcript.borrow_mut();
         transcript.merlin.append_u64(b"m", self.V.len() as u64);
+        transcript
+            .merlin
+            .append_u64(b"c", self.vec_comms.len() as u64);
+        for i in 0..self.vec_comms.len() {
+            if self.vec_comms[i].1 > max_vc_size {
+                max_vc_size = self.vec_comms[i].1;
+            }
+            transcript
+                .merlin
+                .append_u64(b"c_i", self.vec_comms[i].1 as u64);
+        }
 
         // number of commitments
         let ncomm = self.vec_comms.len();
 
-        // op_degree = 2 + 2 * floor(#comm / 2)
-        let op_degree = 2 + 2 * (ncomm / 2);
-        let t_poly_deg = 2 * (op_degree + 1);
-        let ops = op_splits(op_degree);
+        let (l_r_degrees, inner_product_degree) = degrees(ncomm);
+        let vec_com_degrees = &l_r_degrees[2..];
+        let t_poly_deg = t_poly_degree(inner_product_degree);
+        let comm_t_deg = committed_t_degrees(inner_product_degree);
 
         // #[cfg(debug_assertions)]
         // {
@@ -531,15 +549,14 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
         //     log::debug!("ops = {:?}", &ops);
         // }
 
-        let op_aLaR = ops[0];
-        let op_aO = ops[1];
-        let op_vec = &ops[2..];
+        let degree_aLaR = l_r_degrees[0];
+        let degree_aO = l_r_degrees[1];
 
-        if proof.T.len() != (t_poly_deg + 1) {
+        if proof.T.len() != comm_t_deg.len() {
             return Err(R1CSError::VerificationErrorWithReason(format!(
                 "Invalid length for proof.T: {} {}",
                 proof.T.len(),
-                t_poly_deg + 1
+                comm_t_deg.len()
             )));
         }
         transcript.validate_and_append_point(b"A_I1", &proof.A_I1)?;
@@ -575,13 +592,9 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
         let z = TranscriptProtocol::challenge_scalar::<C>(transcript, b"z");
 
         let transcript = self.transcript.borrow_mut();
-        for d in 0..t_poly_deg + 1 {
-            if d == op_degree {
-                continue;
-            }
-            // log::debug!("{}", &proof.T[d]);
+        for (d, T_d) in comm_t_deg.iter().copied().zip(proof.T.iter()) {
             transcript.append_index(b"t_poly degree", d as u64);
-            transcript.validate_and_append_point(b"t_poly", &proof.T[d])?;
+            transcript.validate_and_append_point(b"t_poly", T_d)?;
         }
 
         let u = TranscriptProtocol::challenge_scalar::<C>(transcript, b"u");
@@ -596,15 +609,8 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
 
         let r = randomness_getter();
 
-        // precompute x powers
-        let mut xs: Vec<C::ScalarField> = vec![C::ScalarField::zero(); t_poly_deg + 1];
-        let mut rxs: Vec<C::ScalarField> = vec![C::ScalarField::zero(); t_poly_deg + 1];
-        xs[0] = C::ScalarField::one();
-        rxs[0] = r;
-        for i in 1..xs.len() {
-            xs[i] = xs[i - 1] * x;
-            rxs[i] = rxs[i - 1] * x;
-        }
+        // xs = [1, x, x^2, .., x^t_poly_deg] // Only powers in `comm_t_deg` are used
+        let xs: Vec<C::ScalarField> = powers(&x, t_poly_deg as u32 + 1);
 
         transcript.append_scalar::<C>(b"t_x", &proof.t_x);
         transcript.append_scalar::<C>(b"t_x_blinding", &proof.t_x_blinding);
@@ -627,27 +633,28 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
         let b = proof.ipp_proof.b;
 
         let y_inv = y.inverse().ok_or(R1CSError::VerificationError)?;
+        // [1, 1/y, 1/y^2, 1/y^3, ...]
         let y_inv_vec = util::exp_iter(y_inv)
             .take(padded_n)
             .collect::<Vec<C::ScalarField>>();
 
+        // [wR_i*1/y^i, ..., 0,0,..]
         let yneg_wR = wR
             .into_iter()
             .zip(y_inv_vec.iter())
             .map(|(wRi, exp_y_inv)| wRi * exp_y_inv)
-            .chain(iter::repeat(C::ScalarField::zero()).take(padded_n - self.num_vars))
+            .chain(iter::repeat(C::ScalarField::zero()).take(padded_n - self.num_multiplier))
             .collect::<Vec<C::ScalarField>>();
 
-        let delta = inner_product(&yneg_wR[0..self.num_vars], &wL);
+        let delta = inner_product(&yneg_wR[0..self.num_multiplier], &wL);
 
         let u_for_g = iter::repeat(C::ScalarField::one())
             .take(n1)
             .chain(iter::repeat(u).take(n2 + pad));
 
-        let mut u_for_h = u_for_g.clone();
+        let u_for_h = u_for_g.clone();
 
-        debug_assert_eq!(op_aLaR.0, op_aLaR.1);
-        let xwR = xs[op_aLaR.0];
+        let xwR = xs[degree_aLaR.0];
 
         let g_scalars = yneg_wR
             .iter()
@@ -657,68 +664,50 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
 
         // r(x)
         let mut h_scalars = Vec::with_capacity(padded_n);
+
+        // contribution of vector commitments to r(x) polynomial
+        let mut vc_contrib_r = vec![C::ScalarField::zero(); max_vc_size];
+        for j in 0..wVCs.len() {
+            for (i, w) in wVCs[j].iter().enumerate() {
+                vc_contrib_r[i] += xs[vec_com_degrees[j].1] * w;
+            }
+        }
+
+        for (i, ((((wLi, wOi), si), y_inv), u_or_1)) in wL
+            .into_iter()
+            .chain(iter::repeat(C::ScalarField::zero()))
+            .zip(wO.into_iter().chain(iter::repeat(C::ScalarField::zero())))
+            .zip(s.iter().rev())
+            .zip(y_inv_vec.into_iter())
+            .zip(u_for_h.into_iter())
+            .enumerate()
         {
-            let mut wL = wL.into_iter();
-            let mut wO = wO.into_iter();
-            let mut s = s.iter().rev().take(padded_n);
-            let mut y_inv_vec = y_inv_vec.into_iter();
+            // compute right polynomial combination
+            let mut comb = C::ScalarField::zero();
 
-            for i in 0..padded_n {
-                let y_inv = y_inv_vec.next().ok_or(R1CSError::VerificationError)?;
-                let u_or_1 = u_for_h.next().ok_or(R1CSError::VerificationError)?;
+            // special terms
+            comb += xs[degree_aLaR.1] * wLi;
+            comb += xs[degree_aO.1] * wOi;
 
-                let si = s.next().ok_or(R1CSError::VerificationError)?;
-                let wLi = wL.next().unwrap_or_default();
-                let wOi = wO.next().unwrap_or_default();
-
-                // compute right polynomial combination
-                let mut comb = C::ScalarField::zero();
-                {
-                    // special terms
-                    comb += xs[op_aLaR.1] * wLi;
-                    comb += xs[op_aO.1] * wOi;
-
-                    // add terms for vector commitments (higher degrees).
-                    for j in 0..wVCs.len() {
-                        let wVCji = wVCs[j].get(i).copied().unwrap_or_default();
-                        comb += xs[op_vec[j].1] * wVCji;
-                    }
-                }
-
-                // y^{-n} o (w_O + w_L * x + w_VCi * x^2)
-                let res = u_or_1 * (y_inv * (comb - b * si) - C::ScalarField::one());
-
-                h_scalars.push(res);
+            // add terms for vector commitments (higher degrees)
+            if i < max_vc_size {
+                comb += vc_contrib_r[i];
             }
+
+            // y^{-n} o (w_O + w_L * x + w_VCi * x^2)
+            let res = u_or_1 * (y_inv * (comb - b * si) - C::ScalarField::one());
+
+            h_scalars.push(res);
         }
 
-        debug_assert_eq!(proof.T[op_degree], C::zero());
-        debug_assert_eq!(proof.T.len(), t_poly_deg + 1);
+        let xI = xs[degree_aLaR.0];
+        let xO = xs[degree_aO.0];
+        let xS = xs[inner_product_degree + 1];
 
-        // homomorphically evaluate t polynomial at x
-        let mut T_points = vec![];
-        let mut T_scalars = vec![];
-        for (d, _rx) in rxs.iter().enumerate().take(t_poly_deg + 1) {
-            if d == op_degree {
-                continue;
-            }
-            #[cfg(debug_assertions)]
-            {
-                log::debug!("T[{}]: {} {}", d, proof.T[d].clone(), _rx);
-            }
-            T_points.push(proof.T[d]);
-            T_scalars.push(rxs[d]);
-        }
-
-        debug_assert!(ncomm == 0 || A_I2 == C::zero());
-        debug_assert!(ncomm == 0 || A_O2 == C::zero());
-        debug_assert!(ncomm == 0 || S2 == C::zero());
-
-        let xI = xs[op_aLaR.0];
-        let xO = xs[op_aO.0];
-        let xS = xs[op_degree + 1];
-
-        let vscalar = (0..ncomm).map(|j| xs[op_vec[j].0]);
+        // "Split" the MSM in 2 parts, one part uses points dependent on the proof and other part's
+        // points are fixed generators G, H, B, B_blinding. There would only 1 MSM done eventually but
+        // this makes batching more efficient
+        let vscalar = (0..ncomm).map(|j| xs[vec_com_degrees[j].0]);
         let vcomm = self.vec_comms.iter().copied().map(|(comm, _)| comm);
 
         let proof_points = vcomm
@@ -729,7 +718,7 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
             .chain(iter::once(A_O2))
             .chain(iter::once(S2))
             .chain(self.V.iter().copied())
-            .chain(T_points.iter().copied())
+            .chain(proof.T.iter().copied())
             .chain(proof.ipp_proof.L_vec.iter().copied())
             .chain(proof.ipp_proof.R_vec.iter().copied())
             .collect();
@@ -741,23 +730,24 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
             .chain(iter::once(xI * u)) // A_I2
             .chain(iter::once(xO * u)) // A_O2
             .chain(iter::once(xS * u)) // S2
-            .chain(wV.iter().map(|wVi| *wVi * rxs[op_degree])) // V : at op-degree
-            .chain(T_scalars.iter().copied()) // T_points
+            .chain(wV.iter().map(|wVi| *wVi * xs[inner_product_degree] * r)) // for V, r since multiple relations are combined
+            .chain(comm_t_deg.iter().map(|d| xs[*d] * r)) // for T_points, homomorphically evaluate t polynomial at x, r since multiple relations are combined
             .chain(u_sq) // ipp_proof.L_vec
             .chain(u_inv_sq) // ipp_proof.R_vec
             .collect::<Vec<_>>();
 
-        let fixed_point_scalars: Vec<C::ScalarField> =
-            iter::once(w * (proof.t_x - a * b) + r * (xs[op_degree] * (wc + delta) - proof.t_x)) // B : shift (wc + delta) to the right power
-                .chain(iter::once(-proof.e_blinding - r * proof.t_x_blinding)) // B_blinding
-                .chain(g_scalars) // G
-                .chain(h_scalars) // H
-                .collect::<Vec<_>>();
+        let fixed_point_scalars: Vec<C::ScalarField> = iter::once(
+            w * (proof.t_x - a * b) + r * (xs[inner_product_degree] * (wc + delta) - proof.t_x),
+        ) // B : shift (wc + delta) to the right power
+        .chain(iter::once(-proof.e_blinding - r * proof.t_x_blinding)) // B_blinding
+        .chain(g_scalars) // G
+        .chain(h_scalars) // H
+        .collect::<Vec<_>>();
 
         Ok(VerificationTuple {
             proof_dependent_points: proof_points,
             proof_dependent_scalars: proof_scalars,
-            proof_independent_scalars: fixed_point_scalars,
+            fixed_point_scalars,
         })
     }
 }
@@ -772,7 +762,7 @@ pub fn verify_given_verification_tuple<C: AffineRepr>(
     msm_check(
         verification_tuple.proof_dependent_points,
         verification_tuple.proof_dependent_scalars,
-        verification_tuple.proof_independent_scalars,
+        verification_tuple.fixed_point_scalars,
         padded_n,
         pc_gens,
         bp_gens,
@@ -789,7 +779,7 @@ pub fn add_verification_tuple_to_rmc<C: AffineRepr>(
     let VerificationTuple {
         proof_dependent_points,
         proof_dependent_scalars,
-        proof_independent_scalars,
+        fixed_point_scalars: proof_independent_scalars,
     } = verification_tuple;
     let (b, s) = bases_and_scalars(
         proof_dependent_points,
@@ -813,7 +803,7 @@ pub fn add_pre_randomized_verification_tuple_to_rmc<C: AffineRepr>(
     let VerificationTuple {
         proof_dependent_points,
         proof_dependent_scalars,
-        proof_independent_scalars,
+        fixed_point_scalars: proof_independent_scalars,
     } = verification_tuple;
     let (b, s) = bases_and_scalars(
         proof_dependent_points,
@@ -829,21 +819,27 @@ pub fn add_pre_randomized_verification_tuple_to_rmc<C: AffineRepr>(
     Ok(())
 }
 
+/// The points and scalars to be used in the MSM to verify the proof.
+/// `proof_dependent_points` and `proof_dependent_scalars` are supposed to be of same length and
+/// are multiplied together in the MSM. `fixed_point_scalars` are multiplied by the fixed generators
+/// G, H, B, B_blinding.
 #[derive(Clone)]
 pub struct VerificationTuple<C: AffineRepr> {
     pub proof_dependent_points: Vec<C>,
     pub proof_dependent_scalars: Vec<C::ScalarField>,
-    pub proof_independent_scalars: Vec<C::ScalarField>,
+    pub fixed_point_scalars: Vec<C::ScalarField>,
 }
 
 impl<C: AffineRepr> VerificationTuple<C> {
+    /// Number of multipliers in the circuit which is same as the size of G (or H) vector used in
+    /// the MSM
     pub fn padded_n(&self) -> Result<u32, R1CSError> {
         let scalar_minus_g_and_h = self
-            .proof_independent_scalars
+            .fixed_point_scalars
             .len()
             .checked_sub(2)
-            .ok_or_else(|| R1CSError::VerificationErrorWithReason("proof_independent_scalars.len()-2 failed. Such a small proof would never happen in practice".to_string()))?;
-        // This can be be safely cast to 32 since parameters length always fits in u32
+            .ok_or_else(|| R1CSError::VerificationErrorWithReason("verification tuple is malformed: proof_independent_scalars must contain at least 2 elements".to_string()))?;
+        // This can be safely cast to 32 since parameters length always fits in u32
         Ok((scalar_minus_g_and_h / 2) as u32)
     }
 }
@@ -864,8 +860,13 @@ pub fn msm_check<C: AffineRepr>(
         pc_gens,
         bp_gens,
     )?;
+    let s = cfg_into_iter!(s)
+        .map(|s| s.into_bigint())
+        .collect::<Vec<_>>();
+    // msm_unchecked is found to be slower than msm_bigint as all the scalars are large
+    // so don't benefit from precomputation of msm_signed
     // let start = std::time::Instant::now();
-    let mega_check = C::Group::msm_unchecked(&b, &s);
+    let mega_check = msm_bigint::<C::Group>(&b, &s);
     // println!("msm_check took {:?}", start.elapsed());
     if !mega_check.is_zero() {
         return Err(R1CSError::VerificationError);

@@ -1,3 +1,4 @@
+use crate::divisor::Evals;
 use crate::Interpolator;
 use ark_ec::short_weierstrass::SWCurveConfig;
 use ark_ff::PrimeField;
@@ -18,6 +19,12 @@ pub mod selene;
 #[cfg(any(test, feature = "wei25519"))]
 pub mod wei25519;
 
+#[cfg(any(test, feature = "secp256k1"))]
+pub mod secp256k1;
+
+#[cfg(any(test, feature = "secq256k1"))]
+pub mod secq256k1;
+
 #[cfg(test)]
 mod tests;
 
@@ -31,7 +38,16 @@ pub trait DivisorCurve: SWCurveConfig<BaseField: PrimeField> + Sized {
     /// The type representing a borrowed interpolator.
     type BorrowedInterpolator: Borrow<Interpolator<Self::BaseField>>;
 
+    /// The type representing a borrowed scalar-mul modulus.
+    type BorrowedEvaluationsOfCurvePoly: Borrow<Evals<Self::BaseField>>;
+
     /// Precomputed interpolator required for interpolating a divisor representing a
     /// scalar multiplication.
     fn interpolator_for_scalar_mul() -> Self::BorrowedInterpolator;
+
+    /// Precomputed evaluations of the curve modulus polynomial `x^3 + ax + b` at
+    /// `x = 0, 1, ..., n-1`, where `n` matches the scalar-mul interpolator's required number of
+    /// evaluations. This depends only on the curve, so it is cached once per curve and reused
+    /// across all divisor constructions.
+    fn evaluation_of_curve_poly() -> Self::BorrowedEvaluationsOfCurvePoly;
 }

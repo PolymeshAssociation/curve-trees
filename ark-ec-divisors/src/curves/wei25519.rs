@@ -1,6 +1,8 @@
-use crate::Interpolator;
 use crate::curves::DivisorCurve;
+use crate::divisor::Evals;
 use crate::util::DiscreteLogParameter;
+use crate::Interpolator;
+use ark_ec::short_weierstrass::SWCurveConfig;
 use ark_ff::{Field, MontFp, PrimeField};
 use ark_wei25519::{Affine, Fq, Fr, Wei25519Config};
 use generic_array::typenum::U;
@@ -9,16 +11,24 @@ use spin::Once;
 use ark_curve25519::{
     Curve25519Config, EdwardsAffine as Curve25519Affine, EdwardsProjective as Curve25519Projective,
 };
-use ark_ec::AffineRepr;
 use ark_ec::twisted_edwards::MontgomeryAffine;
+use ark_ec::AffineRepr;
 use ark_ed25519::{EdwardsAffine as Ed25519Affine, EdwardsProjective as Ed25519Projective};
 
 static WEI25519_INTERPOLATOR: Once<Interpolator<Fq>> = Once::new();
+static WEI25519_MODULUS: Once<Evals<Fq>> = Once::new();
 
 impl DivisorCurve for Wei25519Config {
     type BorrowedInterpolator = &'static Interpolator<Fq>;
+    type BorrowedEvaluationsOfCurvePoly = &'static Evals<Fq>;
     fn interpolator_for_scalar_mul() -> Self::BorrowedInterpolator {
         WEI25519_INTERPOLATOR.call_once(|| Interpolator::new(128))
+    }
+    fn evaluation_of_curve_poly() -> Self::BorrowedEvaluationsOfCurvePoly {
+        WEI25519_MODULUS.call_once(|| {
+            let n = Self::interpolator_for_scalar_mul().required_evaluations();
+            Evals::compute_modulus(Self::COEFF_A, Self::COEFF_B, n)
+        })
     }
 }
 
