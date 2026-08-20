@@ -162,11 +162,15 @@ pub fn scalar_mult<
 
         let [x_table, y_table] = lookup(cs, &table, index)?;
 
-        // Ensure that this table's correct element was added to `res` to get its new value
-        // Allocate coordinates for the accumulated witness
-        let res_x_lc: LinearCombination<F> = cs.allocate(res_x)?.into();
-        let res_y_lc: LinearCombination<F> = cs.allocate(res_y)?.into();
-        if i > 1 {
+        if i == 1 {
+            // R_1 = T_1[index_1]; the accumulator starts at the constrained lookup output.
+            res_prev_x_lc = x_table;
+            res_prev_y_lc = y_table;
+        } else {
+            // Ensure that this table's correct element was added to `res` to get its new value
+            // Allocate coordinates for the accumulated witness
+            let res_x_lc: LinearCombination<F> = cs.allocate(res_x)?.into();
+            let res_y_lc: LinearCombination<F> = cs.allocate(res_y)?.into();
             // Enforce addition constraint:
             // R_i = R_{i-1} + (x_i, y_i)
             let prms = CurveAddition {
@@ -185,9 +189,9 @@ pub fn scalar_mult<
                 // enforce incomplete curve addition
                 incomplete_curve_addition(cs, &prms);
             }
+            res_prev_x_lc = res_x_lc;
+            res_prev_y_lc = res_y_lc;
         }
-        res_prev_x_lc = res_x_lc;
-        res_prev_y_lc = res_y_lc;
     }
 
     Ok((res, res_prev_x_lc, res_prev_y_lc))
@@ -266,6 +270,7 @@ mod tests {
     use dock_crypto_utils::transcript::MerlinTranscript;
 
     type PallasScalar = <PallasA as AffineRepr>::ScalarField;
+    type PallasBase = <PallasA as AffineRepr>::BaseField;
 
     #[test]
     fn test_scalar_mult_combined() {
@@ -654,5 +659,123 @@ mod tests {
             h_r_acc = (h_r_acc + &t_i).into();
         }
         assert_eq!(h_r, h_r_acc);
+    }
+
+    // Makes the first window's accumulator R_1 a free allocation so that the output is
+    // `H*scalar + offset` and not `H*scalar`.
+    fn wrong_scalar_mult<Cs: ConstraintSystem<PallasBase>>(
+        cs: &mut Cs,
+        base_tables: &[Lookup3Bit<2, PallasBase>],
+        scalar: PallasScalar,
+        offset: PallasA,
+    ) -> (
+        PallasA,
+        LinearCombination<PallasBase>,
+        LinearCombination<PallasBase>,
+    ) {
+        let lambda = PallasScalar::MODULUS_BIT_SIZE as usize;
+        let num_windows = base_tables.len();
+        let r_bigint: <PallasScalar as PrimeField>::BigInt = scalar.into();
+        let s_bits = r_bigint.to_bits_le();
+
+        let mut res = offset;
+        let mut res_prev_x_lc: LinearCombination<PallasBase> = Variable::One(PhantomData).into();
+        let mut res_prev_y_lc: LinearCombination<PallasBase> = Variable::One(PhantomData).into();
+
+        for i in 1..num_windows + 1 {
+            let table = base_tables[i - 1];
+            let bi = (i - 1) * 3;
+            let mut index: usize = usize::from(bi < lambda && s_bits[bi]);
+            if bi + 1 < lambda && s_bits[bi + 1] {
+                index += 2;
+            }
+            if bi + 2 < lambda && s_bits[bi + 2] {
+                index += 4;
+            }
+
+            let x_i = table.elems[0][index];
+            let y_i = table.elems[1][index];
+
+            let (delta_val, x_l_minus_x_r_inv) = if i != 1 {
+                let (d, inv) = delta(res.x, res.y, x_i, y_i);
+                (Some(d), if i == num_windows { Some(inv) } else { None })
+            } else {
+                (None, None)
+            };
+            res = (res + Affine::<PallasConfig>::new(x_i, y_i)).into();
+
+            let [x_table, y_table] = lookup(cs, &table, Some(index)).unwrap();
+
+            let res_x_lc: LinearCombination<PallasBase> = cs.allocate(Some(res.x)).unwrap().into();
+            let res_y_lc: LinearCombination<PallasBase> = cs.allocate(Some(res.y)).unwrap().into();
+            if i > 1 {
+                let prms = CurveAddition {
+                    x_l: res_prev_x_lc.clone(),
+                    y_l: res_prev_y_lc.clone(),
+                    x_r: x_table,
+                    y_r: y_table,
+                    x_o: res_x_lc.clone(),
+                    y_o: res_y_lc.clone(),
+                    delta: delta_val,
+                };
+                if i == num_windows {
+                    checked_curve_addition(cs, &prms, x_l_minus_x_r_inv);
+                } else {
+                    incomplete_curve_addition(cs, &prms);
+                }
+            }
+            res_prev_x_lc = res_x_lc;
+            res_prev_y_lc = res_y_lc;
+        }
+        (res, res_prev_x_lc, res_prev_y_lc)
+    }
+
+    #[test]
+    fn forged_first_window_is_rejected() {
+        let mut rng = rand::thread_rng();
+
+        let pc_gens = PedersenGens::<VestaA>::default();
+        let bp_gens = BulletproofGens::<VestaA>::new(1 << 13, 1);
+
+        let h = PallasA::rand(&mut rng);
+        let tables = build_tables(h).expect("Failed to build tables");
+
+        const LABEL: &[u8; 11] = b"scalar-mult";
+
+        let r = PallasScalar::rand(&mut rng);
+        let offset = PallasA::rand(&mut rng);
+
+        let proof = {
+            let mut transcript = MerlinTranscript::new(LABEL);
+            let mut prover = Prover::new(&pc_gens, &mut transcript);
+
+            let (res, x_lc, y_lc) = wrong_scalar_mult(&mut prover, &tables, r, offset);
+            assert_ne!(res, (h * r).into_affine());
+
+            curve_check(
+                &mut prover,
+                x_lc,
+                y_lc,
+                PallasConfig::COEFF_A,
+                PallasConfig::COEFF_B,
+            );
+
+            prover.prove(&bp_gens).unwrap()
+        };
+
+        let mut transcript = MerlinTranscript::new(LABEL);
+        let mut verifier: Verifier<_, VestaA> = Verifier::new(&mut transcript);
+
+        let (_, x_lc, y_lc): (PallasA, _, _) = scalar_mult(&mut verifier, &tables, None).unwrap();
+
+        curve_check(
+            &mut verifier,
+            x_lc,
+            y_lc,
+            PallasConfig::COEFF_A,
+            PallasConfig::COEFF_B,
+        );
+
+        assert!(verifier.verify(&proof, &pc_gens, &bp_gens).is_err());
     }
 }

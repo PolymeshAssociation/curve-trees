@@ -377,7 +377,7 @@ pub fn check<
             );
             if shared_dlog_indices.contains(&i) {
                 assert_eq!(
-                    re_randomized_nested.blindings_with_different_gen[&i].into_group(),
+                    re_randomized_nested.blindings_with_different_gen[&(i as u32)].into_group(),
                     odd_proof_params.sl_params.pc_gens.B * blindings_for_points[i]
                 );
             }

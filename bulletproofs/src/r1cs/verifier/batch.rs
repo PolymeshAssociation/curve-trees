@@ -25,11 +25,13 @@ pub fn batch_verify_with_rng<C: AffineRepr, R: RngCore + CryptoRng>(
     bp_gens: &BulletproofGens<C>,
     rng: &mut R,
 ) -> Result<(), R1CSError> {
-    let mut r = C::ScalarField::rand(rng);
-    while r.is_zero() {
-        r = C::ScalarField::rand(rng);
-    }
-    batch_verify_core(verification_tuples, pc_gens, bp_gens, |_| r)
+    batch_verify_core(verification_tuples, pc_gens, bp_gens, |_| {
+        let mut r = C::ScalarField::rand(rng);
+        while r.is_zero() {
+            r = C::ScalarField::rand(rng);
+        }
+        r
+    })
 }
 
 pub fn batch_verify_with_given_randomness<C: AffineRepr>(

@@ -10,7 +10,7 @@ resolver = "2"
 
 [patch.crates-io]
 #dock_crypto_utils = { path = "../crypto/utils" }
-dock_crypto_utils = { git = "https://github.com/PolymeshAssociation/crypto", branch = "main" }
+dock_crypto_utils = { git = "https://github.com/PolymeshAssociation/crypto", branch = "patch30" }
 
 ## Polymesh changes.
 #ark-serialize = { path = "../arkworks-algebra/serialize" }
