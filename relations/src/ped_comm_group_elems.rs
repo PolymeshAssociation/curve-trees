@@ -78,7 +78,7 @@ pub struct ReRandomizedPoints<P: SWCurveConfig> {
     /// `points[i] + B_blinding * blindings[i]`
     pub re_randomized_points: Vec<Affine<P>>,
     /// `B * blindings[i]` for indices of the map
-    pub blindings_with_different_gen: BTreeMap<usize, Affine<P>>,
+    pub blindings_with_different_gen: BTreeMap<u32, Affine<P>>,
 }
 
 impl<P: SWCurveConfig> ReRandomizedPoints<P> {
@@ -150,7 +150,10 @@ pub fn prove<
     let mut blinding_points = BTreeMap::new();
 
     for &idx in shared_dlog_indices {
-        blinding_points.insert(idx, (other_base * blindings_for_points[idx]).into_affine());
+        blinding_points.insert(
+            idx as u32,
+            (other_base * blindings_for_points[idx]).into_affine(),
+        );
     }
 
     let re_randomized_points = ReRandomizedPoints {
@@ -221,7 +224,7 @@ pub fn prove<
         if shared_dlog_indices.contains(&i) {
             let (other_x_var, other_y_var) = re_randomized_points
                 .blindings_with_different_gen
-                .get(&i)
+                .get(&(i as u32))
                 .unwrap()
                 .xy()
                 .ok_or_else(|| Error::PointCantBeZero)?;
@@ -280,7 +283,7 @@ pub fn verify<
         || !shared_dlog_indices.iter().all(|i| {
             re_randomized_points
                 .blindings_with_different_gen
-                .contains_key(i)
+                .contains_key(&(*i as u32))
                 && *i < size
         })
     {
@@ -344,7 +347,7 @@ pub fn verify<
             let blinds = blinds_multi.remove(&i).unwrap();
             let (other_x_var, other_y_var) = re_randomized_points
                 .blindings_with_different_gen
-                .get(&i)
+                .get(&(i as u32))
                 .ok_or_else(|| Error::MalformedProofInput(format!("Missing point at index {i}")))?
                 .xy()
                 .ok_or_else(|| Error::PointCantBeZero)?;
@@ -649,7 +652,7 @@ mod tests {
             let other_base = parameters.sl_params.pc_gens.B.into_group();
             let mut blinding_points = BTreeMap::new();
             for idx in shared.iter() {
-                blinding_points.insert(*idx, (other_base * blindings[*idx]).into_affine());
+                blinding_points.insert(*idx as u32, (other_base * blindings[*idx]).into_affine());
             }
             let blinding_base = parameters.sl_params.pc_gens.B_blinding.into_group();
             let blinders = multiply_field_elems_with_same_group_elem(blinding_base, blindings);

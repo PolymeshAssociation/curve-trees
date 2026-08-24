@@ -360,14 +360,12 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
             .copied()
             .collect::<Vec<_>>();
 
-        let mut scalars: Vec<C::ScalarField> =
-            iter::once(&v_blinding).chain(v.iter()).copied().collect();
+        let scalars: Zeroizing<Vec<C::ScalarField>> =
+            Zeroizing::new(iter::once(&v_blinding).chain(v.iter()).copied().collect());
 
         assert_eq!(generators.len(), scalars.len());
 
         let comm = C::Group::msm_unchecked(generators.as_slice(), scalars.as_slice()).into_affine();
-
-        scalars.zeroize();
 
         let vars = self.vars_for_committed_vec(&comm, v, v_blinding);
 
@@ -1217,13 +1215,14 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
         let t_x = t_poly.eval(x);
         let t_x_blinding = t_blinding_poly.eval(x);
 
-        // The constant term of l is zero, hence l_vec is zero beyond n
-        let mut l_vec = l_poly.eval(x);
+        // The constant term of l is zero, hence l_vec is zero beyond n. Reserve `pad` trailing
+        // slots up front so the `append` does not reallocate.
+        let mut l_vec = l_poly.eval(x, pad as usize);
         l_vec.append(&mut vec![C::ScalarField::zero(); pad as usize]);
 
         // XXX this should refer to the notes to explain why this is correct
         // This is the constant term of r(x) beyond w_O since it is zero after n.
-        let mut r_vec = r_poly.eval(x);
+        let mut r_vec = r_poly.eval(x, pad as usize);
         r_vec.append(&mut vec![C::ScalarField::zero(); pad as usize]);
         for i in n..padded_n {
             r_vec[i as usize] = -exp_y[i as usize];
