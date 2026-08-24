@@ -79,9 +79,12 @@ impl<F: PrimeField> VecPoly<F> {
         VecPoly(vec![vec![F::zero(); n]; deg + 1])
     }
 
-    pub fn eval(&self, x: F) -> Vec<F> {
+    /// Evaluate at `x`, reserving `extra_capacity` trailing slots so a caller that pads the result
+    /// does not reallocate and keep the secret evaluation in a freed buffer.
+    pub fn eval(&self, x: F, extra_capacity: usize) -> Vec<F> {
         let n = self.0[0].len();
-        let mut out = vec![F::zero(); n];
+        let mut out = Vec::with_capacity(n + extra_capacity);
+        out.resize(n, F::zero());
         for i in 0..n {
             for v in self.0.iter().rev() {
                 out[i] *= x;

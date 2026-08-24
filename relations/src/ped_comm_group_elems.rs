@@ -652,7 +652,7 @@ mod tests {
             let other_base = parameters.sl_params.pc_gens.B.into_group();
             let mut blinding_points = BTreeMap::new();
             for idx in shared.iter() {
-                blinding_points.insert(*idx, (other_base * blindings[*idx]).into_affine());
+                blinding_points.insert(*idx as u32, (other_base * blindings[*idx]).into_affine());
             }
             let blinding_base = parameters.sl_params.pc_gens.B_blinding.into_group();
             let blinders = multiply_field_elems_with_same_group_elem(blinding_base, blindings);
