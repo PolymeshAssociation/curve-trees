@@ -128,6 +128,7 @@ pub mod host_fn {
     use crate::generators::HashToCurveExt;
 
     #[cfg_attr(feature = "polkavm", polkavm_derive::polkavm_import)]
+    #[cfg_attr(target_arch = "wasm32", link(wasm_import_module = "env"))]
     extern "C" {
         /// let (buf_ptr, buf_len) = unpack_fat_pointer(fat_ptr);
         ///
