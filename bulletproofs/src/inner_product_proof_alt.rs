@@ -9,6 +9,7 @@ use alloc::borrow::Borrow;
 use alloc::{vec, vec::Vec};
 
 use ark_ec::{AffineRepr, CurveGroup, VariableBaseMSM};
+use ark_ff::{Field, PrimeField};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress};
 use ark_std::{cfg_into_iter, cfg_iter, cfg_iter_mut, One, Zero};
 use core::iter;
@@ -16,7 +17,6 @@ use dock_crypto_utils::transcript::MerlinTranscript;
 use zeroize::Zeroize;
 
 use crate::errors::ProofError;
-use crate::inner_product_proof::inner_product;
 use crate::msm::binary_scalar_mul_jsf_affine;
 use crate::transcript::TranscriptProtocol;
 
@@ -74,8 +74,8 @@ impl<C: AffineRepr> InnerProductProofAlt<C> {
             let (G_L, G_R) = G.split_at_mut(n);
             let (H_L, H_R) = H.split_at_mut(n);
 
-            let c_L = inner_product(a_L, b_R);
-            let c_R = inner_product(a_R, b_L);
+            let c_L = Field::inner_product(a_L, b_R);
+            let c_R = Field::inner_product(a_R, b_L);
 
             // L/R scalars and points
             let (mut l_scalars, mut r_scalars): (Vec<C::ScalarField>, Vec<C::ScalarField>) =
@@ -132,13 +132,21 @@ impl<C: AffineRepr> InnerProductProofAlt<C> {
 
             #[cfg(feature = "parallel")]
             let (L, R): (C, C) = rayon::join(
-                || C::Group::msm_unchecked(l_points.as_slice(), l_scalars.as_slice()).into(),
-                || C::Group::msm_unchecked(r_points.as_slice(), r_scalars.as_slice()).into(),
+                || {
+                    C::Group::msm_unchecked_full_width(l_points.as_slice(), l_scalars.as_slice())
+                        .into()
+                },
+                || {
+                    C::Group::msm_unchecked_full_width(r_points.as_slice(), r_scalars.as_slice())
+                        .into()
+                },
             );
             #[cfg(not(feature = "parallel"))]
             let (L, R): (C, C) = (
-                C::Group::msm_unchecked(l_points.as_slice(), l_scalars.as_slice()).into(),
-                C::Group::msm_unchecked(r_points.as_slice(), r_scalars.as_slice()).into(),
+                C::Group::msm_unchecked_full_width(l_points.as_slice(), l_scalars.as_slice())
+                    .into(),
+                C::Group::msm_unchecked_full_width(r_points.as_slice(), r_scalars.as_slice())
+                    .into(),
             );
 
             l_scalars.zeroize();
@@ -331,25 +339,24 @@ impl<C: AffineRepr> InnerProductProofAlt<C> {
 
         // Checks: 0 = a*b*Q + \sum{a*s[i]*G_factors[i]}*G[i] + \sum{b*s[n-1-i]*H_factors[i]}*H[i]
         //               - \sum{l_coeffs[k]*L[k]} - \sum{r_coeffs[k]*R[k]} - xi_prod*P
-        let result = C::Group::msm_unchecked(
-            iter::once(Q)
-                .chain(G.iter())
-                .chain(H.iter())
-                .chain(self.L_vec.iter())
-                .chain(self.R_vec.iter())
-                .chain(iter::once(P))
-                .copied()
-                .collect::<Vec<C>>()
-                .as_slice(),
-            iter::once(self.a * self.b)
-                .chain(g_times_a_times_s)
-                .chain(h_times_b_times_s)
-                .chain(neg_l)
-                .chain(neg_r)
-                .chain(iter::once(-xi_prod))
-                .collect::<Vec<C::ScalarField>>()
-                .as_slice(),
-        );
+        let bases = iter::once(Q)
+            .chain(G.iter())
+            .chain(H.iter())
+            .chain(self.L_vec.iter())
+            .chain(self.R_vec.iter())
+            .chain(iter::once(P))
+            .copied()
+            .collect::<Vec<C>>();
+        // Verification scalars are public and full-width, so the full-width wNAF path is fastest.
+        let scalars = iter::once(self.a * self.b)
+            .chain(g_times_a_times_s)
+            .chain(h_times_b_times_s)
+            .chain(neg_l)
+            .chain(neg_r)
+            .chain(iter::once(-xi_prod))
+            .map(|s| s.into_bigint())
+            .collect::<Vec<_>>();
+        let result = C::Group::msm_bigint_full_width(&bases, &scalars);
 
         if result.is_zero() {
             Ok(())
@@ -369,12 +376,13 @@ impl<C: AffineRepr> InnerProductProofAlt<C> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::inner_product_proof::{inner_product, InnerProductProof};
-    use crate::{affine_from_bytes_tai, util, BulletproofGens};
+    use crate::inner_product_proof::InnerProductProof;
+    use crate::{affine_from_bytes_tai, BulletproofGens};
     use ark_pallas::Affine;
     use ark_serialize::CanonicalSerialize;
     use ark_std::rand::{prelude::StdRng, Rng, SeedableRng};
     use ark_std::UniformRand;
+    use dock_crypto_utils::ff::powers;
     use std::time::{Duration, Instant};
     use test_log::test;
 
@@ -394,16 +402,16 @@ mod tests {
 
         let a: Vec<F> = (0..n).map(|_| F::rand(&mut rng)).collect();
         let b: Vec<F> = (0..n).map(|_| F::rand(&mut rng)).collect();
-        let c = inner_product(&a, &b);
+        let c = F::inner_product(&a, &b);
 
         let G_factors: Vec<F> = core::iter::repeat(F::one()).take(n).collect();
         let y_inv: F = rng.gen();
-        let H_factors: Vec<F> = util::exp_iter(y_inv).take(n).collect();
+        let H_factors: Vec<F> = powers(&y_inv, n as u32);
 
         // P = <a,G> + <b*H_factors, H> + <a,b>*Q
         let b_prime: Vec<F> = b
             .iter()
-            .zip(util::exp_iter(y_inv))
+            .zip(powers(&y_inv, n as u32))
             .map(|(bi, yi)| *bi * yi)
             .collect();
         let P: Affine = <Affine as AffineRepr>::Group::msm_unchecked(
@@ -439,7 +447,7 @@ mod tests {
             n,
             &mut t,
             core::iter::repeat(F::one()).take(n),
-            util::exp_iter(y_inv).take(n),
+            powers(&y_inv, n as u32),
             &P,
             &Q,
             &G,
@@ -455,7 +463,7 @@ mod tests {
             n,
             &mut t,
             core::iter::repeat(F::one()).take(n),
-            util::exp_iter(y_inv).take(n),
+            powers(&y_inv, n as u32),
             &P,
             &Q,
             &G,
@@ -504,7 +512,7 @@ mod tests {
         let G_factors: Vec<F> = core::iter::repeat(F::one()).take(n).collect();
         let H_factors: Vec<F> = core::iter::repeat(F::one()).take(n).collect();
 
-        let c = inner_product(&a, &b);
+        let c = F::inner_product(&a, &b);
         let P: Affine = <Affine as AffineRepr>::Group::msm_unchecked(
             G.iter()
                 .chain(H.iter())
@@ -622,7 +630,7 @@ mod tests {
         let G_factors: Vec<F> = core::iter::repeat(F::one()).take(n).collect();
         let H_factors: Vec<F> = core::iter::repeat(F::one()).take(n).collect();
 
-        let c = inner_product(&a, &b);
+        let c = F::inner_product(&a, &b);
         let P: Affine = <Affine as AffineRepr>::Group::msm_unchecked(
             G.iter()
                 .chain(H.iter())
@@ -735,7 +743,7 @@ mod tests {
                 .map(|_| {
                     let a: Vec<F> = (0..n).map(|_| F::rand(&mut rng)).collect();
                     let b: Vec<F> = (0..n).map(|_| F::rand(&mut rng)).collect();
-                    let c = inner_product(&a, &b);
+                    let c = F::inner_product(&a, &b);
                     let P: Affine = <Affine as AffineRepr>::Group::msm_unchecked(
                         G.iter()
                             .chain(H.iter())

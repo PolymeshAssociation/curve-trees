@@ -38,6 +38,11 @@ ark-secp256k1 = { workspace = true }
 ark-secq256k1 = { workspace = true }
 ark-ed25519 = {workspace = true}
 ark-curve25519 = {workspace = true}
+criterion = "0.7"
+
+[[bench]]
+name = "divisor"
+harness = false
 
 [features]
 default = [

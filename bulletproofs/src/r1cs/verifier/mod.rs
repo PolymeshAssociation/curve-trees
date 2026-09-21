@@ -3,8 +3,8 @@
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, vec, vec::Vec};
 
-use ark_ec::scalar_mul::variable_base::msm_bigint;
 use ark_ec::AffineRepr;
+use ark_ec::VariableBaseMSM;
 use ark_ff::{Field, PrimeField};
 use ark_std::{cfg_into_iter, format, string::ToString, One, UniformRand, Zero};
 use core::borrow::BorrowMut;
@@ -578,9 +578,7 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
 
         // log::debug!("padded_n = {}", padded_n);
 
-        use crate::util;
         use core::iter;
-        use dock_crypto_utils::ff::inner_product;
 
         // These points are the identity in the 1-phase unrandomized case.
         let (A_I2, A_O2, S2) = proof.second_phase_commitments();
@@ -634,9 +632,7 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
 
         let y_inv = y.inverse().ok_or(R1CSError::VerificationError)?;
         // [1, 1/y, 1/y^2, 1/y^3, ...]
-        let y_inv_vec = util::exp_iter(y_inv)
-            .take(padded_n)
-            .collect::<Vec<C::ScalarField>>();
+        let y_inv_vec = powers(&y_inv, padded_n as u32);
 
         // [wR_i*1/y^i, ..., 0,0,..]
         let yneg_wR = wR
@@ -646,7 +642,7 @@ impl<T: BorrowMut<MerlinTranscript>, C: AffineRepr> Verifier<T, C> {
             .chain(iter::repeat(C::ScalarField::zero()).take(padded_n - self.num_multiplier))
             .collect::<Vec<C::ScalarField>>();
 
-        let delta = inner_product(&yneg_wR[0..self.num_multiplier], &wL);
+        let delta = C::ScalarField::inner_product(&yneg_wR[0..self.num_multiplier], &wL);
 
         let u_for_g = iter::repeat(C::ScalarField::one())
             .take(n1)
@@ -863,11 +859,9 @@ pub fn msm_check<C: AffineRepr>(
     let s = cfg_into_iter!(s)
         .map(|s| s.into_bigint())
         .collect::<Vec<_>>();
-    // msm_unchecked is found to be slower than msm_bigint as all the scalars are large
-    // so don't benefit from precomputation of msm_signed
-    // let start = std::time::Instant::now();
-    let mega_check = msm_bigint::<C::Group>(&b, &s);
-    // println!("msm_check took {:?}", start.elapsed());
+    // The mega-check scalars are all full-width field elements so the fastest path is
+    // `msm_bigint_full_width` (wNAF over the full width).
+    let mega_check = C::Group::msm_bigint_full_width(&b, &s);
     if !mega_check.is_zero() {
         return Err(R1CSError::VerificationError);
     }

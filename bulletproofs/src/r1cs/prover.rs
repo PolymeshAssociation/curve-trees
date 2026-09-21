@@ -7,6 +7,7 @@ use ark_ec::{AffineRepr, CurveGroup, VariableBaseMSM};
 use ark_ff::Field;
 use ark_std::{One, UniformRand, Zero};
 use core::borrow::BorrowMut;
+use dock_crypto_utils::ff::powers;
 use dock_crypto_utils::transcript::MerlinTranscript;
 use rand_core::{CryptoRng, RngCore};
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
@@ -698,7 +699,7 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
                             .collect::<Vec<C::ScalarField>>(),
                     );
                     S1 = Some(
-                        C::Group::msm_unchecked(
+                        C::Group::msm_unchecked_full_width(
                             iter::once(&blinding)
                                 .chain(gens.G(n1))
                                 .chain(gens.H(n1))
@@ -770,7 +771,7 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
                     .map(|s| (*s).into())
                     .collect::<Vec<C::ScalarField>>(),
             );
-            let S1 = C::Group::msm_unchecked(
+            let S1 = C::Group::msm_unchecked_full_width(
                 iter::once(&self.pc_gens.B_blinding)
                     .chain(gens.G(n1))
                     .chain(gens.H(n1))
@@ -887,7 +888,7 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
                 // S = <s_L, G> + <s_R, H> + s_blinding * B_blinding
                 s.spawn(|_| {
                     S2 = Some(
-                        C::Group::msm_unchecked(
+                        C::Group::msm_unchecked_full_width(
                             iter::once(&blinding)
                                 .chain(gens.G(n).skip(n1 as usize))
                                 .chain(gens.H(n).skip(n1 as usize))
@@ -961,7 +962,7 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
                 )
                 .into(),
                 // S = <s_L, G> + <s_R, H> + s_blinding * B_blinding
-                C::Group::msm_unchecked(
+                C::Group::msm_unchecked_full_width(
                     iter::once(&self.pc_gens.B_blinding)
                         .chain(gens.G(n).skip(n1 as usize))
                         .chain(gens.H(n).skip(n1 as usize))
@@ -1015,12 +1016,8 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
             description: "y must be non-zero".into(),
         })?;
 
-        let exp_y_inv = util::exp_iter(y_inv)
-            .take(padded_n as usize)
-            .collect::<Vec<_>>();
-        let exp_y = util::exp_iter(y)
-            .take(padded_n as usize)
-            .collect::<Vec<_>>();
+        let exp_y_inv = powers(&y_inv, padded_n);
+        let exp_y = powers(&y, padded_n);
 
         //
         let sLsR = s_L1
@@ -1231,14 +1228,10 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
         // sanity check
         #[cfg(debug_assertions)]
         {
-            use dock_crypto_utils::ff::inner_product;
-
             let y_inv = y.inverse().ok_or_else(|| R1CSError::GadgetError {
                 description: "y must be non-zero".into(),
             })?;
-            let y_inv_vec = util::exp_iter(y_inv)
-                .take(padded_n as usize)
-                .collect::<Vec<C::ScalarField>>();
+            let y_inv_vec = powers(&y_inv, padded_n);
 
             let yneg_wR = wR
                 .iter()
@@ -1247,9 +1240,9 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
                 .chain(iter::repeat(C::ScalarField::zero()).take((padded_n - n) as usize))
                 .collect::<Vec<C::ScalarField>>();
 
-            let delta = inner_product(&yneg_wR[0..n as usize], &wL);
+            let delta = C::ScalarField::inner_product(&yneg_wR[0..n as usize], &wL);
 
-            let yn: Vec<_> = util::exp_iter(y).take(n as usize).collect();
+            let yn: Vec<_> = powers(&y, n);
             let mut aRyn = vec![C::ScalarField::zero(); n as usize];
             for i in 0..n {
                 aRyn[i as usize] = self.secrets.a_R[i as usize] * yn[i as usize];
@@ -1258,17 +1251,17 @@ impl<'g, T: BorrowMut<MerlinTranscript>, C: AffineRepr> Prover<'g, T, C> {
             let mut t2 = C::ScalarField::zero();
 
             // linear term
-            t2 += inner_product(&wL, &self.secrets.a_L);
-            t2 += inner_product(&wR, &self.secrets.a_R);
-            t2 += inner_product(&wO, &self.secrets.a_O);
+            t2 += C::ScalarField::inner_product(&wL, &self.secrets.a_L);
+            t2 += C::ScalarField::inner_product(&wR, &self.secrets.a_R);
+            t2 += C::ScalarField::inner_product(&wO, &self.secrets.a_O);
 
             for i in 0..self.secrets.vec_open.len() {
-                t2 += inner_product(&wVCs[i], &self.secrets.vec_open[i].1);
+                t2 += C::ScalarField::inner_product(&wVCs[i], &self.secrets.vec_open[i].1);
             }
 
             // product
-            t2 += inner_product(&self.secrets.a_L, &aRyn);
-            t2 -= inner_product(&self.secrets.a_O, &yn);
+            t2 += C::ScalarField::inner_product(&self.secrets.a_L, &aRyn);
+            t2 -= C::ScalarField::inner_product(&self.secrets.a_O, &yn);
 
             // publicly computable correction
             t2 += delta;

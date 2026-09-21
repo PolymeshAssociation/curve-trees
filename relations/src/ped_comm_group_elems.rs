@@ -55,6 +55,7 @@ use ark_dlog_gadget::dlog::{
     discrete_log_challenge, DiscreteLogParameters, DivisorComms,
 };
 use ark_dlog_gadget::utils::CurveSpec;
+use ark_ec::scalar_mul::BatchMulPreprocessing;
 use ark_ec::short_weierstrass::{Affine, Projective, SWCurveConfig};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ec_divisors::DivisorCurve;
@@ -149,11 +150,14 @@ pub fn prove<
     // `i` -> `B * blindings[i]` for `i` in `shared_dlog_indices`
     let mut blinding_points = BTreeMap::new();
 
-    for &idx in shared_dlog_indices {
-        blinding_points.insert(
-            idx as u32,
-            (other_base * blindings_for_points[idx]).into_affine(),
-        );
+    let pre = BatchMulPreprocessing::new(other_base, shared_dlog_indices.len());
+    let shared_blindings = shared_dlog_indices
+        .iter()
+        .map(|&idx| pre.windowed_mul(&blindings_for_points[idx]))
+        .collect::<Vec<_>>();
+    let shared_blinding_points = Projective::normalize_batch(&shared_blindings);
+    for (&idx, pt) in shared_dlog_indices.iter().zip(shared_blinding_points) {
+        blinding_points.insert(idx as u32, pt);
     }
 
     let re_randomized_points = ReRandomizedPoints {

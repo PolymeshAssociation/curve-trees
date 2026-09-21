@@ -5,7 +5,8 @@ use crate::error::Error;
 use crate::lookup::*;
 
 use ark_ec::{
-    models::short_weierstrass::SWCurveConfig, short_weierstrass::Affine, AffineRepr, CurveGroup,
+    models::short_weierstrass::SWCurveConfig, scalar_mul::BatchMulPreprocessing,
+    short_weierstrass::Affine, AffineRepr,
 };
 use ark_ff::{AdditiveGroup, BigInteger, Field, PrimeField};
 use ark_std::{vec::Vec, One, Zero};
@@ -28,15 +29,13 @@ pub fn build_tables<C: AffineRepr>(h: C) -> Result<Vec<Lookup3Bit<2, C::BaseFiel
         x
     }
 
-    // Define tables T_1 .. T_m, and witnesses
-    let mut tables = Vec::with_capacity(m);
+    // Collect every window's scalars `s` first (the state machine over `j_term`/`right_term` never
+    // touches points), then multiply the fixed base `h` by all of them at once.
+    let mut scalars = Vec::with_capacity(m * WINDOW_ELEMS);
     let mut m_th_right_term = C::ScalarField::zero();
     // 2^(3*(i - 1))
     let mut j_term = C::ScalarField::one();
     for i in 1..m + 1 {
-        let mut table = Lookup3Bit::<2, C::BaseField> {
-            elems: [[C::BaseField::one(); WINDOW_ELEMS]; 2],
-        };
         // `right_term` is added to each of the m-1 windows to ensure that none of the multiplications result
         // in "0" point since the coordinates can't be taken then.
         let right_term = if i < m {
@@ -51,19 +50,33 @@ pub fn build_tables<C: AffineRepr>(h: C) -> Result<Vec<Lookup3Bit<2, C::BaseFiel
         };
         for j in 0..WINDOW_ELEMS {
             // s = j * 2^(3*i) + right_term
-            let s = (C::ScalarField::from(j as u64) * j_term) + right_term;
-            // Multiply blinding by s
-            let hs = h.mul(s).into_affine();
-            table.elems[0][j] = hs
+            scalars.push((C::ScalarField::from(j as u64) * j_term) + right_term);
+        }
+        // Last iteration doesn't matter
+        j_term = right_term;
+    }
+
+    // `h * s` for every `s` via a locally built fixed-base window table; `batch_mul` returns affine
+    // with a single shared inversion.
+    let preprocessing = BatchMulPreprocessing::new(h.into_group(), scalars.len());
+    let hs = preprocessing.batch_mul(&scalars);
+
+    // Define tables T_1 .. T_m, reading x/y from the precomputed points.
+    let mut tables = Vec::with_capacity(m);
+    for i in 0..m {
+        let mut table = Lookup3Bit::<2, C::BaseField> {
+            elems: [[C::BaseField::one(); WINDOW_ELEMS]; 2],
+        };
+        for j in 0..WINDOW_ELEMS {
+            let hs_i = hs[i * WINDOW_ELEMS + j];
+            table.elems[0][j] = hs_i
                 .x()
                 .ok_or_else(|| Error::GenerationError("Failed to get x coordinate".into()))?;
-            table.elems[1][j] = hs
+            table.elems[1][j] = hs_i
                 .y()
                 .ok_or_else(|| Error::GenerationError("Failed to get y coordinate".into()))?;
         }
         tables.push(table);
-        // Last iteration doesn't matter
-        j_term = right_term;
     }
     Ok(tables)
 }

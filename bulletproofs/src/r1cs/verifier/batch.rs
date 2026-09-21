@@ -59,7 +59,7 @@ where
     let (b, s) =
         bases_and_scalars_for_batch(verification_tuples, pc_gens, bp_gens, new_randomness_getter)?;
 
-    let mega_check = C::Group::msm_unchecked(&b, &s);
+    let mega_check = C::Group::msm_unchecked_full_width(&b, &s);
     if !mega_check.is_zero() {
         return Err(R1CSError::VerificationError);
     }
