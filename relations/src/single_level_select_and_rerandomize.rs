@@ -8,7 +8,7 @@ use crate::select::*;
 use crate::parameters::SingleLayerProofParameters;
 use ark_ec::{models::short_weierstrass::SWCurveConfig, short_weierstrass::Affine, CurveGroup};
 use ark_ff::{Field, PrimeField};
-use ark_std::vec::Vec;
+use ark_std::{format, vec::Vec};
 use core::marker::PhantomData;
 use dock_crypto_utils::transcript::Transcript;
 
@@ -201,7 +201,25 @@ where
         point: None,
     };
     // Split the variables of the vector commitments into chunks corresponding to the M parents.
-    let chunks = all_children.chunks_exact(all_children.len() / num_indices as usize);
+    // `num_indices` and `all_children` come from the caller (ultimately the proof), so validate
+    // the split instead of letting `chunks_exact(0)` or a division by zero panic.
+    if num_indices == 0 {
+        return Err(Error::NeedNonZeroNumberOfIndices);
+    }
+    let chunk_size = all_children.len() / num_indices as usize;
+    if chunk_size == 0 || all_children.len() % num_indices as usize != 0 {
+        return Err(Error::MalformedProofInput(format!(
+            "{} child variables cannot be split evenly across {} selections",
+            all_children.len(),
+            num_indices
+        )));
+    }
+    if let Some(xy) = selected_children_plus_delta {
+        if xy.len() < num_indices as usize {
+            return Err(Error::MismatchedSize(xy.len(), num_indices as usize));
+        }
+    }
+    let chunks = all_children.chunks_exact(chunk_size);
     for (i, chunk) in chunks.enumerate() {
         let ith_selected_witness = selected_children_plus_delta.map(|xy| xy[i]);
         let x_var = cs.allocate(ith_selected_witness.map(|xy| xy.x))?;
@@ -264,7 +282,19 @@ pub fn single_level_batched_validate_and_rerandomize_root_children<
         y: Variable::One(PhantomData).into(),
         point: None,
     };
-    assert_eq!(num_indices as usize, selected_children_x_coords.len());
+    // The x-coordinate variables are derived from the (prover-supplied) multi-paths; a count
+    // mismatch is a malformed proof, not an internal invariant violation.
+    if num_indices as usize != selected_children_x_coords.len() {
+        return Err(Error::MismatchedSize(
+            selected_children_x_coords.len(),
+            num_indices as usize,
+        ));
+    }
+    if let Some(xy) = selected_children_plus_delta {
+        if xy.len() < num_indices as usize {
+            return Err(Error::MismatchedSize(xy.len(), num_indices as usize));
+        }
+    }
     for (i, x_var) in selected_children_x_coords.into_iter().enumerate() {
         let ith_selected_witness = selected_children_plus_delta.map(|xy| xy[i]);
         let y_var: LinearCombination<_> = cs.allocate(ith_selected_witness.map(|xy| xy.y))?.into();

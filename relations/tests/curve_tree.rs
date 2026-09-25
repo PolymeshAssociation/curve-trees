@@ -1331,6 +1331,30 @@ pub fn test_curve_tree_with_parameters_newer<
             )
             .unwrap();
 
+        // The path spans exactly `height` levels with one divisor commitment per internal node;
+        // callers use `validate_height` to bound verifier work before running the gadget.
+        {
+            let height = curve_tree.height();
+            path_commitments.validate_height(height).unwrap();
+            path_commitments.path.validate_height(height).unwrap();
+            assert_eq!(path_commitments.path.num_levels(), height);
+            assert!(path_commitments.validate_height(height + 1).is_err());
+            assert!(path_commitments
+                .validate_height(height.saturating_sub(1))
+                .is_err());
+            let mut extra_divisor = path_commitments.clone();
+            extra_divisor
+                .even_divisor_comms
+                .push(extra_divisor.even_divisor_comms[0].clone());
+            assert!(extra_divisor.validate_height(height).is_err());
+            let mut extra_level = path_commitments.clone();
+            extra_level
+                .path
+                .odd_commitments
+                .push(extra_level.path.odd_commitments[0]);
+            assert!(extra_level.validate_height(height).is_err());
+        }
+
         let nc1 = pallas_prover.constraints.len();
         let nc2 = vesta_prover.constraints.len();
         let (pallas_proof, vesta_proof) = prove(

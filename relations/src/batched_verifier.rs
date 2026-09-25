@@ -43,6 +43,14 @@ impl<
         if num_indices_usize == 0 {
             return Err(Error::NeedNonZeroNumberOfIndices);
         }
+        // `selected_commitments` is prover-supplied; a tree of arity `M` can select at most `M`
+        // leaves, so reject anything larger before it sizes any allocation or commitment below.
+        if num_indices_usize > M {
+            return Err(Error::MoreIndicesThanSupportedBatchSize(
+                u32::try_from(num_indices_usize).unwrap_or(u32::MAX),
+                M as u32,
+            ));
+        }
         let num_indices = num_indices_usize as u32;
 
         let mut even_node_divisors = Vec::new();

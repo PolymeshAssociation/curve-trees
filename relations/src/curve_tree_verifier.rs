@@ -313,4 +313,27 @@ impl<
             )
         })
     }
+
+    /// Number of tree levels below the root that this path spans (one rerandomized node per
+    /// level, the last one being the leaf).
+    pub fn num_levels(&self) -> usize {
+        self.even_commitments.len() + self.odd_commitments.len()
+    }
+
+    /// Checks that the path spans exactly `tree_height` levels.
+    ///
+    /// The verifier gadgets deliberately do not know the tree height (see the note at the top of
+    /// `verifier.rs`); a prover can otherwise submit a path with an arbitrary number of levels
+    /// and make the verifier build constraints for every one of them before the Bulletproofs
+    /// generator-capacity check rejects the proof. Callers that know the height of the tree the
+    /// root belongs to should call this before running any gadget.
+    pub fn validate_height(&self, tree_height: usize) -> Result<(), Error> {
+        let levels = self.num_levels();
+        if levels != tree_height {
+            return Err(Error::MalformedProofInput(format!(
+                "path spans {levels} levels but the tree has height {tree_height}"
+            )));
+        }
+        Ok(())
+    }
 }

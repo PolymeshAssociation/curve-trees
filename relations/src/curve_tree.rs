@@ -7,7 +7,7 @@ use ark_ff::PrimeField;
 use ark_serialize::{
     CanonicalDeserialize, CanonicalSerialize, Compress, SerializationError, Valid, Validate, Write,
 };
-use ark_std::{boxed::Box, io::Read, vec, vec::Vec, Zero};
+use ark_std::{boxed::Box, format, io::Read, string::ToString, vec, vec::Vec, Zero};
 
 pub enum CurveTree<
     const L: usize, // L is te branching factor, i.e. the number of children per branch
@@ -340,6 +340,43 @@ pub struct SelectAndRerandomizePathWithDivisorComms<
     pub odd_divisor_comms: Vec<DivisorComms<Affine<P1>>>,
 }
 
+impl<const L: usize, P0: SWCurveConfig, P1: SWCurveConfig>
+    SelectAndRerandomizePathWithDivisorComms<L, P0, P1>
+{
+    /// Checks that the path spans exactly `tree_height` levels and carries exactly one divisor
+    /// commitment per internal node on each curve.
+    ///
+    /// The prover creates one divisor per internal node: the children of even-level internal
+    /// nodes are the `odd_commitments` and vice versa, so `even_divisor_comms` pairs with
+    /// `odd_commitments` and `odd_divisor_comms` with `even_commitments`. Extra trailing divisor
+    /// commitments would otherwise be silently ignored by the verifier gadget while still
+    /// costing deserialization; extra path levels would make the verifier build constraints for
+    /// each of them. Callers that know the tree height should call this before any gadget.
+    pub fn validate_height(&self, tree_height: usize) -> Result<(), Error> {
+        let even_levels = self.path.even_commitments.len();
+        let odd_levels = self.path.odd_commitments.len();
+        if even_levels + odd_levels != tree_height {
+            return Err(Error::MalformedProofInput(format!(
+                "path spans {} levels but the tree has height {tree_height}",
+                even_levels + odd_levels
+            )));
+        }
+        if self.even_divisor_comms.len() != odd_levels {
+            return Err(Error::MalformedProofInput(format!(
+                "expected {odd_levels} even divisor commitments (one per odd-level child), got {}",
+                self.even_divisor_comms.len()
+            )));
+        }
+        if self.odd_divisor_comms.len() != even_levels {
+            return Err(Error::MalformedProofInput(format!(
+                "expected {even_levels} odd divisor commitments (one per even-level child), got {}",
+                self.odd_divisor_comms.len()
+            )));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, PartialEq, Eq, Debug, CanonicalSerialize, CanonicalDeserialize)]
 pub struct SelectAndRerandomizeMultiPathWithDivisorComms<
     const L: usize,
@@ -350,6 +387,53 @@ pub struct SelectAndRerandomizeMultiPathWithDivisorComms<
     pub path: SelectAndRerandomizeMultiPath<L, M, P0, P1>,
     pub even_divisor_comms: Vec<DivisorComms<Affine<P0>>>,
     pub odd_divisor_comms: Vec<DivisorComms<Affine<P1>>>,
+}
+
+impl<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCurveConfig>
+    SelectAndRerandomizeMultiPathWithDivisorComms<L, M, P0, P1>
+{
+    /// Checks that the multi-path spans exactly `tree_height` levels for a tree that selects at
+    /// most `M` leaves, and bounds the divisor commitment vectors accordingly.
+    ///
+    /// Unlike the single path, the multi-path's `even_commitments`/`odd_commitments` exclude the
+    /// selected leaves (which are in `selected_commitments`), so the shared levels sum to
+    /// `tree_height - 1`. One divisor is created per shared internal node plus one per selected
+    /// leaf (the leaf divisors live on the curve of the leaves' parent, i.e. `odd_divisor_comms`).
+    pub fn validate_height(&self, tree_height: usize) -> Result<(), Error> {
+        let num_indices = self.path.selected_commitments.len();
+        if num_indices == 0 {
+            return Err(Error::NeedNonZeroNumberOfIndices);
+        }
+        if num_indices > M {
+            return Err(Error::MoreIndicesThanSupportedBatchSize(
+                u32::try_from(num_indices).unwrap_or(u32::MAX),
+                M as u32,
+            ));
+        }
+        let even_levels = self.path.even_commitments.len();
+        let odd_levels = self.path.odd_commitments.len();
+        let shared_levels = tree_height.checked_sub(1).ok_or_else(|| {
+            Error::MalformedProofInput("tree height must be at least 1".to_string())
+        })?;
+        if even_levels + odd_levels != shared_levels {
+            return Err(Error::MalformedProofInput(format!(
+                "multi-path spans {} shared levels but the tree has height {tree_height}",
+                even_levels + odd_levels
+            )));
+        }
+        // One divisor per internal node on each curve plus the per-leaf divisors.
+        let max_divisors = shared_levels + 1 + num_indices;
+        if self.even_divisor_comms.len() > max_divisors
+            || self.odd_divisor_comms.len() > max_divisors
+        {
+            return Err(Error::MalformedProofInput(format!(
+                "too many divisor commitments for height {tree_height} and {num_indices} leaves: {} even, {} odd",
+                self.even_divisor_comms.len(),
+                self.odd_divisor_comms.len()
+            )));
+        }
+        Ok(())
+    }
 }
 
 /// A list of `L` potential nodes

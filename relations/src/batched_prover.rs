@@ -21,7 +21,7 @@ use ark_ec_divisors::DivisorCurve;
 use ark_ff::{PrimeField, Zero};
 use ark_std::marker::PhantomData;
 use ark_std::vec;
-use ark_std::{boxed::Box, string::ToString, vec::Vec};
+use ark_std::{boxed::Box, format, string::ToString, vec::Vec};
 use bulletproofs::r1cs::{ConstraintSystem, LinearCombination, Prover, Variable};
 use bulletproofs::BulletproofGens;
 use dock_crypto_utils::transcript::{MerlinTranscript, Transcript};
@@ -928,13 +928,30 @@ pub fn batched_select_and_accumulate_root<
         point: None,
     };
 
+    // `num_indices` ultimately comes from the proof on the verifier side: reject a zero or
+    // uneven split instead of dividing by zero / `chunks_exact(0)`.
+    if num_indices == 0 {
+        return Err(Error::NeedNonZeroNumberOfIndices);
+    }
     let chunk_size = all_children_x_coords.len() / (num_indices as usize);
+    if chunk_size == 0 || all_children_x_coords.len() % (num_indices as usize) != 0 {
+        return Err(Error::MalformedProofInput(format!(
+            "{} root child x-coordinates cannot be split evenly across {} selections",
+            all_children_x_coords.len(),
+            num_indices
+        )));
+    }
+    if let Some(xy) = selected_children_plus_delta {
+        if xy.len() < num_indices as usize {
+            return Err(Error::MismatchedSize(xy.len(), num_indices as usize));
+        }
+    }
     let chunks: Vec<_> = all_children_x_coords.chunks_exact(chunk_size).collect();
 
     for (i, chunk) in chunks.iter().enumerate() {
         let ith_selected_witness = selected_children_plus_delta.map(|xy| xy[i]);
-        let x_var = cs.allocate(ith_selected_witness.map(|xy| xy.x)).unwrap();
-        let y_var = cs.allocate(ith_selected_witness.map(|xy| xy.y)).unwrap();
+        let x_var = cs.allocate(ith_selected_witness.map(|xy| xy.x))?;
+        let y_var = cs.allocate(ith_selected_witness.map(|xy| xy.y))?;
 
         // Select from public set
         select_public_set(cs, x_var.into(), chunk)?;

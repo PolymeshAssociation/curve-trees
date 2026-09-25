@@ -1046,20 +1046,24 @@ pub fn commit_witness_chunks_given_chunk_len_verifier<
 
     // Expects vars for decomposition of dlog and divisor coefficients
     let expected_vars_len = Parameters::decomposition_size() * 2;
-    let mut vars = Vec::with_capacity(expected_vars_len);
 
+    // Single-point witness layout is fixed, so extra commitments are malformed. Check the
+    // prover-supplied commitment count *before* allocating variables for them: `comms` comes
+    // from the proof, so an oversized vector must not be able to drive allocation.
+    let got = comms.0.len().checked_mul(chunk_len);
+    if got != Some(expected_vars_len) {
+        return Err(Error::VerifierWitnessVarCountMismatch {
+            got: got.unwrap_or(usize::MAX),
+            expected: expected_vars_len,
+        });
+    }
+
+    let mut vars = Vec::with_capacity(expected_vars_len);
     for comm in &comms.0 {
         let chunk_vars = verifier.commit_vec(chunk_len, *comm);
         vars.extend(chunk_vars);
     }
-
-    // Single-point witness layout is fixed, so extra commitments are malformed.
-    if vars.len() != expected_vars_len {
-        return Err(Error::VerifierWitnessVarCountMismatch {
-            got: vars.len(),
-            expected: expected_vars_len,
-        });
-    }
+    debug_assert_eq!(vars.len(), expected_vars_len);
 
     let vars_divisor = vars.split_off(Parameters::decomposition_size());
 
@@ -1183,18 +1187,21 @@ pub fn commit_witness_chunks_verifier_multi_point<
 ) -> Result<PointsWithDlog<F, Parameters>, Error> {
     let expected_vars_len =
         PointsWithDlog::<F, Parameters>::padded_vars_len(num_points, chunk_len)?;
+    // Multi-point witness layout is chunk padded, so extra commitments are malformed. Check the
+    // prover-supplied commitment count *before* allocating variables for them.
+    let got = comms.0.len().checked_mul(chunk_len);
+    if got != Some(expected_vars_len) {
+        return Err(Error::VerifierWitnessVarCountMismatch {
+            got: got.unwrap_or(usize::MAX),
+            expected: expected_vars_len,
+        });
+    }
     let mut vars = Vec::with_capacity(expected_vars_len);
     for comm in &comms.0 {
         let chunk_vars = cs.commit_vec(chunk_len, *comm);
         vars.extend(chunk_vars);
     }
-    // Multi-point witness layout is chunk padded, so extra commitments are malformed.
-    if vars.len() != expected_vars_len {
-        return Err(Error::VerifierWitnessVarCountMismatch {
-            got: vars.len(),
-            expected: expected_vars_len,
-        });
-    }
+    debug_assert_eq!(vars.len(), expected_vars_len);
     Ok(PointsWithDlog::from_vars(vars, num_points))
 }
 
@@ -1653,6 +1660,43 @@ mod tests {
             Err(err) => assert!(matches!(err, Error::ZeroChunkSize)),
             _ => panic!("expected zero chunk size error"),
         }
+
+        // A prover-supplied commitment count that does not match the fixed witness layout must be
+        // rejected *before* any variables are committed: the verifier must not do work
+        // proportional to an attacker-chosen vector length.
+        let mut oversized = comms.clone();
+        for _ in 0..1000 {
+            oversized.0.push(comms.0[0]);
+        }
+        let transcript = MerlinTranscript::new(b"malformed-dlog");
+        let mut verifier = Verifier::new(transcript);
+        let result = commit_witness_chunks_given_chunk_len_verifier::<_, _, PallasParams>(
+            &mut verifier,
+            &oversized,
+            vc_len,
+        );
+        assert!(matches!(
+            result,
+            Err(Error::VerifierWitnessVarCountMismatch { .. })
+        ));
+        assert_eq!(
+            verifier.size(),
+            0,
+            "no variables may be committed for a malformed commitment count"
+        );
+        let transcript = MerlinTranscript::new(b"malformed-dlog");
+        let mut verifier = Verifier::new(transcript);
+        let result = commit_witness_chunks_verifier_multi_point::<_, _, PallasParams>(
+            &mut verifier,
+            &oversized,
+            vc_len,
+            2,
+        );
+        assert!(matches!(
+            result,
+            Err(Error::VerifierWitnessVarCountMismatch { .. })
+        ));
+        assert_eq!(verifier.size(), 0);
 
         let transcript = MerlinTranscript::new(b"malformed-dlog");
         let mut prover = Prover::new(&pc_gens, transcript);

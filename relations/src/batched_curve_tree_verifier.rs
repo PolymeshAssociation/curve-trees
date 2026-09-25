@@ -99,8 +99,14 @@ impl<
         let root_is_even = match root {
             Root::Even(root) => {
                 let mut children = Vec::with_capacity(L * num_indices as usize);
-                for i in 0..num_indices {
-                    children.extend_from_slice(root.x_coord_children[i as usize].as_slice());
+                for i in 0..num_indices as usize {
+                    let xs = root.x_coord_children.get(i).ok_or_else(|| {
+                        Error::MalformedProofInput(format!(
+                            "root has {} child sets but index {i} was selected",
+                            root.x_coord_children.len()
+                        ))
+                    })?;
+                    children.extend_from_slice(xs.as_slice());
                 }
                 let odd_commitment = self.odd_commitments.get(0).ok_or_else(|| {
                     Error::MalformedProofInput(
@@ -120,8 +126,14 @@ impl<
             }
             Root::Odd(root) => {
                 let mut children = Vec::with_capacity(L * num_indices as usize);
-                for i in 0..num_indices {
-                    children.extend_from_slice(root.x_coord_children[i as usize].as_slice());
+                for i in 0..num_indices as usize {
+                    let xs = root.x_coord_children.get(i).ok_or_else(|| {
+                        Error::MalformedProofInput(format!(
+                            "root has {} child sets but index {i} was selected",
+                            root.x_coord_children.len()
+                        ))
+                    })?;
+                    children.extend_from_slice(xs.as_slice());
                 }
                 let even_commitment = self.even_commitments.get(0).ok_or_else(|| {
                     Error::MalformedProofInput(
@@ -185,18 +197,13 @@ impl<
             }
         }
 
-        let mut selected_children_count_grp_by_root_index = vec![0; max_num_indices as usize];
-        for path in paths {
-            for root_index in 0..path.num_indices() as usize {
-                selected_children_count_grp_by_root_index[root_index] += 1;
-            }
-        }
+        let paths_num_indices: Vec<u32> = paths.iter().map(|p| p.num_indices()).collect();
         let mut root_children_selected_coord_vars = match root {
             Root::Even(node) => {
-                RootChildrenCoordsVars::Even(Self::process_root_nodes_for_given_multi_paths_with_common_root(node, max_num_indices, selected_children_count_grp_by_root_index, paths.len(), even_verifier)?)
+                RootChildrenCoordsVars::Even(Self::process_root_nodes_for_given_multi_paths_with_common_root(node, max_num_indices, &paths_num_indices, even_verifier)?)
             }
             Root::Odd(node) => {
-                RootChildrenCoordsVars::Odd(SelectAndRerandomizeMultiPath::<L, M, P1, P0>::process_root_nodes_for_given_multi_paths_with_common_root(node, max_num_indices, selected_children_count_grp_by_root_index, paths.len(), odd_verifier)?)
+                RootChildrenCoordsVars::Odd(SelectAndRerandomizeMultiPath::<L, M, P1, P0>::process_root_nodes_for_given_multi_paths_with_common_root(node, max_num_indices, &paths_num_indices, odd_verifier)?)
             }
         };
 
@@ -228,23 +235,45 @@ impl<
         Ok(())
     }
 
+    /// Allocates one x-coordinate variable per (path, root index) pair and enforces membership
+    /// in the root's children. `paths_num_indices[p]` is the number of indices selected by path
+    /// `p`; the returned vector has one entry per path, holding that path's `num_indices`
+    /// x-coordinate variables in root-index order.
     fn process_root_nodes_for_given_multi_paths_with_common_root<T: BorrowMut<MerlinTranscript>>(
         root_node: &RootNode<L, M, P0, P1>,
         max_num_indices: u32,
-        selected_children_count_grp_by_root_index: Vec<u32>,
-        num_paths: usize,
+        paths_num_indices: &[u32],
         verifier: &mut Verifier<T, Affine<P0>>,
     ) -> Result<Vec<Vec<LinearCombination<P0::ScalarField>>>, Error> {
-        let mut selected_children_of_root_xs = vec![vec![]; num_paths];
+        let mut selected_children_of_root_xs = vec![vec![]; paths_num_indices.len()];
         for root_index in 0..max_num_indices as usize {
-            let children_of_root = root_node.x_coord_children[root_index].as_slice();
+            // `max_num_indices` is bounded by `M` (`ensure_acceptable_num_indices`) but the
+            // root is caller-supplied, so keep the access checked.
+            let children_of_root = root_node
+                .x_coord_children
+                .get(root_index)
+                .ok_or_else(|| {
+                    Error::MalformedProofInput(format!(
+                        "root has {} child sets but index {root_index} was selected",
+                        root_node.x_coord_children.len()
+                    ))
+                })?
+                .as_slice();
+            // One variable for every path that selects a child of this root, attributed to
+            // that path (not positionally: paths may select different numbers of indices).
+            let mut xs = Vec::new();
+            let mut owners = Vec::new();
+            for (mp_idx, &n) in paths_num_indices.iter().enumerate() {
+                if root_index < n as usize {
+                    let x: LinearCombination<_> = verifier.allocate(None)?.into();
+                    xs.push(x);
+                    owners.push(mp_idx);
+                }
+            }
             // Enforce set membership for the i-th root
-            let xs = (0..selected_children_count_grp_by_root_index[root_index])
-                .map(|_| verifier.allocate(None).unwrap().into())
-                .collect::<Vec<_>>();
             multi_select_public_set(verifier, xs.clone(), children_of_root)?;
-            for (j, x) in xs.into_iter().enumerate() {
-                selected_children_of_root_xs[j].push(x);
+            for (mp_idx, x) in owners.into_iter().zip(xs) {
+                selected_children_of_root_xs[mp_idx].push(x);
             }
         }
         Ok(selected_children_of_root_xs)
