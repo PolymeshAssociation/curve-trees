@@ -10,7 +10,7 @@ resolver = "2"
 
 [patch.crates-io]
 #dock_crypto_utils = { path = "../crypto/utils" }
-dock_crypto_utils = { git = "https://github.com/PolymeshAssociation/crypto", branch = "dlog-changes" }
+dock_crypto_utils = { git = "https://github.com/PolymeshAssociation/crypto", branch = "patch34" }
 
 ## Polymesh changes.
 #ark-serialize = { path = "../arkworks-algebra/serialize" }
@@ -28,20 +28,22 @@ dock_crypto_utils = { git = "https://github.com/PolymeshAssociation/crypto", bra
 #ark-curve25519 = { path = "../arkworks-algebra/curves/curve25519" }
 #ark-wei25519 = { path = "../arkworks-algebra/curves/wei25519" }
 
-ark-serialize = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch5" }
-ark-ec = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch5" }
-ark-host-msm = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch5" }
-ark-ff = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch5" }
-ark-poly = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch5" }
-ark-pallas = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch5" }
-ark-vesta = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch5" }
-ark-secp256k1 = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch5" }
-ark-secq256k1 = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch5" }
-ark-helios = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch5" }
-ark-selene = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch5" }
-ark-ed25519 = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch5" }
-ark-curve25519 = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch5" }
-ark-wei25519 = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch5" }
+ark-serialize = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch-h2c" }
+ark-ec = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch-h2c" }
+ark-host-msm = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch-h2c" }
+ark-host-hash-to-curve = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch-h2c" }
+ark-host-hash-to-curve-impl = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch-h2c" }
+ark-ff = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch-h2c" }
+ark-poly = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch-h2c" }
+ark-pallas = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch-h2c" }
+ark-vesta = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch-h2c" }
+ark-secp256k1 = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch-h2c" }
+ark-secq256k1 = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch-h2c" }
+ark-helios = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch-h2c" }
+ark-selene = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch-h2c" }
+ark-ed25519 = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch-h2c" }
+ark-curve25519 = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch-h2c" }
+ark-wei25519 = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch-h2c" }
 
 
 [workspace.dependencies]
@@ -49,6 +51,8 @@ dock_crypto_utils = { version = "0.22.0", default-features = false }
 ark-ff = { version = "0.5.0", default-features = false }
 ark-ec = { version = "0.5.0", default-features = false }
 ark-host-msm = { version = "0.5.0", default-features = false }
+ark-host-hash-to-curve = { version = "0.5.0", default-features = false }
+ark-host-hash-to-curve-impl = { version = "0.5.0", default-features = false }
 ark-serialize = { version = "0.5.0", default-features = false }
 ark-std = { version = "0.5.0", default-features = false }
 ark-poly = { version = "0.5.0", default-features = false }
