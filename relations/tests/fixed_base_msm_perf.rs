@@ -26,6 +26,7 @@ use dock_crypto_utils::transcript::MerlinTranscript;
 use rand::thread_rng;
 use relations::curve_tree::CurveTree;
 use relations::parameters::{SelRerandProofParametersNew, SelRerandProofParametersRef};
+use std::hint::black_box;
 use std::time::{Duration, Instant};
 
 type P0 = PallasConfig;
@@ -432,8 +433,9 @@ fn compare<P: SWCurveConfig>(
     for _ in 0..reps {
         //  combined msm_unchecked_full_width.
         let t = Instant::now();
-        let _ = Projective::<P>::msm_unchecked_full_width(&combined_bases, &combined_scalars);
+        let res = Projective::<P>::msm_unchecked_full_width(&combined_bases, &combined_scalars);
         baseline_msm += t.elapsed();
+        let _ = black_box(res);
 
         //  fixed-base table + variable-base.
         let t = Instant::now();
@@ -441,16 +443,17 @@ fn compare<P: SWCurveConfig>(
         let f = t.elapsed();
         let t = Instant::now();
         let r_var = Projective::<P>::msm_unchecked_full_width(&var_points, &var_scalars);
-        let _ = r_fixed + r_var;
         let v = t.elapsed();
+        let _ = black_box(r_fixed + r_var);
         split_fixed += f;
         split_var += v;
         split_total += f + v;
 
         //  combined msm_batch_affine.
         let t = Instant::now();
-        let _ = msm_batch_affine::<P>(&combined_bases, &combined_scalars);
+        let res = msm_batch_affine::<P>(&combined_bases, &combined_scalars);
         batch_affine += t.elapsed();
+        let _ = black_box(res);
     }
 
     let r = reps as u32;
@@ -648,8 +651,9 @@ fn compare_fixed_base<P: SWCurveConfig>(
     let mut varbase_ref = Duration::ZERO;
     for _ in 0..reps {
         let t = Instant::now();
-        let _ = Projective::<P>::msm_unchecked_full_width(&fb, &fixed_scalars);
+        let res = Projective::<P>::msm_unchecked_full_width(&fb, &fixed_scalars);
         varbase_ref += t.elapsed();
+        let _ = black_box(res);
     }
     let varbase_ref = varbase_ref / reps as u32;
 
@@ -665,8 +669,9 @@ fn compare_fixed_base<P: SWCurveConfig>(
         let mut eval = Duration::ZERO;
         for _ in 0..reps {
             let t = Instant::now();
-            let _ = msm.msm_bigint(&fixed_big);
+            let res = msm.msm_bigint(&fixed_big);
             eval += t.elapsed();
+            let _ = black_box(res);
         }
         rows.push((
             c,
