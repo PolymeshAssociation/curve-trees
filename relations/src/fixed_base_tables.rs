@@ -10,9 +10,9 @@ use ark_ec::scalar_mul::fixed_base::FixedBaseMSM;
 use ark_ec::scalar_mul::sw_pippenger::msm_batch_affine;
 use ark_ec::short_weierstrass::{Affine, SWCurveConfig};
 use ark_ff::Zero;
+use ark_std::vec::Vec;
 use ark_std::UniformRand;
-use ark_std::{vec, vec::Vec};
-use bulletproofs::r1cs::{R1CSError, VerificationTuple};
+use bulletproofs::r1cs::{combine_verification_tuples, R1CSError, VerificationTuple};
 use bulletproofs::{BulletproofGens, PedersenGens};
 use rand_core::{CryptoRng, RngCore};
 
@@ -45,6 +45,7 @@ impl<P: SWCurveConfig> FixedBaseTables<P> {
         self.g_table.table_bytes() + self.h_table.table_bytes()
     }
 
+    /// Verifies one tuple. Errors if its `padded_n` exceeds the table capacity.
     pub fn verify_tuple(
         &self,
         pc_gens: &PedersenGens<Affine<P>>,
@@ -86,6 +87,7 @@ impl<P: SWCurveConfig> FixedBaseTables<P> {
         }
     }
 
+    /// Verifies `verification_tuples` together, each weighted by an independent random scalar.
     pub fn verify_tuples<R: RngCore + CryptoRng>(
         &self,
         pc_gens: &PedersenGens<Affine<P>>,
@@ -93,67 +95,16 @@ impl<P: SWCurveConfig> FixedBaseTables<P> {
         rng: &mut R,
     ) -> Result<(), R1CSError> {
         if verification_tuples.is_empty() {
-            return Ok(());
+            return Err(R1CSError::NoVerificationTuple);
         }
-
-        let mut max_padded_n = 0usize;
-        let mut num_var = 0usize;
-        for vt in &verification_tuples {
-            let n = vt.padded_n()? as usize;
-            if n > max_padded_n {
-                max_padded_n = n;
-            }
-            num_var += vt.proof_dependent_scalars.len();
-        }
-        if max_padded_n > self.capacity {
-            return Err(R1CSError::InvalidGeneratorsLength(
-                self.capacity as u32,
-                max_padded_n as u32,
-            ));
-        }
-
-        let mut proof_points = Vec::with_capacity(num_var + 2);
-        let mut proof_scalars = Vec::with_capacity(num_var + 2);
-        let mut lc = vec![P::ScalarField::zero(); 2 * max_padded_n + 2];
-
-        for mut vt in verification_tuples {
-            let padded_n = vt.padded_n()? as usize;
-
+        let combined = combine_verification_tuples(verification_tuples, |_| {
             let mut r = P::ScalarField::rand(rng);
             while r.is_zero() {
                 r = P::ScalarField::rand(rng);
             }
-
-            proof_points.append(&mut vt.proof_dependent_points);
-            for s in vt.proof_dependent_scalars.drain(..) {
-                proof_scalars.push(s * r);
-            }
-            lc[0] += r * vt.fixed_point_scalars[0];
-            lc[1] += r * vt.fixed_point_scalars[1];
-            for i in 0..padded_n {
-                lc[2 + i] += r * vt.fixed_point_scalars[2 + i];
-            }
-            for i in 0..padded_n {
-                lc[2 + max_padded_n + i] += r * vt.fixed_point_scalars[2 + padded_n + i];
-            }
-        }
-
-        proof_points.push(pc_gens.B);
-        proof_points.push(pc_gens.B_blinding);
-        proof_scalars.push(lc[0]);
-        proof_scalars.push(lc[1]);
-        let g_scalars = &lc[2..2 + max_padded_n];
-        let h_scalars = &lc[2 + max_padded_n..2 + 2 * max_padded_n];
-
-        let result = self.g_table.msm(g_scalars)
-            + self.h_table.msm(h_scalars)
-            + msm_batch_affine::<P>(&proof_points, &proof_scalars);
-
-        if result.is_zero() {
-            Ok(())
-        } else {
-            Err(R1CSError::VerificationError)
-        }
+            r
+        })?;
+        self.verify_tuple(pc_gens, combined)
     }
 }
 
@@ -189,5 +140,161 @@ impl<P0: SWCurveConfig, P1: SWCurveConfig> FixedBaseTablesPair<P0, P1> {
     /// Total bytes held by both tables.
     pub fn table_bytes(&self) -> usize {
         self.even.table_bytes() + self.odd.table_bytes()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ark_pallas::{Affine as PallasAffine, Fr, PallasConfig};
+    use ark_std::rand::{rngs::StdRng, SeedableRng};
+    use bulletproofs::r1cs::{
+        verify_given_verification_tuple, ConstraintSystem, LinearCombination, Prover, Verifier,
+    };
+    use dock_crypto_utils::transcript::MerlinTranscript;
+
+    const LABEL: &[u8] = b"fixed_base_tables";
+
+    /// `k` multipliers each constraining `a * b = c` for committed `a`, `b` and public `c`.
+    fn circuit<CS: ConstraintSystem<Fr>>(
+        cs: &mut CS,
+        a: LinearCombination<Fr>,
+        b: LinearCombination<Fr>,
+        c: Fr,
+        k: usize,
+    ) {
+        for _ in 0..k {
+            let (_, _, o) = cs.multiply(a.clone(), b.clone());
+            cs.constrain(o - c);
+        }
+    }
+
+    /// Verification tuple for a proof of `a * b = c` (repeated `k` times) checked against
+    /// `c_verifier`. The tuple is invalid when `c_verifier != a * b`.
+    fn tuple(
+        pc_gens: &PedersenGens<PallasAffine>,
+        bp_gens: &BulletproofGens<PallasAffine>,
+        k: usize,
+        c_verifier: u64,
+        rng: &mut StdRng,
+    ) -> VerificationTuple<PallasAffine> {
+        let (a, b) = (Fr::from(3u64), Fr::from(5u64));
+        let mut prover = Prover::new(pc_gens, MerlinTranscript::new(LABEL));
+        let (comm_a, var_a) = prover.commit(a, Fr::rand(rng));
+        let (comm_b, var_b) = prover.commit(b, Fr::rand(rng));
+        circuit(&mut prover, var_a.into(), var_b.into(), a * b, k);
+        let proof = prover.prove(bp_gens).unwrap();
+
+        let mut verifier = Verifier::new(MerlinTranscript::new(LABEL));
+        let var_a = verifier.commit(comm_a);
+        let var_b = verifier.commit(comm_b);
+        circuit(
+            &mut verifier,
+            var_a.into(),
+            var_b.into(),
+            Fr::from(c_verifier),
+            k,
+        );
+        verifier
+            .verification_scalars_and_points_with_rng(&proof, rng)
+            .unwrap()
+    }
+
+    fn setup() -> (
+        PedersenGens<PallasAffine>,
+        BulletproofGens<PallasAffine>,
+        StdRng,
+    ) {
+        (
+            PedersenGens::default(),
+            BulletproofGens::new(16, 1),
+            StdRng::seed_from_u64(0),
+        )
+    }
+
+    #[test]
+    fn verify_tuple_matches_msm_check() {
+        let (pc_gens, bp_gens, mut rng) = setup();
+        let tables = FixedBaseTables::<PallasConfig>::new(&bp_gens);
+        for k in [1, 3, 8, 16] {
+            let vt = tuple(&pc_gens, &bp_gens, k, 15, &mut rng);
+            verify_given_verification_tuple(vt.clone(), &pc_gens, &bp_gens).unwrap();
+            tables.verify_tuple(&pc_gens, vt).unwrap();
+
+            let bad = tuple(&pc_gens, &bp_gens, k, 16, &mut rng);
+            assert!(verify_given_verification_tuple(bad.clone(), &pc_gens, &bp_gens).is_err());
+            assert!(matches!(
+                tables.verify_tuple(&pc_gens, bad),
+                Err(R1CSError::VerificationError)
+            ));
+        }
+    }
+
+    #[test]
+    fn verify_tuple_rejects_tampered_scalars() {
+        let (pc_gens, bp_gens, mut rng) = setup();
+        let tables = FixedBaseTables::<PallasConfig>::new(&bp_gens);
+        let vt = tuple(&pc_gens, &bp_gens, 4, 15, &mut rng);
+        let padded_n = vt.padded_n().unwrap() as usize;
+        // B, B_blinding, last G, last H and one proof dependent scalar.
+        for i in [0, 1, 1 + padded_n, 1 + 2 * padded_n] {
+            let mut t = vt.clone();
+            t.fixed_point_scalars[i] += Fr::from(1u64);
+            assert!(tables.verify_tuple(&pc_gens, t).is_err(), "index {i}");
+        }
+        let mut t = vt;
+        t.proof_dependent_scalars[0] += Fr::from(1u64);
+        assert!(tables.verify_tuple(&pc_gens, t).is_err());
+    }
+
+    #[test]
+    fn capacity_prefix_and_overflow() {
+        let (pc_gens, bp_gens, mut rng) = setup();
+        let tables = FixedBaseTables::<PallasConfig>::with_capacity(&bp_gens, 8);
+        let vt = tuple(&pc_gens, &bp_gens, 8, 15, &mut rng);
+        tables.verify_tuple(&pc_gens, vt).unwrap();
+
+        let vt = tuple(&pc_gens, &bp_gens, 9, 15, &mut rng);
+        assert!(matches!(
+            tables.verify_tuple(&pc_gens, vt.clone()),
+            Err(R1CSError::InvalidGeneratorsLength(8, 16))
+        ));
+        assert!(matches!(
+            tables.verify_tuples(&pc_gens, vec![vt], &mut rng),
+            Err(R1CSError::InvalidGeneratorsLength(8, 16))
+        ));
+    }
+
+    #[test]
+    fn verify_tuples_mixed_sizes() {
+        let (pc_gens, bp_gens, mut rng) = setup();
+        let tables = FixedBaseTables::<PallasConfig>::new(&bp_gens);
+        let good: Vec<_> = [1, 2, 5, 16]
+            .into_iter()
+            .map(|k| tuple(&pc_gens, &bp_gens, k, 15, &mut rng))
+            .collect();
+        tables
+            .verify_tuples(&pc_gens, good.clone(), &mut rng)
+            .unwrap();
+
+        for bad_at in 0..good.len() {
+            let mut batch = good.clone();
+            let k = [1, 2, 5, 16][bad_at];
+            batch[bad_at] = tuple(&pc_gens, &bp_gens, k, 16, &mut rng);
+            assert!(
+                tables.verify_tuples(&pc_gens, batch, &mut rng).is_err(),
+                "bad tuple at {bad_at}"
+            );
+        }
+    }
+
+    #[test]
+    fn verify_tuples_rejects_empty_batch() {
+        let (pc_gens, bp_gens, mut rng) = setup();
+        let tables = FixedBaseTables::<PallasConfig>::new(&bp_gens);
+        assert!(matches!(
+            tables.verify_tuples(&pc_gens, vec![], &mut rng),
+            Err(R1CSError::NoVerificationTuple)
+        ));
     }
 }

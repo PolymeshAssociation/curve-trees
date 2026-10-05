@@ -161,6 +161,7 @@ fn glv_fold_plainbits(gl: &Aff, k1: Fr, gr: &Aff, k2: Fr) -> Proj {
 }
 
 #[test]
+#[ignore = "profiling: timings are only meaningful run alone in release with --nocapture"]
 fn profile_fold_and_divisor() {
     let mut rng = ark_std::rand::rngs::StdRng::seed_from_u64(7);
 

@@ -49,6 +49,7 @@ fn build_tables(
 }
 
 #[test]
+#[ignore = "profiling: timings are only meaningful run alone in release with --nocapture"]
 fn profile_fixed_base_fold() {
     let mut rng = ark_std::rand::rngs::StdRng::seed_from_u64(7);
 

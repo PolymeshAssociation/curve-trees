@@ -29,6 +29,7 @@ fn min_ns(reps: usize, mut f: impl FnMut() -> Proj) -> (f64, Proj) {
 }
 
 #[test]
+#[ignore = "profiling: timings are only meaningful run alone in release with --nocapture"]
 fn profile_msm_check_candidates() {
     let mut rng = ark_std::rand::rngs::StdRng::seed_from_u64(7);
     let threads = {

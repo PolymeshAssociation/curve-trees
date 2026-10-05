@@ -23,6 +23,7 @@ pub use self::verifier::{
 #[cfg(feature = "std")]
 pub use verifier::batch::batch_verify;
 pub use verifier::batch::batch_verify_with_rng;
+pub use verifier::batch::combine_verification_tuples;
 
 pub use crate::errors::R1CSError;
 

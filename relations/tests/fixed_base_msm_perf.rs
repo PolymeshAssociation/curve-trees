@@ -218,6 +218,7 @@ fn print_report(label: &str, r: &Report, samples: u32) {
 }
 
 #[test]
+#[ignore = "profiling: timings are only meaningful run alone in release with --nocapture"]
 fn fixed_base_msm_vs_combined_msm() {
     let depth = 4;
     let gens: u32 = 1 << 13;
@@ -298,7 +299,7 @@ fn fixed_base_msm_vs_combined_msm() {
     println!(
         "ark-ec MSM regime: {}   (rayon threads = {})",
         msm_desc(),
-        rayon::current_num_threads()
+        rayon_threads()
     );
     print_report("Pallas (even)", &rep0, samples);
     print_report("Vesta (odd)", &rep1, samples);
@@ -341,6 +342,18 @@ fn fixed_base_msm_vs_combined_msm() {
 
 fn mb(bytes: usize) -> f64 {
     bytes as f64 / (1024.0 * 1024.0)
+}
+
+/// Rayon's thread count, or 1 without the `parallel` feature.
+fn rayon_threads() -> usize {
+    #[cfg(feature = "parallel")]
+    {
+        rayon::current_num_threads()
+    }
+    #[cfg(not(feature = "parallel"))]
+    {
+        1
+    }
 }
 
 /// Whether ark-ec's MSM (and the `FixedBaseMSM` table evaluation) is parallelized.
@@ -459,6 +472,7 @@ fn compare<P: SWCurveConfig>(
 }
 
 #[test]
+#[ignore = "profiling: timings are only meaningful run alone in release with --nocapture"]
 fn fixed_base_msm_scaling() {
     let sizes: [u32; 4] = [1 << 13, 1 << 14, 1 << 15, 1 << 16];
     let max_cap = *sizes.iter().max().unwrap();
@@ -473,7 +487,7 @@ fn fixed_base_msm_scaling() {
     println!(
         "ark-ec MSM regime: {}   (rayon threads = {})",
         msm_desc(),
-        rayon::current_num_threads()
+        rayon_threads()
     );
 
     // (padded_n, tables MB, gens MB, precompute, A, B, C, B-speedup, C-speedup, B-break-even)
@@ -606,7 +620,7 @@ const SWEEP_SIZES: &[u32] = &[1 << 13, 1 << 16];
 const SWEEP_WINDOWS: &[usize] = &[8, 10, 12, 14, 16, 17, 18];
 
 /// Per-window row for one curve: (c, W, num_buckets, table_bytes, precompute, fixed_eval_avg).
-struct CompFixedFase {
+struct CompFixedBase {
     n_fixed: usize,
     default_c: usize,
     varbase_ref: Duration,
@@ -619,7 +633,7 @@ fn compare_fixed_base<P: SWCurveConfig>(
     bp_gens: &BulletproofGens<Affine<P>>,
     windows: &[usize],
     reps: usize,
-) -> CompFixedFase {
+) -> CompFixedBase {
     let mut rng = thread_rng();
     let fb = fixed_bases(pc_gens, bp_gens, padded_n);
     let n_fixed = fb.len();
@@ -664,7 +678,7 @@ fn compare_fixed_base<P: SWCurveConfig>(
         ));
     }
 
-    CompFixedFase {
+    CompFixedBase {
         n_fixed,
         default_c,
         varbase_ref,
@@ -685,7 +699,7 @@ fn fixed_base_msm_window_sweep() {
     println!(
         "ark-ec MSM regime: {}   (rayon threads = {})",
         msm_desc(),
-        rayon::current_num_threads()
+        rayon_threads()
     );
     println!(
         "point size = {} B; table = n*W points; num_buckets = 2^(c-1) (capped by modulus)",

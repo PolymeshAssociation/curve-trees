@@ -183,7 +183,8 @@ impl<F: PrimeField> Interpolator<F> {
         let n = domain_size as usize;
         // Transpose the reversed coefficient rows into columns so `interpolate` forms each output
         // coefficient as one inner product over the evaluations.
-        let mut transposed_lagrange_polys = vec![Vec::with_capacity(n); n];
+        let mut transposed_lagrange_polys: Vec<Vec<F>> =
+            (0..n).map(|_| Vec::with_capacity(n)).collect();
         for i in 0..domain_size {
             let li = weights.li(i);
             for (k, c) in li.0.iter().rev().enumerate() {
