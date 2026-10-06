@@ -54,7 +54,11 @@ criterion = "0.7"
 default = ["std", "parallel", "asm", "host_hash_to_curve"]
 
 no_std = []
-std = ["rand/std", "thiserror/std", "sha2/std", "ark-pallas/std", "ark-vesta/std", "dock_crypto_utils/std", "ahash/std", "ark-host-hash-to-curve/std"]
+std = [
+    "rand/std", "thiserror/std", "sha2/std", "ark-pallas/std", "ark-vesta/std", "dock_crypto_utils/std", "ahash/std",
+    "ark-host-hash-to-curve/std",
+    "impl_host_hash_to_curve"
+]
 asm = ["ark-ff/asm", "sha2/asm", "ark-host-hash-to-curve/asm"]
 parallel = ["std", "rayon", "ark-host-hash-to-curve/parallel"]
 parallel_full = [ "parallel", "dock_crypto_utils/parallel_full", "ark-ff/parallel", "ark-ec/parallel" ]
@@ -65,7 +69,6 @@ host_hash_to_curve = [
 ]
 # For the host-side.
 impl_host_hash_to_curve = [
-    "std",
     "ark-host-hash-to-curve-impl/std",
 ]
 polkavm = [
