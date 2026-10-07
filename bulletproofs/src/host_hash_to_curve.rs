@@ -1,5 +1,6 @@
 #[cfg(feature = "impl_host_hash_to_curve")]
 pub mod host_fn {
+    use ark_ec::short_weierstrass::SWCurveConfig;
     use ark_host_msm::{CurveMSMId, CURVE_ID_LEN};
     use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress};
     use ark_std::vec::Vec;
@@ -28,11 +29,14 @@ pub mod host_fn {
         }
 
         pub fn register_curve<C: HashToCurveExt + 'static>(&mut self) -> bool {
-            let name = C::curve_name();
-            let curve_id = CurveMSMId::from_curve_name(name);
-            self.curves
-                .insert(curve_id, Box::new(batch_hash_to_curve_impl::<C>));
-            true
+            if let Some(name) = <C as SWCurveConfig>::curve_name() {
+                let curve_id = CurveMSMId::from_curve_name(name);
+                self.curves
+                    .insert(curve_id, Box::new(batch_hash_to_curve_impl::<C>));
+                true
+            } else {
+                false
+            }
         }
 
         pub fn batch_hash_to_curve(&self, buffer: &mut [u8], buf_len: u32) -> u32 {
@@ -120,7 +124,7 @@ pub mod host_fn {
 
 #[cfg(not(feature = "impl_host_hash_to_curve"))]
 pub mod host_fn {
-    use ark_ec::short_weierstrass::Affine as SWAffine;
+    use ark_ec::short_weierstrass::{Affine as SWAffine, SWCurveConfig};
     use ark_host_msm::{pack_fat_pointer, CurveMSMId};
     use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
     use ark_std::vec::Vec;
@@ -150,38 +154,41 @@ pub mod host_fn {
         gens_offset: u32,
         gens_count: u32,
     ) -> Option<Vec<SWAffine<C>>> {
-        let mut buffer = Vec::new();
-        let curve_name = C::curve_name();
-        let curve_id = CurveMSMId::from_curve_name(curve_name);
-        curve_id.serialize_uncompressed(&mut buffer).ok()?;
+        if let Some(curve_name) = <C as SWCurveConfig>::curve_name() {
+            let mut buffer = Vec::new();
+            let curve_id = CurveMSMId::from_curve_name(curve_name);
+            curve_id.serialize_uncompressed(&mut buffer).ok()?;
 
-        // Call the host function with only the curve ID to check if the host supports MSM for this curve.
-        let fat_ptr = pack_fat_pointer(buffer.as_ptr() as u32, buffer.len() as u32);
-        let res_len = unsafe { host_batch_hash_to_curve(fat_ptr) as usize };
-        if res_len == 0 {
-            // Host does not support MSM for this curve or an error occurred.
-            return None;
-        }
+            // Call the host function with only the curve ID to check if the host supports MSM for this curve.
+            let fat_ptr = pack_fat_pointer(buffer.as_ptr() as u32, buffer.len() as u32);
+            let res_len = unsafe { host_batch_hash_to_curve(fat_ptr) as usize };
+            if res_len == 0 {
+                // Host does not support MSM for this curve or an error occurred.
+                return None;
+            }
 
-        // Serialize parmeters for the host hash_to_curve operation.  The `curve_id` is already serialized in the buffer, so we only need to append the other parameters.
-        dst.serialize_uncompressed(&mut buffer).ok()?;
-        msg_prefix.serialize_uncompressed(&mut buffer).ok()?;
-        gens_offset.serialize_uncompressed(&mut buffer).ok()?;
-        gens_count.serialize_uncompressed(&mut buffer).ok()?;
+            // Serialize parmeters for the host hash_to_curve operation.  The `curve_id` is already serialized in the buffer, so we only need to append the other parameters.
+            dst.serialize_uncompressed(&mut buffer).ok()?;
+            msg_prefix.serialize_uncompressed(&mut buffer).ok()?;
+            gens_offset.serialize_uncompressed(&mut buffer).ok()?;
+            gens_count.serialize_uncompressed(&mut buffer).ok()?;
 
-        // Make sure there is enough space in the buffer for the results of the batched hash_to_curve operation.  Each point is serialized in uncompressed form, which takes `C::uncompressed_size()` bytes.
-        let expected_res_len = C::batch_uncompressed_size(gens_count);
-        if expected_res_len > buffer.len() {
-            buffer.resize(expected_res_len, 0);
-        }
+            // Make sure there is enough space in the buffer for the results of the batched hash_to_curve operation.  Each point is serialized in uncompressed form, which takes `C::uncompressed_size()` bytes.
+            let expected_res_len = C::batch_uncompressed_size(gens_count);
+            if expected_res_len > buffer.len() {
+                buffer.resize(expected_res_len, 0);
+            }
 
-        let fat_ptr = pack_fat_pointer(buffer.as_ptr() as u32, buffer.len() as u32);
-        let res_len = unsafe { host_batch_hash_to_curve(fat_ptr) as usize };
-        if res_len > 0 {
-            Vec::<SWAffine<C>>::deserialize_uncompressed_unchecked(&buffer[..res_len]).ok()
+            let fat_ptr = pack_fat_pointer(buffer.as_ptr() as u32, buffer.len() as u32);
+            let res_len = unsafe { host_batch_hash_to_curve(fat_ptr) as usize };
+            if res_len > 0 {
+                Vec::<SWAffine<C>>::deserialize_uncompressed_unchecked(&buffer[..res_len]).ok()
+            } else {
+                // An error occurred during MSM.
+                None
+            }
         } else {
-            // An error occurred during MSM.
-            None
+            return None;
         }
     }
 }
