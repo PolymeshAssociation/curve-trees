@@ -55,6 +55,7 @@ use ark_dlog_gadget::dlog::{
     discrete_log_challenge, DiscreteLogParameters, DivisorComms,
 };
 use ark_dlog_gadget::utils::CurveSpec;
+use ark_ec::scalar_mul::BatchMulPreprocessing;
 use ark_ec::short_weierstrass::{Affine, Projective, SWCurveConfig};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ec_divisors::DivisorCurve;
@@ -92,6 +93,9 @@ impl<P: SWCurveConfig> ReRandomizedPoints<P> {
 }
 
 const RE_RANDOMIZED_POINTS: &'static [u8; 20] = b"re_randomized_points";
+
+/// Fewest scalars for which a `BatchMulPreprocessing` table beats one scalar multiplication each.
+const MIN_SCALARS_FOR_FIXED_BASE_TABLE: usize = 32;
 
 /// For indices in `shared_dlog_indices`, produces 2 re-randomized points using same blinding with different generators.
 /// For other indices, produces 1 re-randomized point.
@@ -149,11 +153,21 @@ pub fn prove<
     // `i` -> `B * blindings[i]` for `i` in `shared_dlog_indices`
     let mut blinding_points = BTreeMap::new();
 
-    for &idx in shared_dlog_indices {
-        blinding_points.insert(
-            idx as u32,
-            (other_base * blindings_for_points[idx]).into_affine(),
-        );
+    let shared_blindings = if shared_dlog_indices.len() < MIN_SCALARS_FOR_FIXED_BASE_TABLE {
+        shared_dlog_indices
+            .iter()
+            .map(|&idx| other_base * blindings_for_points[idx])
+            .collect::<Vec<_>>()
+    } else {
+        let pre = BatchMulPreprocessing::new(other_base, shared_dlog_indices.len());
+        shared_dlog_indices
+            .iter()
+            .map(|&idx| pre.windowed_mul(&blindings_for_points[idx]))
+            .collect::<Vec<_>>()
+    };
+    let shared_blinding_points = Projective::normalize_batch(&shared_blindings);
+    for (&idx, pt) in shared_dlog_indices.iter().zip(shared_blinding_points) {
+        blinding_points.insert(idx as u32, pt);
     }
 
     let re_randomized_points = ReRandomizedPoints {

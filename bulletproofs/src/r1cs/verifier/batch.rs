@@ -59,7 +59,7 @@ where
     let (b, s) =
         bases_and_scalars_for_batch(verification_tuples, pc_gens, bp_gens, new_randomness_getter)?;
 
-    let mega_check = C::Group::msm_unchecked(&b, &s);
+    let mega_check = C::Group::msm_unchecked_full_width(&b, &s);
     if !mega_check.is_zero() {
         return Err(R1CSError::VerificationError);
     }
@@ -70,8 +70,30 @@ pub fn bases_and_scalars_for_batch<C: AffineRepr, R>(
     verification_tuples: Vec<VerificationTuple<C>>,
     pc_gens: &PedersenGens<C>,
     bp_gens: &BulletproofGens<C>,
-    mut new_randomness_getter: R,
+    new_randomness_getter: R,
 ) -> Result<(Vec<C>, Vec<C::ScalarField>), R1CSError>
+where
+    R: FnMut(C::ScalarField) -> C::ScalarField,
+{
+    let combined = combine_verification_tuples(verification_tuples, new_randomness_getter)?;
+    let max_padded_n = combined.padded_n()?;
+    bases_and_scalars(
+        combined.proof_dependent_points,
+        combined.proof_dependent_scalars,
+        combined.fixed_point_scalars,
+        max_padded_n,
+        pc_gens,
+        bp_gens,
+    )
+}
+
+/// Combines tuples of possibly different `padded_n` into one tuple whose `padded_n` is the largest.
+/// Each tuple's scalars are scaled by the next value of `new_randomness_getter`, which receives the
+/// previous value, starting from 1.
+pub fn combine_verification_tuples<C: AffineRepr, R>(
+    verification_tuples: Vec<VerificationTuple<C>>,
+    mut new_randomness_getter: R,
+) -> Result<VerificationTuple<C>, R1CSError>
 where
     R: FnMut(C::ScalarField) -> C::ScalarField,
 {
@@ -124,14 +146,11 @@ where
         }
     }
 
-    bases_and_scalars(
-        proof_points,
+    Ok(VerificationTuple {
+        proof_dependent_points: proof_points,
         proof_dependent_scalars,
-        linear_combination,
-        max_padded_n as u32,
-        pc_gens,
-        bp_gens,
-    )
+        fixed_point_scalars: linear_combination,
+    })
 }
 
 pub fn batch_verify_core_same_size<C: AffineRepr, F>(

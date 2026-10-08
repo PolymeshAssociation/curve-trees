@@ -54,4 +54,7 @@ pub mod ped_comm_group_elems_naive;
 pub mod prover;
 pub mod verifier;
 pub mod verifier_common_root;
+
+#[cfg(feature = "build-tables")]
+pub mod fixed_base_tables;
 // TODO: Rename generics types to be more descriptive

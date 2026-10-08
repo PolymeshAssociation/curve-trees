@@ -162,7 +162,13 @@ impl<F: PrimeField> Weights<F> {
 /// after O(n²) preprocessing.
 #[derive(Clone)]
 pub struct Interpolator<F: Field> {
-    lagrange_polys: Vec<UnivariatePoly<F>>,
+    /// Transpose of the (reversed) Lagrange coefficient rows: `transposed_lagrange_polys[k][i]` is
+    /// the coefficient that output coefficient `k` of `interpolate` multiplies by `evals[i]`.
+    /// Consider this as the polynomial terms written in degree-major form.
+    /// Precomputed so each output coefficient is a single inner product over the evaluations, which
+    /// on Montgomery fields defers to one reduction for the whole sum. The last row holds the
+    /// highest-degree coefficient of each `L_i`, i.e. the barycentric weights.
+    transposed_lagrange_polys: Vec<Vec<F>>,
 }
 
 impl<F: PrimeField> Interpolator<F> {
@@ -174,22 +180,30 @@ impl<F: PrimeField> Interpolator<F> {
     pub fn new(degree: u16) -> Self {
         let domain_size = degree + 1;
         let weights = Weights::new(domain_size);
-        let mut lagrange_polys = Vec::with_capacity(domain_size as usize);
+        let n = domain_size as usize;
+        // Transpose the reversed coefficient rows into columns so `interpolate` forms each output
+        // coefficient as one inner product over the evaluations.
+        let mut transposed_lagrange_polys: Vec<Vec<F>> =
+            (0..n).map(|_| Vec::with_capacity(n)).collect();
         for i in 0..domain_size {
             let li = weights.li(i);
-            lagrange_polys.push(li);
+            for (k, c) in li.0.iter().rev().enumerate() {
+                transposed_lagrange_polys[k].push(*c);
+            }
         }
-        Self { lagrange_polys }
+        Self {
+            transposed_lagrange_polys,
+        }
     }
 
     /// The maximum degree this interpolator can handle
     pub fn degree(&self) -> u16 {
-        self.lagrange_polys.len() as u16 - 1
+        self.transposed_lagrange_polys.len() as u16 - 1
     }
 
     /// The number of evaluation points required
     pub fn required_evaluations(&self) -> u16 {
-        self.lagrange_polys.len() as u16
+        self.transposed_lagrange_polys.len() as u16
     }
 
     /// Attempt to reconstruct the original polynomial via interpolation.
@@ -200,18 +214,15 @@ impl<F: PrimeField> Interpolator<F> {
     /// Returns an error if not enough evaluations were provided to attempt interpolation.
     /// Returns garbage if the polynomial's degree exceeds this interpolator's degree.
     pub fn interpolate(&self, evals: &[F]) -> Result<Vec<F>, Error> {
-        if evals.len() < self.lagrange_polys.len() {
-            return Err(Error::InsufficientEvaluations(
-                evals.len(),
-                self.lagrange_polys.len(),
-            ));
+        let n = self.transposed_lagrange_polys.len();
+        if evals.len() < n {
+            return Err(Error::InsufficientEvaluations(evals.len(), n));
         }
 
+        // poly[k] = \sum_i{evals[i] * L_i.coeff[k]}, one inner product per output coefficient.
         let mut poly = vec![F::zero(); evals.len()];
-        for (eval, li) in evals.iter().zip(&self.lagrange_polys) {
-            for (res, li) in poly.iter_mut().zip(li.0.iter().rev()) {
-                *res += *li * *eval;
-            }
+        for (res, col) in poly.iter_mut().zip(&self.transposed_lagrange_polys) {
+            *res = F::inner_product(col, &evals[..n]);
         }
         Ok(poly)
     }
@@ -220,7 +231,7 @@ impl<F: PrimeField> Interpolator<F> {
     /// This is more efficient than full interpolation when you only need a single point evaluation
     ///  `p(x) = [\sum_i w_i * y_i / (x - i)] / [\sum_i w_i / (x - i)]`
     pub fn evaluate_at(&self, x: F, evals: &[F]) -> Result<F, Error> {
-        let n = self.lagrange_polys.len();
+        let n = self.transposed_lagrange_polys.len();
         if evals.len() < n {
             return Err(Error::InsufficientEvaluations(evals.len(), n));
         }
@@ -250,11 +261,10 @@ impl<F: PrimeField> Interpolator<F> {
         Ok(num / den)
     }
 
-    /// Extract the barycentric weight `w_i` from the stored Lagrange polynomial `L_i`.
+    /// Extract the barycentric weight `w_i`, the highest-degree coefficient of `L_i`.
     /// `L_i(x) = w_i * l(x)/(x - i)`
     fn barycentric_weight(&self, i: usize) -> F {
-        // highest-degree coefficient
-        self.lagrange_polys[i].0[0]
+        self.transposed_lagrange_polys[self.transposed_lagrange_polys.len() - 1][i]
     }
 }
 

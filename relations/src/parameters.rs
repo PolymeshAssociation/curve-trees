@@ -12,7 +12,7 @@ use ark_pallas::{Affine as PallasAffine, PallasConfig};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::vec::Vec;
 use ark_vesta::{Affine as VestaAffine, VestaConfig};
-use bulletproofs::hash_to_curve_pasta::{hash_to_pallas, hash_to_vesta};
+use bulletproofs::generators::HashToCurveConfig;
 use bulletproofs::{affine_from_bytes_tai, BulletproofGens, PedersenGens};
 use core::iter;
 
@@ -137,13 +137,16 @@ impl<P: SWCurveConfig + Copy> SingleLayerParameters<P> {
 }
 
 macro_rules! impl_single_layer_parameters_new_using_label {
-    ($config:ty, $affine:ty, $hash_fn:ident, $curve_name:literal) => {
+    ($config:ty, $affine:ty, $curve_name:literal) => {
         impl SingleLayerParameters<$config> {
             pub fn new_using_label(label: &[u8], generators_length: u32) -> Result<Self, Error> {
                 let pc_gens = PedersenGens::<$affine>::new_using_label(label);
                 let bp_gens =
                     BulletproofGens::<$affine>::new_using_label(label, generators_length, 1);
-                let delta = $hash_fn($curve_name.as_bytes(), b"curve_trees_delta").into_affine();
+                let delta = <$config as HashToCurveConfig>::hash_to_curve(
+                    $curve_name.as_bytes(),
+                    b"curve_trees_delta",
+                );
 
                 Ok(SingleLayerParameters {
                     bp_gens,
@@ -155,8 +158,8 @@ macro_rules! impl_single_layer_parameters_new_using_label {
     };
 }
 
-impl_single_layer_parameters_new_using_label!(PallasConfig, PallasAffine, hash_to_pallas, "pallas");
-impl_single_layer_parameters_new_using_label!(VestaConfig, VestaAffine, hash_to_vesta, "vesta");
+impl_single_layer_parameters_new_using_label!(PallasConfig, PallasAffine, "pallas");
+impl_single_layer_parameters_new_using_label!(VestaConfig, VestaAffine, "vesta");
 
 /// Parameters for multi level select and rerandomize over a 2-cycle of curves
 #[derive(Clone, CanonicalSerialize, CanonicalDeserialize)]

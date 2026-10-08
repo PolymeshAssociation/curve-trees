@@ -15,7 +15,7 @@ use ark_dlog_gadget::dlog::{
     DivisorComms, PointWithDlog, MIN_CHUNK_LEN,
 };
 use ark_dlog_gadget::utils::CurveSpec;
-use ark_ec::short_weierstrass::{Affine, SWCurveConfig};
+use ark_ec::short_weierstrass::{Affine, Projective, SWCurveConfig};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ec_divisors::util::GeneratorTable;
 use ark_ec_divisors::DivisorCurve;
@@ -609,11 +609,13 @@ impl<
         chunk_len: usize,
         table: &GeneratorTable<F0, Parameters>,
     ) -> Result<()> {
-        // Each path's selected child + delta
-        let children_plus_delta: Vec<Affine<P1>> = child_nodes_to_randomize
-            .iter()
-            .map(|c| (*c + delta).into_affine())
-            .collect();
+        // Each path's selected child + delta, with a single batch affine conversion.
+        let children_plus_delta = Projective::normalize_batch(
+            &child_nodes_to_randomize
+                .iter()
+                .map(|c| *c + delta)
+                .collect::<Vec<_>>(),
+        );
 
         // Allocate x-coordinates for all selected children and enforce set membership
         let x_vars: Vec<LinearCombination<F0>> = children_plus_delta

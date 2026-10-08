@@ -6,7 +6,7 @@ use alloc::borrow::Borrow;
 use alloc::vec::Vec;
 
 use ark_ec::{AffineRepr, CurveGroup, VariableBaseMSM};
-use ark_ff::{fields::batch_inversion, Field};
+use ark_ff::{fields::batch_inversion, Field, PrimeField};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress};
 use ark_std::{cfg_into_iter, cfg_iter, cfg_iter_mut, One};
 use core::iter;
@@ -88,8 +88,8 @@ impl<C: AffineRepr> InnerProductProof<C> {
             let (G_L, G_R) = G.split_at_mut(n);
             let (H_L, H_R) = H.split_at_mut(n);
 
-            let c_L = inner_product(a_L, b_R);
-            let c_R = inner_product(a_R, b_L);
+            let c_L = Field::inner_product(a_L, b_R);
+            let c_R = Field::inner_product(a_R, b_L);
 
             let (mut l_scalars, mut r_scalars): (Vec<C::ScalarField>, Vec<C::ScalarField>) =
                 if first_round {
@@ -147,13 +147,21 @@ impl<C: AffineRepr> InnerProductProof<C> {
 
             #[cfg(feature = "parallel")]
             let (L, R): (C, C) = rayon::join(
-                || C::Group::msm_unchecked(l_points.as_slice(), l_scalars.as_slice()).into(),
-                || C::Group::msm_unchecked(r_points.as_slice(), r_scalars.as_slice()).into(),
+                || {
+                    C::Group::msm_unchecked_full_width(l_points.as_slice(), l_scalars.as_slice())
+                        .into()
+                },
+                || {
+                    C::Group::msm_unchecked_full_width(r_points.as_slice(), r_scalars.as_slice())
+                        .into()
+                },
             );
             #[cfg(not(feature = "parallel"))]
             let (L, R): (C, C) = (
-                C::Group::msm_unchecked(l_points.as_slice(), l_scalars.as_slice()).into(),
-                C::Group::msm_unchecked(r_points.as_slice(), r_scalars.as_slice()).into(),
+                C::Group::msm_unchecked_full_width(l_points.as_slice(), l_scalars.as_slice())
+                    .into(),
+                C::Group::msm_unchecked_full_width(r_points.as_slice(), r_scalars.as_slice())
+                    .into(),
             );
 
             l_scalars.zeroize();
@@ -335,23 +343,22 @@ impl<C: AffineRepr> InnerProductProof<C> {
         let neg_u_sq = u_sq.iter().map(|ui| -(*ui));
         let neg_u_inv_sq = u_inv_sq.iter().map(|ui| -(*ui));
 
-        let expect_P = C::Group::msm_unchecked(
-            iter::once(Q)
-                .chain(G.iter())
-                .chain(H.iter())
-                .chain(self.L_vec.iter())
-                .chain(self.R_vec.iter())
-                .copied()
-                .collect::<Vec<C>>()
-                .as_slice(),
-            iter::once(self.a * self.b)
-                .chain(g_times_a_times_s)
-                .chain(h_times_b_div_s)
-                .chain(neg_u_sq)
-                .chain(neg_u_inv_sq)
-                .collect::<Vec<C::ScalarField>>()
-                .as_slice(),
-        );
+        let bases = iter::once(Q)
+            .chain(G.iter())
+            .chain(H.iter())
+            .chain(self.L_vec.iter())
+            .chain(self.R_vec.iter())
+            .copied()
+            .collect::<Vec<C>>();
+        // Verification scalars are public and full-width, so the full-width wNAF path is fastest.
+        let scalars = iter::once(self.a * self.b)
+            .chain(g_times_a_times_s)
+            .chain(h_times_b_div_s)
+            .chain(neg_u_sq)
+            .chain(neg_u_inv_sq)
+            .map(|s| s.into_bigint())
+            .collect::<Vec<_>>();
+        let expect_P = C::Group::msm_bigint_full_width(&bases, &scalars);
 
         if expect_P.into() == *P {
             Ok(())
@@ -371,29 +378,15 @@ impl<C: AffineRepr> InnerProductProof<C> {
         scalars_size + l_and_r_size
     }
 }
-/// Computes an inner product of two vectors
-/// \\[
-///    {\langle {\mathbf{a}}, {\mathbf{b}} \rangle} = \sum\_{i=0}^{n-1} a\_i \cdot b\_i.
-/// \\]
-/// Panics if the lengths of \\(\mathbf{a}\\) and \\(\mathbf{b}\\) are not equal.
-pub fn inner_product<S: Field>(a: &[S], b: &[S]) -> S {
-    let mut out = S::zero();
-    if a.len() != b.len() {
-        panic!("inner_product(a,b): lengths of vectors do not match");
-    }
-    for i in 0..a.len() {
-        out += a[i] * b[i];
-    }
-    out
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{affine_from_bytes_tai, util, BulletproofGens};
+    use crate::{affine_from_bytes_tai, BulletproofGens};
     use ark_pallas::Affine;
     use ark_std::rand::{prelude::StdRng, SeedableRng};
     use ark_std::UniformRand;
+    use dock_crypto_utils::ff::powers;
     use test_log::test;
 
     type F = <Affine as AffineRepr>::ScalarField;
@@ -417,7 +410,7 @@ mod tests {
         // a and b are the vectors for which we want to prove c = <a,b>
         let a: Vec<_> = (0..n).map(|_| F::rand(&mut rng)).collect();
         let b: Vec<_> = (0..n).map(|_| F::rand(&mut rng)).collect();
-        let c = inner_product(&a, &b);
+        let c = F::inner_product(&a, &b);
 
         let G_factors: Vec<_> = iter::repeat(<Affine as AffineRepr>::ScalarField::one())
             .take(n)
@@ -425,14 +418,17 @@ mod tests {
 
         // y_inv is (the inverse of) a random challenge
         let y_inv: F = rng.gen();
-        let H_factors: Vec<F> = util::exp_iter(y_inv).take(n).collect();
+        let H_factors: Vec<F> = powers(&y_inv, n as u32);
 
         // P would be determined upstream, but we need a correct P to check the proof.
         //
         // To generate P = <a,G> + <b,H'> + <a,b> Q, compute
         //             P = <a,G> + <b',H> + <a,b> Q,
         // where b' = b \circ y^(-n)
-        let b_prime = b.iter().zip(util::exp_iter(y_inv)).map(|(bi, yi)| *bi * yi);
+        let b_prime = b
+            .iter()
+            .zip(powers(&y_inv, n as u32))
+            .map(|(bi, yi)| *bi * yi);
         // a.iter() has Item=&Scalar, need Item=Scalar to chain with b_prime
         let a_prime = a.iter().copied();
 
@@ -470,7 +466,7 @@ mod tests {
             n,
             &mut verifier,
             iter::repeat(F::one()).take(n),
-            util::exp_iter(y_inv).take(n),
+            powers(&y_inv, n as u32),
             &P,
             &Q,
             &G,
@@ -488,7 +484,7 @@ mod tests {
             n,
             &mut verifier,
             iter::repeat(F::one()).take(n),
-            util::exp_iter(y_inv).take(n),
+            powers(&y_inv, n as u32),
             &P,
             &Q,
             &G,
@@ -521,13 +517,6 @@ mod tests {
     #[test]
     fn make_ipp_64() -> Result<(), ProofError> {
         test_helper_create(64)
-    }
-
-    #[test]
-    fn test_inner_product() {
-        let a = vec![F::from(1u64), F::from(2u64), F::from(3u64), F::from(4u64)];
-        let b = vec![F::from(2u64), F::from(3u64), F::from(4u64), F::from(5u64)];
-        assert_eq!(F::from(40u64), inner_product(&a, &b));
     }
 
     #[test]

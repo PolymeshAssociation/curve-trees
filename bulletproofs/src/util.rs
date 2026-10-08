@@ -9,7 +9,6 @@ use alloc::vec::Vec;
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 
-use dock_crypto_utils::ff::inner_product;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// The general case for Vector CP. This is a polynomial of degree `d` where each coefficient is a vector of length `n`.
@@ -111,40 +110,12 @@ impl<F: PrimeField> VecPoly<F> {
                 let r = d - l;
                 // lhs has 0 coefficients for degrees < mid_degree but not for degrees >= mid_degree
                 if l_deg >= l && r_deg >= r && (r <= mid_degree || r == r_deg) {
-                    res.coeff_mut()[d] += inner_product(lhs.coeff(l), rhs.coeff(r));
+                    res.coeff_mut()[d] += F::inner_product(lhs.coeff(l), rhs.coeff(r));
                 }
             }
         }
         res
     }
-}
-
-/// Provides an iterator over the powers of a `Scalar`.
-///
-/// This struct is created by the `exp_iter` function.
-pub struct ScalarExp<F: PrimeField> {
-    x: F,
-    next_exp_x: F,
-}
-
-impl<F: PrimeField> Iterator for ScalarExp<F> {
-    type Item = F;
-
-    fn next(&mut self) -> Option<F> {
-        let exp_x = self.next_exp_x;
-        self.next_exp_x *= self.x;
-        Some(exp_x)
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        (usize::MAX, None)
-    }
-}
-
-/// Return an iterator of the powers of `x`.
-pub fn exp_iter<F: PrimeField>(x: F) -> ScalarExp<F> {
-    let next_exp_x = F::one();
-    ScalarExp { x, next_exp_x }
 }
 
 pub fn add_vec<F: PrimeField>(a: &[F], b: &[F]) -> Vec<F> {
@@ -189,25 +160,4 @@ pub fn field_as_bytes<F: PrimeField>(field: &F) -> Vec<u8> {
         panic!("{}", e)
     }
     bytes
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use test_log::test;
-
-    use ark_pallas::*;
-
-    type Scalar = <Affine as AffineRepr>::ScalarField;
-    // use ark_ff::{One, Zero};
-
-    #[test]
-    fn exp_2_is_powers_of_2() {
-        let exp_2: Vec<_> = exp_iter(Scalar::from(2u64)).take(4).collect();
-
-        assert_eq!(exp_2[0], Scalar::from(1u64));
-        assert_eq!(exp_2[1], Scalar::from(2u64));
-        assert_eq!(exp_2[2], Scalar::from(4u64));
-        assert_eq!(exp_2[3], Scalar::from(8u64));
-    }
 }
