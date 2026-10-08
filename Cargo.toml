@@ -10,7 +10,7 @@ resolver = "2"
 
 [patch.crates-io]
 #dock_crypto_utils = { path = "../crypto/utils" }
-dock_crypto_utils = { git = "https://github.com/PolymeshAssociation/crypto", branch = "patch34" }
+dock_crypto_utils = { git = "https://github.com/PolymeshAssociation/crypto", branch = "main" }
 
 ## Polymesh changes.
 #ark-serialize = { path = "../arkworks-algebra/serialize" }
@@ -28,22 +28,22 @@ dock_crypto_utils = { git = "https://github.com/PolymeshAssociation/crypto", bra
 #ark-curve25519 = { path = "../arkworks-algebra/curves/curve25519" }
 #ark-wei25519 = { path = "../arkworks-algebra/curves/wei25519" }
 
-ark-serialize = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch-h2c" }
-ark-ec = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch-h2c" }
-ark-host-msm = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch-h2c" }
-ark-host-hash-to-curve = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch-h2c" }
-ark-host-hash-to-curve-impl = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch-h2c" }
-ark-ff = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch-h2c" }
-ark-poly = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch-h2c" }
-ark-pallas = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch-h2c" }
-ark-vesta = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch-h2c" }
-ark-secp256k1 = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch-h2c" }
-ark-secq256k1 = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch-h2c" }
-ark-helios = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch-h2c" }
-ark-selene = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch-h2c" }
-ark-ed25519 = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch-h2c" }
-ark-curve25519 = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch-h2c" }
-ark-wei25519 = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "patch-h2c" }
+ark-serialize = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+ark-ec = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+ark-host-msm = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+ark-host-hash-to-curve = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+ark-host-hash-to-curve-impl = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+ark-ff = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+ark-poly = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+ark-pallas = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+ark-vesta = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+ark-secp256k1 = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+ark-secq256k1 = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+ark-helios = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+ark-selene = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+ark-ed25519 = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+ark-curve25519 = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
+ark-wei25519 = { git = "https://github.com/PolymeshAssociation/arkworks-algebra.git", branch = "polymesh-master" }
 
 
 [workspace.dependencies]
