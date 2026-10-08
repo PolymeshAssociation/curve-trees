@@ -43,6 +43,9 @@ jobs:
     - name: Run tests
       run: cargo nextest run --release
 
+    - name: Run fixed-base table tests
+      run: cargo nextest run --release -p relations --features build-tables fixed_base_tables
+
   check-nightly:
     runs-on: ubuntu-latest
 

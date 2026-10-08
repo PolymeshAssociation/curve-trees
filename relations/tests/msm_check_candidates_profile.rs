@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use ark_ec::scalar_mul::variable_base::{msm_bigint, msm_bigint_wnaf};
 use ark_ec::short_weierstrass::{Affine, Projective};
-use ark_ec::{AffineRepr, VariableBaseMSM};
+use ark_ec::VariableBaseMSM;
 use ark_ff::PrimeField;
 use ark_pallas::{Fr, PallasConfig};
 use ark_std::rand::SeedableRng;

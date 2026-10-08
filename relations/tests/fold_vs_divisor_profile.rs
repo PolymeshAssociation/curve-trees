@@ -6,7 +6,6 @@
 //!   - new_divisor over 256 points (one per in-circuit scalar mul).
 //! Run: cargo test -p relations --release --test fold_vs_divisor_profile -- --nocapture
 
-use core::borrow::Borrow;
 use std::time::Instant;
 
 use ark_ec::scalar_mul::glv::GLVConfig;
@@ -192,7 +191,7 @@ fn profile_fold_and_divisor() {
         );
     }
     let a_dur = t.elapsed();
-    std::hint::black_box(acc);
+    let _ = std::hint::black_box(acc);
 
     // (dec) scalar_decomposition overhead alone: 2 per element.
     let t = Instant::now();
@@ -215,7 +214,7 @@ fn profile_fold_and_divisor() {
         warm(&mut acc, glv_fold_naf(&gl[i], s0[i], &gr[i], s1[i]));
     }
     let b_dur = t.elapsed();
-    std::hint::black_box(acc);
+    let _ = std::hint::black_box(acc);
 
     // (C) GLV 4-base plain bits (incl decomposition).
     let t = Instant::now();
@@ -224,7 +223,7 @@ fn profile_fold_and_divisor() {
         warm(&mut acc, glv_fold_plainbits(&gl[i], s0[i], &gr[i], s1[i]));
     }
     let c_dur = t.elapsed();
-    std::hint::black_box(acc);
+    let _ = std::hint::black_box(acc);
 
     //  Divisor: new_divisor over 256 points summing to zero (one per in-circuit scalar mul).
     let num_bits = Fr::MODULUS_BIT_SIZE as usize; // 255 -> 256 points
@@ -239,11 +238,11 @@ fn profile_fold_and_divisor() {
     }
     let interp = C::interpolator_for_scalar_mul();
     // warm + correctness
-    let _ = new_divisor::<C>(&div_sets[0], interp.borrow()).expect("divisor build");
+    let _ = new_divisor::<C>(&div_sets[0], interp).expect("divisor build");
     let t = Instant::now();
     let mut dsink = 0usize;
     for set in &div_sets {
-        let d = new_divisor::<C>(set, interp.borrow()).expect("divisor build");
+        let d = new_divisor::<C>(set, interp).expect("divisor build");
         std::hint::black_box(&d);
         dsink += 1;
     }

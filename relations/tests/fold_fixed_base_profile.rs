@@ -18,7 +18,7 @@ use std::time::Instant;
 
 use ark_ec::scalar_mul::BatchMulPreprocessing;
 use ark_ec::short_weierstrass::{Affine, Projective};
-use ark_ec::{AffineRepr, CurveGroup, VariableBaseMSM};
+use ark_ec::{AffineRepr, VariableBaseMSM};
 use ark_ff::{PrimeField, Zero};
 use ark_pallas::{Fr, PallasConfig};
 use ark_std::rand::SeedableRng;
@@ -143,7 +143,7 @@ fn profile_fixed_base_fold() {
                 );
             }
             let ns = t.elapsed().as_nanos() as f64 / N as f64;
-            std::hint::black_box(acc);
+            let _ = std::hint::black_box(acc);
             warm_min = warm_min.min(ns);
         }
         // Extrapolate from the COLD (realistic) number.
@@ -208,7 +208,7 @@ fn profile_fixed_base_fold() {
             acc += Proj::msm_unchecked(&bases, &scls);
         }
         let d = t.elapsed();
-        std::hint::black_box(acc);
+        let _ = std::hint::black_box(acc);
         println!(
             "  [context] one msm_unchecked n={m}: {:.1} us/call",
             d.as_micros() as f64 / reps as f64
