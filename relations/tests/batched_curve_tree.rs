@@ -125,7 +125,7 @@ pub fn test_batched_curve_tree_with_parameters<
         set.push(Affine::<P0>::rand(&mut rng));
         indices[i as usize] = i;
     }
-    let curve_tree = CurveTree::<L, M, P0, P1>::from_leaves(&set, &sr_params, Some(depth));
+    let curve_tree = CurveTree::<L, M, P0, P1>::from_leaves(&set, &sr_params, Some(depth)).unwrap();
     assert_eq!(curve_tree.height(), depth);
 
     let paths = curve_tree.get_paths_to_leaves(indices.as_slice()).unwrap();
@@ -264,11 +264,12 @@ pub fn check_individual_vs_batched_proofs_with_parameters<
     }
 
     // Create curve tree with batch support
-    let batched_curve_tree = CurveTree::<L, M, P0, P1>::from_leaves(&set, &sr_params, Some(depth));
+    let batched_curve_tree =
+        CurveTree::<L, M, P0, P1>::from_leaves(&set, &sr_params, Some(depth)).unwrap();
     assert_eq!(batched_curve_tree.height(), depth);
 
     // For individual proofs and combined proof, using a non-batched curve tree
-    let curve_tree = CurveTree::<L, 1, P0, P1>::from_leaves(&set, &sr_params, Some(depth));
+    let curve_tree = CurveTree::<L, 1, P0, P1>::from_leaves(&set, &sr_params, Some(depth)).unwrap();
     assert_eq!(curve_tree.height(), depth);
 
     println!("For {M} leaves, width {L}, height {depth}");
@@ -593,7 +594,7 @@ pub fn check_batched_combined_vs_common_root_proofs_with_parameters<
         set.push(Affine::<P0>::rand(&mut rng));
     }
 
-    let curve_tree = CurveTree::<L, M, P0, P1>::from_leaves(&set, &sr_params, Some(depth));
+    let curve_tree = CurveTree::<L, M, P0, P1>::from_leaves(&set, &sr_params, Some(depth)).unwrap();
     assert_eq!(curve_tree.height(), depth);
 
     // ceil(num_leaves/M)
@@ -817,7 +818,7 @@ pub fn check_optimized_multi_paths<
         leaf_indices.push(i as u32)
     }
 
-    let curve_tree = CurveTree::<L, M, P0, P1>::from_leaves(&set, &sr_params, Some(depth));
+    let curve_tree = CurveTree::<L, M, P0, P1>::from_leaves(&set, &sr_params, Some(depth)).unwrap();
     assert_eq!(curve_tree.height(), depth);
 
     let mut multi_paths = Vec::new();
@@ -1077,7 +1078,7 @@ pub fn test_batched_curve_tree_with_parameters_new<
         set.push(Affine::<P0>::rand(&mut rng));
         indices[i as usize] = i;
     }
-    let curve_tree = CurveTree::<L, M, P0, P1>::from_leaves(&set, &sr_params, Some(depth));
+    let curve_tree = CurveTree::<L, M, P0, P1>::from_leaves(&set, &sr_params, Some(depth)).unwrap();
     assert_eq!(curve_tree.height(), depth);
 
     let paths = curve_tree.get_paths_to_leaves(indices.as_slice()).unwrap();
@@ -1274,7 +1275,8 @@ pub fn test_batched_divisor_malformed_proof_inputs() {
         .map(|_| Affine::<PallasConfig>::rand(&mut rng))
         .collect::<Vec<_>>();
     let curve_tree =
-        CurveTree::<32, 2, PallasConfig, VestaConfig>::from_leaves(&set, &sr_proof_params, Some(4));
+        CurveTree::<32, 2, PallasConfig, VestaConfig>::from_leaves(&set, &sr_proof_params, Some(4))
+            .unwrap();
     let root = curve_tree.root_node();
     let paths = curve_tree.get_paths_to_leaves(&[0, 1]).unwrap();
 
@@ -1438,7 +1440,7 @@ pub fn check_optimized_multi_paths_divisor<
         leaf_indices.push(i as u32);
     }
 
-    let curve_tree = CurveTree::<L, M, P0, P1>::from_leaves(&set, &sr_params, Some(depth));
+    let curve_tree = CurveTree::<L, M, P0, P1>::from_leaves(&set, &sr_params, Some(depth)).unwrap();
     assert_eq!(curve_tree.height(), depth);
     let root = curve_tree.root_node();
 
@@ -1597,7 +1599,8 @@ fn malformed_multi_path_empty_odd_commitments_rejected() {
     }
 
     let curve_tree =
-        CurveTree::<L, M, PallasConfig, VestaConfig>::from_leaves(&set, &sr_params, Some(depth));
+        CurveTree::<L, M, PallasConfig, VestaConfig>::from_leaves(&set, &sr_params, Some(depth))
+            .unwrap();
     let root = curve_tree.root_node();
     let optimized_multi_paths = curve_tree.get_optmz_paths_to_leaves(&leaf_indices).unwrap();
 

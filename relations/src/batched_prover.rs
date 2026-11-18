@@ -1108,7 +1108,8 @@ mod tests {
             &set,
             &sr_proof_params,
             Some(DEPTH),
-        );
+        )
+        .unwrap();
         assert_eq!(curve_tree.height(), DEPTH);
         (sr_params, sr_proof_params, curve_tree)
     }

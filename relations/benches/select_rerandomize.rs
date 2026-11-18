@@ -123,7 +123,7 @@ fn bench_select_and_rerandomize_with_parameters<
 
     let some_point = Affine::<P0>::rand(&mut rng);
     let set = vec![some_point];
-    let curve_tree = CurveTree::<L, 1, P0, P1>::from_leaves(&set, &sr_params, Some(depth));
+    let curve_tree = CurveTree::<L, 1, P0, P1>::from_leaves(&set, &sr_params, Some(depth)).unwrap();
 
     let prove = |print| {
         let pallas_transcript = MerlinTranscript::new(b"select_and_rerandomize");

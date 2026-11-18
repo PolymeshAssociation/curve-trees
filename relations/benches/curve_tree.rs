@@ -74,7 +74,8 @@ fn setup_curve_tree_data<const L: usize>(
         &set,
         &*SRParamsPallasLeaf,
         Some(height),
-    );
+    )
+    .unwrap();
 
     let root = curve_tree.root_node();
 
@@ -184,7 +185,8 @@ fn curve_tree_prove<const L: usize>(c: &mut Criterion, height: u8) {
         &set,
         &*SRParamsPallasLeaf,
         Some(height),
-    );
+    )
+    .unwrap();
 
     let bench_name = format!("curve_tree_prove_{}_{}", L, height);
     c.bench_function(&bench_name, |b| {

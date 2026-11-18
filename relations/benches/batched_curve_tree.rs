@@ -56,7 +56,7 @@ fn bench_batched_curve_tree_with_varying_batch_size<
     let set = (0..M)
         .map(|_| Affine::<P0>::rand(&mut rng))
         .collect::<Vec<_>>();
-    let curve_tree = CurveTree::<L, M, P0, P1>::from_leaves(&set, &sr_params, Some(depth));
+    let curve_tree = CurveTree::<L, M, P0, P1>::from_leaves(&set, &sr_params, Some(depth)).unwrap();
 
     let prefix_string = format!("BatchedCurveTree_Curves:L:{L}_D:{depth}_M:{M}");
 
@@ -219,7 +219,8 @@ fn bench_combined_vs_common_root_with_parameters<
     for _ in 0..*path_counts.iter().max().unwrap() {
         leaves.push(Affine::<P0>::rand(&mut rng));
     }
-    let curve_tree = CurveTree::<L, M, P0, P1>::from_leaves(&leaves, &sr_params, Some(depth));
+    let curve_tree =
+        CurveTree::<L, M, P0, P1>::from_leaves(&leaves, &sr_params, Some(depth)).unwrap();
 
     for num_paths in path_counts {
         // ceil(num_paths/M)

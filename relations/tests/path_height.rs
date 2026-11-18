@@ -247,7 +247,8 @@ fn root_height_matches_tree_height() {
         .collect::<Vec<_>>();
     for height in 1..=MAX_HEIGHT {
         let tree =
-            CurveTree::<L, 1, PallasConfig, VestaConfig>::from_leaves(&set, &params, Some(height));
+            CurveTree::<L, 1, PallasConfig, VestaConfig>::from_leaves(&set, &params, Some(height))
+                .unwrap();
         let root = tree.root_node();
         assert_eq!(root.height(), height);
         assert_eq!(root.is_even(), height % 2 == 0);
@@ -264,7 +265,8 @@ fn root_with_invalid_height_is_rejected() {
         .collect::<Vec<_>>();
     for height in 1..=MAX_HEIGHT {
         let tree =
-            CurveTree::<L, 1, PallasConfig, VestaConfig>::from_leaves(&set, &params, Some(height));
+            CurveTree::<L, 1, PallasConfig, VestaConfig>::from_leaves(&set, &params, Some(height))
+                .unwrap();
         let root = tree.root_node();
 
         let mut bytes = vec![];
@@ -302,10 +304,11 @@ fn single_path_length_must_match_root_height() {
 
     for height in 1..=MAX_HEIGHT {
         let tree =
-            CurveTree::<L, 1, PallasConfig, VestaConfig>::from_leaves(&set, &params, Some(height));
+            CurveTree::<L, 1, PallasConfig, VestaConfig>::from_leaves(&set, &params, Some(height))
+                .unwrap();
         let root = tree.root_node();
         let witness = tree.get_path_to_leaf_for_proof(1, 0).unwrap();
-        assert_eq!(witness.height(), height);
+        assert_eq!(witness.height().unwrap(), height);
         witness.check_height_for_root(&root).unwrap();
 
         let (mut pp, mut vp) = new_provers(&params);
@@ -389,10 +392,11 @@ fn multi_path_length_must_match_root_height() {
 
     for height in 1..=MAX_HEIGHT {
         let tree =
-            CurveTree::<L, M, PallasConfig, VestaConfig>::from_leaves(&set, &params, Some(height));
+            CurveTree::<L, M, PallasConfig, VestaConfig>::from_leaves(&set, &params, Some(height))
+                .unwrap();
         let root = tree.root_node();
         let witness = tree.get_paths_to_leaves(&[0, 1]).unwrap();
-        assert_eq!(witness.height(), height);
+        assert_eq!(witness.height().unwrap(), height);
         witness.check_height_for_root(&root).unwrap();
 
         let (mut pp, mut vp) = new_provers(&params);

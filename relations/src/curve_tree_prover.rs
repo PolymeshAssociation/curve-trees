@@ -388,9 +388,9 @@ impl<
     }
 
     /// Height of the tree this path is from, i.e. the number of internal nodes on the path.
-    pub fn height(&self) -> u8 {
-        u8::try_from(self.even_internal_nodes.len() + self.odd_internal_nodes.len())
-            .expect("Witness path height exceeds u8::MAX")
+    pub fn height(&self) -> Result<u8, Error> {
+        let height = self.even_internal_nodes.len() + self.odd_internal_nodes.len();
+        u8::try_from(height).map_err(|_| Error::HeightTooLarge(height))
     }
 
     /// Errors unless `root` has a valid height equal to this path's height.

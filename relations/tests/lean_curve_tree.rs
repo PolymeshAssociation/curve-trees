@@ -76,7 +76,7 @@ pub fn check_inserts<
     let mut total_verifier_time = Duration::default();
 
     let vanilla_curve_tree = compare_with_vanilla_curve_tree
-        .then(|| CurveTree::<L, 1, P0, P1>::from_leaves(&leaves, &sr_params, None));
+        .then(|| CurveTree::<L, 1, P0, P1>::from_leaves(&leaves, &sr_params, None).unwrap());
 
     let mut lean_curve_tree = LeanCurveTree::<L, P0, P1>::new(height, &sr_params);
     assert_eq!(lean_curve_tree.height, height);

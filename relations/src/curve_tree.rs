@@ -45,7 +45,7 @@ impl<
         set: &[Affine<P0>],
         parameters: &impl SelRerandParametersRef<P0, P1>,
         height: Option<u8>, // resulting curve tree will have height at least `height`
-    ) -> Self {
+    ) -> Result<Self, Error> {
         if set.is_empty() {
             panic!("The curve tree must have at least one leaf.")
         }
@@ -71,7 +71,7 @@ impl<
                         nodes.to_vec(),
                         parameters.odd_parameters(),
                         &parameters.even_parameters().delta,
-                    ));
+                    )?);
                 }
                 // This will hold nodes at the next even-level
                 nodes_at_even_level = vec![];
@@ -82,7 +82,7 @@ impl<
                         nodes.to_vec(),
                         parameters.even_parameters(),
                         &parameters.odd_parameters().delta,
-                    ));
+                    )?);
                 }
                 // This will hold nodes at the next odd-level
                 nodes_at_odd_level = vec![];
@@ -104,9 +104,9 @@ impl<
         self,
         height: Option<u8>,
         parameters: &impl SelRerandParametersRef<P0, P1>,
-    ) -> Self {
+    ) -> Result<Self, Error> {
         match height {
-            None => self,
+            None => Ok(self),
             Some(height) => {
                 let mut res = self;
                 while res.height() < height {
@@ -116,18 +116,18 @@ impl<
                                 vec![ct],
                                 parameters.odd_parameters(),
                                 &parameters.even_parameters().delta,
-                            ));
+                            )?);
                         }
                         Self::Odd(ct) => {
                             res = Self::Even(CurveTreeNode::<L, M, P0, P1>::combine(
                                 vec![ct],
                                 parameters.even_parameters(),
                                 &parameters.odd_parameters().delta,
-                            ));
+                            )?);
                         }
                     }
                 }
-                res
+                Ok(res)
             }
         }
     }
@@ -704,7 +704,7 @@ impl<
         children: Vec<CurveTreeNode<L, M, P1, P0>>,
         parameters: &SingleLayerParameters<P0>,
         delta: &Affine<P1>,
-    ) -> Self {
+    ) -> Result<Self, Error> {
         if children.len() > L {
             panic!(
                 "Cannot combine more than the branching factor: {} into one node.",
@@ -726,7 +726,7 @@ impl<
         let height = if let Some(c) = &children[0] {
             c.height()
                 .checked_add(1)
-                .expect("Curve tree height exceeds u8::MAX")
+                .ok_or(Error::HeightTooLarge(c.height() as usize + 1))?
         } else {
             1
         };
@@ -737,13 +737,13 @@ impl<
             *x = x_coordinates(&children, delta, tree_index);
             *c = parameters.commit(x, P0::ScalarField::zero(), tree_index as u32);
         }
-        Self::InnerNode(InnerNode {
+        Ok(Self::InnerNode(InnerNode {
             commitments_to_children: commitments,
             children: Box::new(children),
             x_coord_children: x_coords,
             height,
             elements,
-        })
+        }))
     }
 }
 

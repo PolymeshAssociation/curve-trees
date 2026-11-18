@@ -116,7 +116,7 @@ pub fn check_naive<
         set[**i] = *c;
     }
 
-    let curve_tree = CurveTree::<L, 1, P0, P1>::from_leaves(&set, &sr_params, depth);
+    let curve_tree = CurveTree::<L, 1, P0, P1>::from_leaves(&set, &sr_params, depth).unwrap();
     if let Some(d) = depth {
         assert_eq!(curve_tree.height(), d);
     }
@@ -300,7 +300,7 @@ pub fn check<
         set[**i] = *c;
     }
 
-    let curve_tree = CurveTree::<L, 1, P0, P1>::from_leaves(&set, &sr_params, depth);
+    let curve_tree = CurveTree::<L, 1, P0, P1>::from_leaves(&set, &sr_params, depth).unwrap();
     if let Some(d) = depth {
         assert_eq!(curve_tree.height(), d);
     }

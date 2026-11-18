@@ -112,6 +112,10 @@ pub enum Error {
     #[error("Witness path height {got} doesn't match root height {expected}")]
     WitnessPathHeightMismatch { expected: u8, got: usize },
 
+    /// Height exceeds `u8::MAX`
+    #[error("Height {0} exceeds the maximum of 255")]
+    HeightTooLarge(usize),
+
     /// DivisorError error
     #[error("Divisor error: {0}")]
     Divisor(DivisorError),

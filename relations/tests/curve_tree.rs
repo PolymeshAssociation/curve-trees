@@ -192,7 +192,7 @@ fn test_curve_tree_inner<
 
     let some_point = Affine::<P0>::rand(&mut rng);
     let set = vec![some_point];
-    let curve_tree = CurveTree::<L, 1, P0, P1>::from_leaves(&set, &sr_params, Some(depth));
+    let curve_tree = CurveTree::<L, 1, P0, P1>::from_leaves(&set, &sr_params, Some(depth)).unwrap();
     assert_eq!(curve_tree.height(), depth);
 
     let sr_proof_params = SelRerandProofParameters::try_from(sr_params.clone()).unwrap();
@@ -294,7 +294,7 @@ pub fn test_curve_tree_with_parameters_new<
     let set = (0..num_leaves)
         .map(|_| Affine::<P0>::rand(&mut rng))
         .collect::<Vec<_>>();
-    let curve_tree = CurveTree::<L, 1, P0, P1>::from_leaves(&set, &sr_proof_params, depth);
+    let curve_tree = CurveTree::<L, 1, P0, P1>::from_leaves(&set, &sr_proof_params, depth).unwrap();
     if let Some(d) = depth {
         assert_eq!(curve_tree.height(), d);
     }
@@ -423,7 +423,8 @@ pub fn test_curve_tree_get_update<
     let leaves = (0..num_leaves)
         .map(|_| Affine::<P0>::rand(&mut rng))
         .collect::<Vec<_>>();
-    let mut curve_tree = CurveTree::<L, 1, P0, P1>::from_leaves(&leaves, &sr_proof_params, depth);
+    let mut curve_tree =
+        CurveTree::<L, 1, P0, P1>::from_leaves(&leaves, &sr_proof_params, depth).unwrap();
     if let Some(d) = depth {
         assert_eq!(curve_tree.height(), d);
     }
@@ -552,7 +553,8 @@ pub fn test_curve_tree_batch_verification() {
         &set,
         &sr_proof_params,
         Some(4),
-    );
+    )
+    .unwrap();
 
     let labels = [
         b"select_and_rerandomize_1",
@@ -720,7 +722,8 @@ pub fn check_combined_vs_common_root_proofs_with_parameters<
         set.push(Affine::<P0>::rand(&mut rng));
     }
 
-    let curve_tree = CurveTree::<L, 1, P0, P1>::from_leaves(&set, &sr_proof_params, Some(depth));
+    let curve_tree =
+        CurveTree::<L, 1, P0, P1>::from_leaves(&set, &sr_proof_params, Some(depth)).unwrap();
     assert_eq!(curve_tree.height(), depth);
 
     println!("For {num_paths} leaves, width {L}, height {depth}");
@@ -929,7 +932,7 @@ pub fn check_common_root_paths<
         set.push(Affine::<P0>::rand(&mut rng));
     }
 
-    let curve_tree = CurveTree::<L, 1, P0, P1>::from_leaves(&set, &sr_params, Some(depth));
+    let curve_tree = CurveTree::<L, 1, P0, P1>::from_leaves(&set, &sr_params, Some(depth)).unwrap();
     assert_eq!(curve_tree.height(), depth);
 
     let leaf_indices: Vec<usize> = (0..num_paths).collect();
@@ -1287,7 +1290,7 @@ pub fn test_curve_tree_with_parameters_newer<
     let set = (0..num_leaves)
         .map(|_| Affine::<P0>::rand(&mut rng))
         .collect::<Vec<_>>();
-    let curve_tree = CurveTree::<L, 1, P0, P1>::from_leaves(&set, &sr_proof_params, depth);
+    let curve_tree = CurveTree::<L, 1, P0, P1>::from_leaves(&set, &sr_proof_params, depth).unwrap();
     if let Some(d) = depth {
         assert_eq!(curve_tree.height(), d);
     }
@@ -1610,7 +1613,8 @@ pub fn check_combined_vs_common_root_proofs_with_parameters_divisor<
         set.push(Affine::<P0>::rand(&mut rng));
     }
 
-    let curve_tree = CurveTree::<L, 1, P0, P1>::from_leaves(&set, &sr_proof_params, Some(depth));
+    let curve_tree =
+        CurveTree::<L, 1, P0, P1>::from_leaves(&set, &sr_proof_params, Some(depth)).unwrap();
     assert_eq!(curve_tree.height(), depth);
 
     let root = curve_tree.root_node();
@@ -1803,7 +1807,8 @@ pub fn test_single_path_divisor_malformed_proof_inputs() {
         .map(|_| Affine::<PallasConfig>::rand(&mut rng))
         .collect::<Vec<_>>();
     let curve_tree =
-        CurveTree::<32, 1, PallasConfig, VestaConfig>::from_leaves(&set, &sr_proof_params, Some(4));
+        CurveTree::<32, 1, PallasConfig, VestaConfig>::from_leaves(&set, &sr_proof_params, Some(4))
+            .unwrap();
     let root = curve_tree.root_node();
 
     let pallas_transcript = MerlinTranscript::new(b"malformed-single-path");
@@ -1917,7 +1922,8 @@ fn test_curve_tree_divisor_chunk_len_calculation() {
         .map(|_| Affine::<PallasConfig>::rand(&mut rng))
         .collect::<Vec<_>>();
     let curve_tree =
-        CurveTree::<32, 1, PallasConfig, VestaConfig>::from_leaves(&set, &sr_proof_params, Some(4));
+        CurveTree::<32, 1, PallasConfig, VestaConfig>::from_leaves(&set, &sr_proof_params, Some(4))
+            .unwrap();
     let root = curve_tree.root_node();
     let path = curve_tree.get_path_to_leaf_for_proof(0, 0).unwrap();
 
