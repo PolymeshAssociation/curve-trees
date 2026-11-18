@@ -73,7 +73,7 @@ pub fn check_naive<
     P0: SWCurveConfig<BaseField = F0> + Copy,
     P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = P0::BaseField> + Copy,
 >(
-    depth: Option<usize>,
+    depth: Option<u8>,
     generators_length_log_2: usize,
     num_leaves: usize,
     num_proofs: usize,
@@ -116,7 +116,7 @@ pub fn check_naive<
         set[**i] = *c;
     }
 
-    let curve_tree = CurveTree::<L, 1, P0, P1>::from_leaves(&set, &sr_params, depth);
+    let curve_tree = CurveTree::<L, 1, P0, P1>::from_leaves(&set, &sr_params, depth).unwrap();
     if let Some(d) = depth {
         assert_eq!(curve_tree.height(), d);
     }
@@ -252,7 +252,7 @@ pub fn check<
     P1: DivisorCurve<BaseField = F0, ScalarField = F1> + Copy + Send + Sync,
     Params: DiscreteLogParameters,
 >(
-    depth: Option<usize>,
+    depth: Option<u8>,
     generators_length_log_2: usize,
     num_leaves: usize,
     num_proofs: usize,
@@ -300,7 +300,7 @@ pub fn check<
         set[**i] = *c;
     }
 
-    let curve_tree = CurveTree::<L, 1, P0, P1>::from_leaves(&set, &sr_params, depth);
+    let curve_tree = CurveTree::<L, 1, P0, P1>::from_leaves(&set, &sr_params, depth).unwrap();
     if let Some(d) = depth {
         assert_eq!(curve_tree.height(), d);
     }

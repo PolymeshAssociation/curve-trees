@@ -4,7 +4,7 @@ use crate::curve_tree_prover::{CurveTreeWitnessPath, WitnessNode};
 use crate::error::Error;
 use crate::single_level_select_and_rerandomize::*;
 
-use crate::curve_tree::{CurveTree, CurveTreeNode, SelectAndRerandomizeMultiPath};
+use crate::curve_tree::{CurveTree, CurveTreeNode, Root, SelectAndRerandomizeMultiPath};
 use crate::parameters::{SelRerandProofParameters, SingleLayerProofParameters};
 use crate::select::multi_select_public_set;
 use ark_ec::{
@@ -108,7 +108,7 @@ impl<
         }
 
         assert_eq!(
-            self.height(),
+            self.height() as usize,
             even_internal_nodes.len() + odd_internal_nodes.len()
         );
         Ok(CurveTreeWitnessMultiPath {
@@ -437,6 +437,25 @@ impl<
             return false;
         }
         panic!("Invalid witness path");
+    }
+
+    /// Height of the tree this multi-path is from, i.e. the number of internal levels on the path.
+    pub fn height(&self) -> Result<u8, Error> {
+        let height = self.even_internal_nodes.len() + self.odd_internal_nodes.len();
+        u8::try_from(height).map_err(|_| Error::HeightTooLarge(height))
+    }
+
+    /// Errors unless `root` has a valid height equal to this multi-path's height.
+    pub fn check_height_for_root(&self, root: &Root<L, M, P0, P1>) -> Result<(), Error> {
+        root.check_height()?;
+        let got = self.even_internal_nodes.len() + self.odd_internal_nodes.len();
+        if got != root.height() as usize {
+            return Err(Error::WitnessPathHeightMismatch {
+                expected: root.height(),
+                got,
+            });
+        }
+        Ok(())
     }
 
     /// Commits to the root and rerandomizations of the path to the leaf specified by `index`

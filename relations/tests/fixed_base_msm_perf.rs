@@ -240,7 +240,7 @@ fn fixed_base_msm_vs_combined_msm() {
 
     // One tree, N independent proofs against it.
     let set: Vec<Affine<P0>> = (0..L).map(|_| Affine::<P0>::rand(&mut rng)).collect();
-    let tree = CurveTree::<L, 1, P0, P1>::from_leaves(&set, &params, Some(depth));
+    let tree = CurveTree::<L, 1, P0, P1>::from_leaves(&set, &params, Some(depth)).unwrap();
     let root = tree.root_node();
 
     let mut proofs = Vec::with_capacity(num_proofs);

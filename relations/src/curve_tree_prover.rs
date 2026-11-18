@@ -3,7 +3,7 @@ use bulletproofs::r1cs::*;
 use crate::error::Error;
 use crate::single_level_select_and_rerandomize::*;
 
-use crate::curve_tree::{CurveTree, CurveTreeNode, InnerNode, SelectAndRerandomizePath};
+use crate::curve_tree::{CurveTree, CurveTreeNode, InnerNode, Root, SelectAndRerandomizePath};
 
 use crate::parameters::{SelRerandProofParameters, SingleLayerProofParameters};
 use crate::select::multi_select_public_set;
@@ -107,7 +107,7 @@ impl<
         }
 
         debug_assert_eq!(
-            self.height(),
+            self.height() as usize,
             even_internal_nodes.len() + odd_internal_nodes.len()
         );
         Ok(CurveTreeWitnessPath {
@@ -385,6 +385,25 @@ impl<
             )
         };
         even
+    }
+
+    /// Height of the tree this path is from, i.e. the number of internal nodes on the path.
+    pub fn height(&self) -> Result<u8, Error> {
+        let height = self.even_internal_nodes.len() + self.odd_internal_nodes.len();
+        u8::try_from(height).map_err(|_| Error::HeightTooLarge(height))
+    }
+
+    /// Errors unless `root` has a valid height equal to this path's height.
+    pub fn check_height_for_root(&self, root: &Root<L, 1, P0, P1>) -> Result<(), Error> {
+        root.check_height()?;
+        let got = self.even_internal_nodes.len() + self.odd_internal_nodes.len();
+        if got != root.height() as usize {
+            return Err(Error::WitnessPathHeightMismatch {
+                expected: root.height(),
+                got,
+            });
+        }
+        Ok(())
     }
 
     /// Commits to the root and rerandomizations of the path to the leaf specified by `index`

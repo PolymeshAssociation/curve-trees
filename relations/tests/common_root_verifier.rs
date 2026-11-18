@@ -28,7 +28,7 @@ fn common_root_verifier_perf_impact() {
 
     // One tree, one root, shared by all proofs.
     let set: Vec<Affine<P0>> = (0..L).map(|_| Affine::<P0>::rand(&mut rng)).collect();
-    let tree = CurveTree::<L, 1, P0, P1>::from_leaves(&set, &params, Some(depth));
+    let tree = CurveTree::<L, 1, P0, P1>::from_leaves(&set, &params, Some(depth)).unwrap();
     let root = tree.root_node();
 
     let mut proofs = Vec::with_capacity(num_proofs);

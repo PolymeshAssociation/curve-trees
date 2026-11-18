@@ -46,7 +46,7 @@ fn bench_batched_curve_tree_varying_batch_size_new(c: &mut Criterion) {
 
 fn bench_batched_curve_tree_with_varying_batch_size_new<const L: usize, const M: usize>(
     c: &mut Criterion,
-    depth: usize,
+    depth: u8,
 ) {
     let mut rng = rand::thread_rng();
 
@@ -58,7 +58,8 @@ fn bench_batched_curve_tree_with_varying_batch_size_new<const L: usize, const M:
         &set,
         &*SRParamsPallasLeaf,
         Some(depth),
-    );
+    )
+    .unwrap();
 
     let prefix_string = format!("BatchedCurveTreeNew_Curves:L:{L}_D:{depth}_M:{M}");
 

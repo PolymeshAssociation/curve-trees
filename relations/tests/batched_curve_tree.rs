@@ -105,7 +105,7 @@ pub fn test_batched_curve_tree_with_parameters<
     P0: SWCurveConfig<BaseField = F> + Copy,
     P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = P0::BaseField> + Copy,
 >(
-    depth: usize,
+    depth: u8,
     generators_length_log_2: usize,
     num_indices_to_prove: u32,
 ) {
@@ -125,7 +125,7 @@ pub fn test_batched_curve_tree_with_parameters<
         set.push(Affine::<P0>::rand(&mut rng));
         indices[i as usize] = i;
     }
-    let curve_tree = CurveTree::<L, M, P0, P1>::from_leaves(&set, &sr_params, Some(depth));
+    let curve_tree = CurveTree::<L, M, P0, P1>::from_leaves(&set, &sr_params, Some(depth)).unwrap();
     assert_eq!(curve_tree.height(), depth);
 
     let paths = curve_tree.get_paths_to_leaves(indices.as_slice()).unwrap();
@@ -246,7 +246,7 @@ pub fn check_individual_vs_batched_proofs_with_parameters<
     P0: SWCurveConfig<BaseField = F> + Copy,
     P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = P0::BaseField> + Copy,
 >(
-    depth: usize,
+    depth: u8,
     generators_length_log_2: usize,
 ) {
     let mut rng = rand::thread_rng();
@@ -264,11 +264,12 @@ pub fn check_individual_vs_batched_proofs_with_parameters<
     }
 
     // Create curve tree with batch support
-    let batched_curve_tree = CurveTree::<L, M, P0, P1>::from_leaves(&set, &sr_params, Some(depth));
+    let batched_curve_tree =
+        CurveTree::<L, M, P0, P1>::from_leaves(&set, &sr_params, Some(depth)).unwrap();
     assert_eq!(batched_curve_tree.height(), depth);
 
     // For individual proofs and combined proof, using a non-batched curve tree
-    let curve_tree = CurveTree::<L, 1, P0, P1>::from_leaves(&set, &sr_params, Some(depth));
+    let curve_tree = CurveTree::<L, 1, P0, P1>::from_leaves(&set, &sr_params, Some(depth)).unwrap();
     assert_eq!(curve_tree.height(), depth);
 
     println!("For {M} leaves, width {L}, height {depth}");
@@ -576,7 +577,7 @@ pub fn check_batched_combined_vs_common_root_proofs_with_parameters<
     P0: SWCurveConfig<BaseField = F> + Copy,
     P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = P0::BaseField> + Copy,
 >(
-    depth: usize,
+    depth: u8,
     generators_length_log_2: usize,
     num_leaves: u32,
 ) {
@@ -593,7 +594,7 @@ pub fn check_batched_combined_vs_common_root_proofs_with_parameters<
         set.push(Affine::<P0>::rand(&mut rng));
     }
 
-    let curve_tree = CurveTree::<L, M, P0, P1>::from_leaves(&set, &sr_params, Some(depth));
+    let curve_tree = CurveTree::<L, M, P0, P1>::from_leaves(&set, &sr_params, Some(depth)).unwrap();
     assert_eq!(curve_tree.height(), depth);
 
     // ceil(num_leaves/M)
@@ -800,7 +801,7 @@ pub fn check_optimized_multi_paths<
     P0: SWCurveConfig<BaseField = F> + Copy,
     P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = P0::BaseField> + Copy,
 >(
-    depth: usize,
+    depth: u8,
     generators_length_log_2: usize,
     num_leaves: usize,
 ) {
@@ -817,7 +818,7 @@ pub fn check_optimized_multi_paths<
         leaf_indices.push(i as u32)
     }
 
-    let curve_tree = CurveTree::<L, M, P0, P1>::from_leaves(&set, &sr_params, Some(depth));
+    let curve_tree = CurveTree::<L, M, P0, P1>::from_leaves(&set, &sr_params, Some(depth)).unwrap();
     assert_eq!(curve_tree.height(), depth);
 
     let mut multi_paths = Vec::new();
@@ -1056,7 +1057,7 @@ pub fn test_batched_curve_tree_with_parameters_new<
     Params0: DiscreteLogParameters,
     Params1: DiscreteLogParameters,
 >(
-    depth: usize,
+    depth: u8,
     generators_length_log_2: usize,
     num_indices_to_prove: u32,
 ) {
@@ -1077,7 +1078,7 @@ pub fn test_batched_curve_tree_with_parameters_new<
         set.push(Affine::<P0>::rand(&mut rng));
         indices[i as usize] = i;
     }
-    let curve_tree = CurveTree::<L, M, P0, P1>::from_leaves(&set, &sr_params, Some(depth));
+    let curve_tree = CurveTree::<L, M, P0, P1>::from_leaves(&set, &sr_params, Some(depth)).unwrap();
     assert_eq!(curve_tree.height(), depth);
 
     let paths = curve_tree.get_paths_to_leaves(indices.as_slice()).unwrap();
@@ -1274,7 +1275,8 @@ pub fn test_batched_divisor_malformed_proof_inputs() {
         .map(|_| Affine::<PallasConfig>::rand(&mut rng))
         .collect::<Vec<_>>();
     let curve_tree =
-        CurveTree::<32, 2, PallasConfig, VestaConfig>::from_leaves(&set, &sr_proof_params, Some(4));
+        CurveTree::<32, 2, PallasConfig, VestaConfig>::from_leaves(&set, &sr_proof_params, Some(4))
+            .unwrap();
     let root = curve_tree.root_node();
     let paths = curve_tree.get_paths_to_leaves(&[0, 1]).unwrap();
 
@@ -1337,9 +1339,15 @@ pub fn test_batched_divisor_malformed_proof_inputs() {
     }
 
     let mut missing_root_child = valid_path_commitments.clone();
-    match &root {
-        Root::Even(_) => missing_root_child.path.odd_commitments.clear(),
-        Root::Odd(_) => missing_root_child.path.even_commitments.clear(),
+    let expected_field = match &root {
+        Root::Even(_) => {
+            missing_root_child.path.odd_commitments.clear();
+            "odd_commitments"
+        }
+        Root::Odd(_) => {
+            missing_root_child.path.even_commitments.clear();
+            "even_commitments"
+        }
     };
     let pallas_transcript = MerlinTranscript::new(b"malformed-batched-root-child");
     let mut pallas_verifier = Verifier::new(pallas_transcript);
@@ -1354,9 +1362,7 @@ pub fn test_batched_divisor_malformed_proof_inputs() {
         )
         .unwrap_err();
     match err {
-        RelError::MalformedProofInput(msg) => {
-            assert!(msg.contains("missing root child commitment"), "{msg}")
-        }
+        RelError::PathLengthMismatch { field, .. } => assert_eq!(field, expected_field),
         other => panic!("unexpected error variant: {other:?}"),
     }
 }
@@ -1415,7 +1421,7 @@ pub fn check_optimized_multi_paths_divisor<
     Params0: DiscreteLogParameters,
     Params1: DiscreteLogParameters,
 >(
-    depth: usize,
+    depth: u8,
     generators_length_log_2: usize,
     num_leaves: usize,
 ) {
@@ -1434,7 +1440,7 @@ pub fn check_optimized_multi_paths_divisor<
         leaf_indices.push(i as u32);
     }
 
-    let curve_tree = CurveTree::<L, M, P0, P1>::from_leaves(&set, &sr_params, Some(depth));
+    let curve_tree = CurveTree::<L, M, P0, P1>::from_leaves(&set, &sr_params, Some(depth)).unwrap();
     assert_eq!(curve_tree.height(), depth);
     let root = curve_tree.root_node();
 
@@ -1569,7 +1575,7 @@ pub fn check_optimized_multi_paths_divisor<
 fn malformed_multi_path_empty_odd_commitments_rejected() {
     const L: usize = 8;
     const M: usize = 4;
-    let depth = 3usize;
+    let depth = 3u8;
     let generators_length = 1u32 << 12;
     let num_leaves = 5usize;
 
@@ -1593,7 +1599,8 @@ fn malformed_multi_path_empty_odd_commitments_rejected() {
     }
 
     let curve_tree =
-        CurveTree::<L, M, PallasConfig, VestaConfig>::from_leaves(&set, &sr_params, Some(depth));
+        CurveTree::<L, M, PallasConfig, VestaConfig>::from_leaves(&set, &sr_params, Some(depth))
+            .unwrap();
     let root = curve_tree.root_node();
     let optimized_multi_paths = curve_tree.get_optmz_paths_to_leaves(&leaf_indices).unwrap();
 
