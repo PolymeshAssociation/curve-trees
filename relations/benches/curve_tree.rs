@@ -56,7 +56,7 @@ fn prove(
 }
 
 fn setup_curve_tree_data<const L: usize>(
-    height: usize,
+    height: u8,
 ) -> (
     CurveTree<L, 1, PallasParameters, VestaParameters>,
     Root<L, 1, PallasParameters, VestaParameters>,
@@ -110,7 +110,7 @@ fn setup_curve_tree_data<const L: usize>(
     )
 }
 
-fn curve_tree_verify<const L: usize>(c: &mut Criterion, height: usize) {
+fn curve_tree_verify<const L: usize>(c: &mut Criterion, height: u8) {
     let (_, root, path_commitments, pallas_proof, vesta_proof) = setup_curve_tree_data::<L>(height);
 
     println!(
@@ -173,7 +173,7 @@ fn curve_tree_verify<const L: usize>(c: &mut Criterion, height: usize) {
 }
 
 /// Generic curve tree proving benchmark
-fn curve_tree_prove<const L: usize>(c: &mut Criterion, height: usize) {
+fn curve_tree_prove<const L: usize>(c: &mut Criterion, height: u8) {
     let mut rng = thread_rng();
 
     let set = (0..NUM_LEAVES)

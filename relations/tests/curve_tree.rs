@@ -177,7 +177,7 @@ fn test_curve_tree_inner<
     P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = P0::BaseField> + Copy,
 >(
     sr_params: &SelRerandParameters<P0, P1>,
-    depth: usize,
+    depth: u8,
 ) where
     Affine<P0>: UniformRand,
 {
@@ -261,7 +261,7 @@ pub fn test_curve_tree_with_parameters<
     P0: SWCurveConfig<BaseField = F> + Copy,
     P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = P0::BaseField> + Copy,
 >(
-    depth: usize,
+    depth: u8,
     generators_length_log_2: usize,
 ) where
     Affine<P0>: UniformRand,
@@ -280,7 +280,7 @@ pub fn test_curve_tree_with_parameters_new<
     P0: SWCurveConfig<BaseField = F> + Copy,
     P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = P0::BaseField> + Copy,
 >(
-    depth: Option<usize>,
+    depth: Option<u8>,
     generators_length_log_2: usize,
     num_leaves: usize,
     num_proofs: usize,
@@ -409,7 +409,7 @@ pub fn test_curve_tree_get_update<
     P0: SWCurveConfig<BaseField = F> + Copy,
     P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = P0::BaseField> + Copy,
 >(
-    depth: Option<usize>,
+    depth: Option<u8>,
     generators_length_log_2: usize,
     num_leaves: usize,
     num_updates: usize,
@@ -705,7 +705,7 @@ pub fn check_combined_vs_common_root_proofs_with_parameters<
     P0: SWCurveConfig<BaseField = F> + Copy,
     P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = P0::BaseField> + Copy,
 >(
-    depth: usize,
+    depth: u8,
     generators_length_log_2: usize,
     num_paths: usize,
 ) {
@@ -914,7 +914,7 @@ pub fn check_common_root_paths<
     P0: SWCurveConfig<BaseField = F> + Copy,
     P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = P0::BaseField> + Copy,
 >(
-    depth: usize,
+    depth: u8,
     generators_length_log_2: usize,
     num_paths: usize,
 ) {
@@ -1270,7 +1270,7 @@ pub fn test_curve_tree_with_parameters_newer<
     Params0: DiscreteLogParameters,
     Params1: DiscreteLogParameters,
 >(
-    depth: Option<usize>,
+    depth: Option<u8>,
     generators_length_log_2: usize,
     num_leaves: usize,
     num_proofs: usize,
@@ -1592,7 +1592,7 @@ pub fn check_combined_vs_common_root_proofs_with_parameters_divisor<
     Params0: DiscreteLogParameters,
     Params1: DiscreteLogParameters,
 >(
-    depth: usize,
+    depth: u8,
     generators_length_log_2: usize,
     num_paths: usize,
 ) {

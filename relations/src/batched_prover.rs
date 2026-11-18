@@ -1086,7 +1086,7 @@ mod tests {
     use rand::thread_rng;
     use rand_core::CryptoRngCore;
 
-    const DEPTH: usize = 4;
+    const DEPTH: u8 = 4;
 
     type Params = SelRerandProofParametersNew<PallasConfig, VestaConfig, PallasParams, VestaParams>;
     type Witness = CurveTreeWitnessMultiPath<32, 2, PallasConfig, VestaConfig>;

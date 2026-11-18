@@ -66,7 +66,7 @@ type NewSetupData<const L: usize> = (
     R1CSProof<Affine<VestaParameters>>,
 );
 
-fn setup_curve_tree_data_new<const L: usize>(height: usize) -> NewSetupData<L> {
+fn setup_curve_tree_data_new<const L: usize>(height: u8) -> NewSetupData<L> {
     let mut rng = thread_rng();
 
     let set = (0..NUM_LEAVES)
@@ -113,7 +113,7 @@ fn setup_curve_tree_data_new<const L: usize>(height: usize) -> NewSetupData<L> {
     )
 }
 
-fn curve_tree_verify_new<const L: usize>(c: &mut Criterion, height: usize) {
+fn curve_tree_verify_new<const L: usize>(c: &mut Criterion, height: u8) {
     let (_, root, path_commitments, pallas_proof, vesta_proof) =
         setup_curve_tree_data_new::<L>(height);
 
@@ -177,7 +177,7 @@ fn curve_tree_verify_new<const L: usize>(c: &mut Criterion, height: usize) {
     });
 }
 
-fn curve_tree_prove_new<const L: usize>(c: &mut Criterion, height: usize) {
+fn curve_tree_prove_new<const L: usize>(c: &mut Criterion, height: u8) {
     let mut rng = thread_rng();
 
     let set = (0..NUM_LEAVES)

@@ -108,7 +108,7 @@ fn bench_select_and_rerandomize_with_parameters<
     P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = P0::BaseField> + Copy,
 >(
     c: &mut Criterion,
-    depth: usize,                   // the depth of the curve tree
+    depth: u8,                      // the depth of the curve tree
     generators_length_log_2: usize, // should be minimal but larger than the number of constraints.
     threaded: &str,
     curves: &str,

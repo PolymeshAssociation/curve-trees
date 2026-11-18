@@ -42,7 +42,7 @@ fn bench_batched_curve_tree_with_varying_batch_size<
     P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = P0::BaseField> + Copy,
 >(
     c: &mut Criterion,
-    depth: usize,
+    depth: u8,
     generators_length_log_2: usize,
 ) {
     let mut rng = rand::thread_rng();
@@ -201,7 +201,7 @@ fn bench_combined_vs_common_root_with_parameters<
     P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = P0::BaseField> + Copy,
 >(
     c: &mut Criterion,
-    depth: usize,
+    depth: u8,
     generators_length_log_2: usize,
 ) {
     let mut rng = rand::thread_rng();

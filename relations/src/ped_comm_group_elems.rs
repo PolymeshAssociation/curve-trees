@@ -1232,5 +1232,111 @@ mod tests {
                 "expected verify to reject wrong re_randomized_comm, got: {result:?}",
             );
         }
+
+        #[test]
+        fn committed_suffix_differing_from_public_suffix_fails() {
+            // Prover and verifier use the same public suffix, dimension and transcript, but the
+            // commitment opens to a different suffix.
+
+            let _guard = MockGuard::new();
+            let mut rng = rand::thread_rng();
+
+            let sr_params = SelRerandParameters::<PallasConfig, VestaConfig>::new(1 << 13, 1 << 13)
+                .expect("Failed to create SelRerandParameters");
+
+            let odd_proof_params =
+                SingleLayerProofParametersNew::<VestaConfig, VestaParams>::from_single_layer_params(
+                    sr_params.odd_parameters.clone(),
+                );
+
+            let shared_dlog_indices: BTreeSet<usize> = [0].into_iter().collect();
+
+            let nesting_size = 2;
+            let nested: Vec<Affine<VestaConfig>> = (0..nesting_size)
+                .map(|_| Affine::<VestaConfig>::rand(&mut rng))
+                .collect();
+            let public_suffix = [
+                VestaBase::rand(&mut rng),
+                VestaBase::rand(&mut rng),
+                VestaBase::zero(),
+            ];
+            let mut committed_suffix = public_suffix;
+            committed_suffix[1] = VestaBase::rand(&mut rng);
+
+            let mut committed_coords: Vec<VestaBase> = nested
+                .iter()
+                .flat_map(|n| {
+                    let (x, y) = n.xy().unwrap();
+                    [x, y]
+                })
+                .collect();
+            committed_coords.extend_from_slice(&committed_suffix);
+            let blinding_of_comm = VestaBase::rand(&mut rng);
+            let re_randomized_comm =
+                sr_params
+                    .even_parameters
+                    .commit(committed_coords.as_slice(), blinding_of_comm, 0);
+            let blindings_for_points: Vec<PallasBase> = (0..nesting_size)
+                .map(|_| PallasBase::rand(&mut rng))
+                .collect();
+
+            // Open `re_randomized_comm` to `committed_coords` instead of the coordinates with
+            // `public_suffix`.
+            prover_commit::<PallasBase, VestaBase, PallasConfig, VestaConfig>.mock_safe({
+                let committed_coords = committed_coords.clone();
+                move |prover, comm, blinding, coords, re_rand| {
+                    assert_eq!(coords.len(), committed_coords.len());
+                    let coord_vars =
+                        prover.vars_for_committed_vec(comm, &committed_coords, blinding);
+                    prover.transcript().append(RE_RANDOMIZED_POINTS, re_rand);
+                    MockResult::Return(coord_vars)
+                }
+            });
+
+            let transcript = MerlinTranscript::new(b"ped_comm_group_elems_test");
+            let mut pallas_prover: Prover<_, Affine<PallasConfig>> =
+                Prover::new(&sr_params.even_parameters.pc_gens, transcript);
+            let (re_randomized_nested, comms) =
+                prove_given_public_suffix::<_, _, _, PallasConfig, VestaConfig, VestaParams>(
+                    &mut rng,
+                    &mut pallas_prover,
+                    &nested,
+                    &re_randomized_comm,
+                    &public_suffix,
+                    blinding_of_comm,
+                    &blindings_for_points,
+                    &odd_proof_params,
+                    &sr_params.even_parameters.bp_gens,
+                    &shared_dlog_indices,
+                    None,
+                )
+                .expect("Failed to prove");
+            let proof = pallas_prover
+                .prove_with_rng(&sr_params.even_parameters.bp_gens, &mut rng)
+                .unwrap();
+
+            let transcript = MerlinTranscript::new(b"ped_comm_group_elems_test");
+            let mut pallas_verifier: Verifier<_, Affine<PallasConfig>> = Verifier::new(transcript);
+            verify_given_public_suffix::<_, _, PallasConfig, VestaConfig, VestaParams>(
+                &mut pallas_verifier,
+                re_randomized_comm,
+                &public_suffix,
+                &re_randomized_nested,
+                &comms,
+                &odd_proof_params,
+                &shared_dlog_indices,
+                None,
+            )
+            .unwrap();
+            let result = pallas_verifier.verify(
+                &proof,
+                &sr_params.even_parameters.pc_gens,
+                &sr_params.even_parameters.bp_gens,
+            );
+            assert!(
+                result.is_err(),
+                "expected verify to reject a committed suffix differing from the public suffix, got: {result:?}",
+            );
+        }
     }
 }

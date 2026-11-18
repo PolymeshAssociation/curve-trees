@@ -105,7 +105,7 @@ pub fn test_batched_curve_tree_with_parameters<
     P0: SWCurveConfig<BaseField = F> + Copy,
     P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = P0::BaseField> + Copy,
 >(
-    depth: usize,
+    depth: u8,
     generators_length_log_2: usize,
     num_indices_to_prove: u32,
 ) {
@@ -246,7 +246,7 @@ pub fn check_individual_vs_batched_proofs_with_parameters<
     P0: SWCurveConfig<BaseField = F> + Copy,
     P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = P0::BaseField> + Copy,
 >(
-    depth: usize,
+    depth: u8,
     generators_length_log_2: usize,
 ) {
     let mut rng = rand::thread_rng();
@@ -576,7 +576,7 @@ pub fn check_batched_combined_vs_common_root_proofs_with_parameters<
     P0: SWCurveConfig<BaseField = F> + Copy,
     P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = P0::BaseField> + Copy,
 >(
-    depth: usize,
+    depth: u8,
     generators_length_log_2: usize,
     num_leaves: u32,
 ) {
@@ -800,7 +800,7 @@ pub fn check_optimized_multi_paths<
     P0: SWCurveConfig<BaseField = F> + Copy,
     P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = P0::BaseField> + Copy,
 >(
-    depth: usize,
+    depth: u8,
     generators_length_log_2: usize,
     num_leaves: usize,
 ) {
@@ -1056,7 +1056,7 @@ pub fn test_batched_curve_tree_with_parameters_new<
     Params0: DiscreteLogParameters,
     Params1: DiscreteLogParameters,
 >(
-    depth: usize,
+    depth: u8,
     generators_length_log_2: usize,
     num_indices_to_prove: u32,
 ) {
@@ -1419,7 +1419,7 @@ pub fn check_optimized_multi_paths_divisor<
     Params0: DiscreteLogParameters,
     Params1: DiscreteLogParameters,
 >(
-    depth: usize,
+    depth: u8,
     generators_length_log_2: usize,
     num_leaves: usize,
 ) {
@@ -1573,7 +1573,7 @@ pub fn check_optimized_multi_paths_divisor<
 fn malformed_multi_path_empty_odd_commitments_rejected() {
     const L: usize = 8;
     const M: usize = 4;
-    let depth = 3usize;
+    let depth = 3u8;
     let generators_length = 1u32 << 12;
     let num_leaves = 5usize;
 

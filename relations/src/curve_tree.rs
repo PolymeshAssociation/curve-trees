@@ -44,7 +44,7 @@ impl<
     pub fn from_leaves(
         set: &[Affine<P0>],
         parameters: &impl SelRerandParametersRef<P0, P1>,
-        height: Option<usize>, // resulting curve tree will have height at least `height`
+        height: Option<u8>, // resulting curve tree will have height at least `height`
     ) -> Self {
         if set.is_empty() {
             panic!("The curve tree must have at least one leaf.")
@@ -102,7 +102,7 @@ impl<
 
     pub fn increase_height(
         self,
-        height: Option<usize>,
+        height: Option<u8>,
         parameters: &impl SelRerandParametersRef<P0, P1>,
     ) -> Self {
         match height {
@@ -167,7 +167,7 @@ impl<
     }
 
     /// The height of a node is the number of edges to reach a leaf.
-    pub fn height(&self) -> usize {
+    pub fn height(&self) -> u8 {
         match self {
             Self::Even(ct) => ct.height(),
             Self::Odd(ct) => ct.height(),
@@ -181,7 +181,7 @@ impl<
                 CurveTreeNode::InnerNode(n) => Root::Even(RootNode {
                     commitments: n.commitments_to_children.clone(),
                     x_coord_children: n.x_coord_children.clone(),
-                    height: n.height as u8,
+                    height: n.height,
                 }),
                 _ => unreachable!("Root of a curve tree can't be a leaf"),
             },
@@ -189,7 +189,7 @@ impl<
                 CurveTreeNode::InnerNode(n) => Root::Odd(RootNode {
                     commitments: n.commitments_to_children.clone(),
                     x_coord_children: n.x_coord_children.clone(),
-                    height: n.height as u8,
+                    height: n.height,
                 }),
                 _ => unreachable!("Root of a curve tree can't be a leaf"),
             },
@@ -572,7 +572,7 @@ pub struct InnerNode<const L: usize, const M: usize, P0: SWCurveConfig, P1: SWCu
     // Storing as vector as this is causing stack overflow in some tests. Try "Box"ing the array
     // x_coord_children: [[P1::BaseField; L]; M],
     pub x_coord_children: Vec<[P1::BaseField; L]>,
-    pub height: usize,
+    pub height: u8,
     /// number of (contained) elements in this inner node. For an immediate parent of leaves, this is just the number of leaves, else its counts all the grandchildren including the leaves
     pub elements: usize,
 }
@@ -669,7 +669,7 @@ impl<
     }
 
     /// Height of the node. Leaf has height 0
-    pub fn height(&self) -> usize {
+    pub fn height(&self) -> u8 {
         match self {
             Self::InnerNode(inner_node) => inner_node.height,
             Self::Leaf(_) => 0,
@@ -724,7 +724,9 @@ impl<
         }
         let children: [Option<CurveTreeNode<L, M, P1, P0>>; L] = cs.try_into().unwrap();
         let height = if let Some(c) = &children[0] {
-            c.height() + 1
+            c.height()
+                .checked_add(1)
+                .expect("Curve tree height exceeds u8::MAX")
         } else {
             1
         };

@@ -73,7 +73,7 @@ pub fn check_naive<
     P0: SWCurveConfig<BaseField = F0> + Copy,
     P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = P0::BaseField> + Copy,
 >(
-    depth: Option<usize>,
+    depth: Option<u8>,
     generators_length_log_2: usize,
     num_leaves: usize,
     num_proofs: usize,
@@ -252,7 +252,7 @@ pub fn check<
     P1: DivisorCurve<BaseField = F0, ScalarField = F1> + Copy + Send + Sync,
     Params: DiscreteLogParameters,
 >(
-    depth: Option<usize>,
+    depth: Option<u8>,
     generators_length_log_2: usize,
     num_leaves: usize,
     num_proofs: usize,

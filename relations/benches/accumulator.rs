@@ -59,7 +59,7 @@ fn bench_accumulator_with_parameters<
     P1: SWCurveConfig<BaseField = P0::ScalarField, ScalarField = P0::BaseField> + Copy,
 >(
     c: &mut Criterion,
-    depth: usize,                        // the depth of the curve tree
+    depth: u8,                           // the depth of the curve tree
     leaf_width: usize, // the maximum number of field elements stored in a curve tree leaf
     even_generators_length_log_2: usize, // should be minimal but larger than the number of constraints.
     odd_generators_length_log_2: usize, // should be minimal but larger than the number of constraints.

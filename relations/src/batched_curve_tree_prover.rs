@@ -108,7 +108,7 @@ impl<
         }
 
         assert_eq!(
-            self.height(),
+            self.height() as usize,
             even_internal_nodes.len() + odd_internal_nodes.len()
         );
         Ok(CurveTreeWitnessMultiPath {
@@ -440,14 +440,15 @@ impl<
     }
 
     /// Height of the tree this multi-path is from, i.e. the number of internal levels on the path.
-    pub fn height(&self) -> usize {
-        self.even_internal_nodes.len() + self.odd_internal_nodes.len()
+    pub fn height(&self) -> u8 {
+        u8::try_from(self.even_internal_nodes.len() + self.odd_internal_nodes.len())
+            .expect("Witness path height exceeds u8::MAX")
     }
 
     /// Errors unless `root` has a valid height equal to this multi-path's height.
     pub fn check_height_for_root(&self, root: &Root<L, M, P0, P1>) -> Result<(), Error> {
         root.check_height()?;
-        let got = self.height();
+        let got = self.even_internal_nodes.len() + self.odd_internal_nodes.len();
         if got != root.height() as usize {
             return Err(Error::WitnessPathHeightMismatch {
                 expected: root.height(),
